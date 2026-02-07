@@ -409,6 +409,26 @@ dialog::backdrop {
   background: rgba(255, 255, 255, 0.82);
 }
 
+.help-content {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 10px;
+  max-height: 58vh;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.help-content p {
+  margin: 0 0 9px;
+}
+
+.help-content code {
+  font-family: "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 12px;
+}
+
 .actions {
   justify-content: flex-end;
 }

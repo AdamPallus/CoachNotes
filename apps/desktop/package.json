@@ -54,7 +54,8 @@
   "dependencies": {
     "better-sqlite3": "^11.8.1",
     "chokidar": "^4.0.3",
-    "gray-matter": "^4.0.3"
+    "gray-matter": "^4.0.3",
+    "pdfjs-dist": "^5.4.296"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.3",

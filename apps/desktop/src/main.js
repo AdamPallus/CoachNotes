@@ -8,7 +8,7 @@ const chokidar = require('chokidar');
 const Database = require('better-sqlite3');
 const matter = require('gray-matter');
 
-const SUPPORTED_EXTENSIONS = new Set(['.md', '.txt', '.markdown']);
+const SUPPORTED_EXTENSIONS = new Set(['.md', '.txt', '.markdown', '.pdf']);
 const KEYCHAIN_SERVICE = 'coachnotes-invite-token';
 const KEYCHAIN_ACCOUNT = 'coachnotes';
 const DEFAULT_PROXY_URL = 'http://localhost:3001';
@@ -27,6 +27,7 @@ let reindexTimer;
 let indexing = false;
 let reindexQueued = false;
 let ipcRegistered = false;
+let pdfJsModulePromise = null;
 let statusState = {
   indexing: false,
   message: 'Not indexed yet.',
@@ -499,6 +500,63 @@ function buildUnsupportedSummary(counterMap) {
   return entries.join(', ');
 }
 
+function normalizeTextContent(input) {
+  return String(input || '')
+    .replace(/\u0000/g, ' ')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+async function getPdfJsModule() {
+  if (!pdfJsModulePromise) {
+    pdfJsModulePromise = import('pdfjs-dist/legacy/build/pdf.mjs');
+  }
+
+  return pdfJsModulePromise;
+}
+
+async function extractPdfText(filePath) {
+  const pdfJs = await getPdfJsModule();
+  const fileBuffer = await fsp.readFile(filePath);
+  const loadingTask = pdfJs.getDocument({
+    data: new Uint8Array(fileBuffer),
+    disableWorker: true,
+    verbosity: pdfJs.VerbosityLevel.ERRORS
+  });
+
+  const pdfDocument = await loadingTask.promise;
+  const pages = [];
+
+  for (let pageNum = 1; pageNum <= pdfDocument.numPages; pageNum += 1) {
+    const page = await pdfDocument.getPage(pageNum);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items
+      .map((item) => ('str' in item ? item.str : ''))
+      .join(' ');
+    pages.push(pageText);
+  }
+
+  return pages.join('\n\n');
+}
+
+async function readNoteText(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === '.pdf') {
+    const text = normalizeTextContent(await extractPdfText(filePath));
+    if (!text) {
+      throw new Error('PDF contains no extractable text.');
+    }
+
+    return text;
+  }
+
+  const raw = await fsp.readFile(filePath, 'utf8');
+  return normalizeTextContent(raw);
+}
+
 async function scanNoteFiles(rootFolder) {
   const supported = [];
   let unsupportedCount = 0;
@@ -688,7 +746,7 @@ function buildSnippet(text, query) {
 }
 
 async function upsertFileIndex(filePath, stat, rootFolder, appSettings, forceRebuild = false) {
-  const rawText = await fsp.readFile(filePath, 'utf8');
+  const rawText = await readNoteText(filePath);
   const hash = sha1(rawText);
   const mtimeMs = Math.floor(stat.mtimeMs);
   const existing = db
@@ -846,7 +904,8 @@ function startWatching(rootFolder) {
     [
       path.join(rootFolder, '**/*.md'),
       path.join(rootFolder, '**/*.txt'),
-      path.join(rootFolder, '**/*.markdown')
+      path.join(rootFolder, '**/*.markdown'),
+      path.join(rootFolder, '**/*.pdf')
     ],
     {
       ignoreInitial: true,
@@ -916,6 +975,7 @@ async function runIndex(reason = 'manual', forceRebuild = false) {
   try {
     const scan = await scanNoteFiles(rootFolder);
     const files = scan.supported;
+    const fileErrors = [];
     const existingNotes = db
       .prepare('SELECT id, path, mtime_ms, size FROM notes')
       .all();
@@ -938,9 +998,17 @@ async function runIndex(reason = 'manual', forceRebuild = false) {
 
       const shouldSkip = !forceRebuild && existing && existing.mtime_ms === mtimeMs && existing.size === stat.size;
       if (!shouldSkip) {
-        const changed = await upsertFileIndex(filePath, stat, rootFolder, settings, forceRebuild);
-        if (changed) {
-          changedFiles += 1;
+        try {
+          const changed = await upsertFileIndex(filePath, stat, rootFolder, settings, forceRebuild);
+          if (changed) {
+            changedFiles += 1;
+          }
+        } catch (error) {
+          const basename = path.basename(filePath);
+          fileErrors.push(`${basename}: ${error.message}`);
+          updateStatus({
+            lastError: fileErrors[fileErrors.length - 1]
+          });
         }
       }
 
@@ -957,19 +1025,23 @@ async function runIndex(reason = 'manual', forceRebuild = false) {
       `UPDATE index_state
        SET root_folder = ?, status = ?, last_error = NULL, indexed_files = ?, last_index_at = ?
        WHERE id = 1`
-    ).run(rootFolder, 'up_to_date', files.length, nowIso());
+    ).run(rootFolder, fileErrors.length ? 'up_to_date_with_errors' : 'up_to_date', files.length, nowIso());
+
+    const errorSummary = fileErrors.length
+      ? ` ${fileErrors.length} files failed to index.`
+      : '';
 
     updateStatus({
       indexing: false,
-      message: `Up to date. Indexed ${files.length} notes (${changedFiles} changed).`,
+      message: `Up to date. Indexed ${files.length} notes (${changedFiles} changed).${errorSummary}`,
       progress: 1,
       unsupportedCount: scan.unsupportedCount,
       unsupportedSummary: scan.unsupportedSummary,
       lastIndexedAt: nowIso(),
-      lastError: null
+      lastError: fileErrors[0] || null
     });
 
-    return { indexed: files.length, changed: changedFiles };
+    return { indexed: files.length, changed: changedFiles, errors: fileErrors };
   } catch (error) {
     if (db) {
       db.prepare(

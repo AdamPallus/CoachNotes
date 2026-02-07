@@ -15,6 +15,7 @@
         </div>
         <div class="topbar-actions">
           <button id="newNoteBtn" class="btn btn-primary">New Note</button>
+          <button id="helpBtn" class="btn btn-ghost">Help</button>
           <button id="checkUpdatesBtn" class="btn btn-ghost">Check Updates</button>
           <button id="settingsBtn" class="btn btn-ghost">Settings</button>
           <button id="reindexBtn" class="btn btn-primary">Rebuild Index</button>
@@ -132,6 +133,33 @@
         <div class="row-inline actions">
           <button type="button" id="cancelNewNoteBtn" class="btn btn-ghost">Cancel</button>
           <button type="submit" class="btn btn-primary">Create Note</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="helpDialog">
+      <form method="dialog" class="settings-form" id="helpForm">
+        <h2>CoachNotes Help</h2>
+        <div class="help-content">
+          <p><strong>1. First-time setup</strong></p>
+          <p>Open <strong>Settings</strong>, choose your Root Notes Folder, set Proxy Base URL, and paste your Invite Token. Then click <strong>Save &amp; Reindex</strong>.</p>
+
+          <p><strong>2. Supported file types</strong></p>
+          <p><code>.md</code>, <code>.txt</code>, <code>.markdown</code>, and <code>.pdf</code> are indexed.</p>
+          <p>Unsupported file types are ignored and shown in the status line.</p>
+
+          <p><strong>3. Everfit exports</strong></p>
+          <p>If your notes are exported as PDF, place them in your notes folder and click <strong>Rebuild Index</strong>.</p>
+          <p>For best search quality, keep one client per folder when possible.</p>
+
+          <p><strong>4. Creating notes in app</strong></p>
+          <p>Use <strong>New Note</strong> to create markdown files with client, date, tags, and body.</p>
+
+          <p><strong>5. Search and Ask</strong></p>
+          <p>Search finds relevant chunks. Ask/Summarize use retrieved sources and provide clickable citations.</p>
+        </div>
+        <div class="row-inline actions">
+          <button type="button" id="closeHelpBtn" class="btn btn-primary">Close</button>
         </div>
       </form>
     </dialog>

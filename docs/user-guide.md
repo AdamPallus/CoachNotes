@@ -10,6 +10,7 @@
    - `Invite Token`
 4. Click `Save & Reindex`.
 5. The app scans notes and builds a local index. Status changes to `Up to date` when done.
+6. Use `Help` anytime for in-app instructions and migration guidance.
 
 ## Creating notes inside CoachNotes
 
@@ -52,6 +53,7 @@ Examples:
 - `.md`
 - `.txt`
 - `.markdown`
+- `.pdf` (text-extractable PDFs)
 
 ## Metadata supported today
 
@@ -96,7 +98,7 @@ Try Ask:
 
 - If `401 Unauthorized`: invite token does not match server `INVITE_TOKENS`.
 - If `/health` works but app calls fail: verify desktop `Proxy Base URL` matches deployed URL.
-- If your folder contains unsupported files (`.docx`, `.pdf`, etc.), CoachNotes ignores them and shows an \"ignored unsupported files\" count in the status line.
+- If your folder contains unsupported files (`.docx`, `.xlsx`, etc.), CoachNotes ignores them and shows an \"ignored unsupported files\" count in the status line.
 - If SQLite ABI/native error appears after Node/Electron updates:
 
 ```bash

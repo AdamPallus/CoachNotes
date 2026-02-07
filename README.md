@@ -1,11 +1,12 @@
 # CoachNotes
 
 CoachNotes is a local macOS notes app for health coaches with:
-- File-based note browsing (`.md`, `.txt`, `.markdown`)
+- File-based note browsing (`.md`, `.txt`, `.markdown`, `.pdf`)
 - In-app note creation (client + tags + note body)
 - Local SQLite indexing + chunking
 - Local semantic retrieval over stored embeddings
 - Grounded Q&A and summaries with source citations
+- In-app Help panel for setup and usage guidance
 - Manual `Check Updates` button backed by GitHub Releases
 - Thin Vercel proxy for OpenAI embeddings + answers
 

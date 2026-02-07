@@ -19,6 +19,7 @@ const state = {
 const els = {
   statusLine: document.getElementById('statusLine'),
   newNoteBtn: document.getElementById('newNoteBtn'),
+  helpBtn: document.getElementById('helpBtn'),
   checkUpdatesBtn: document.getElementById('checkUpdatesBtn'),
   settingsBtn: document.getElementById('settingsBtn'),
   reindexBtn: document.getElementById('reindexBtn'),
@@ -50,6 +51,8 @@ const els = {
   proxyUrlInput: document.getElementById('proxyUrlInput'),
   tokenInput: document.getElementById('tokenInput'),
   cancelSettingsBtn: document.getElementById('cancelSettingsBtn'),
+  helpDialog: document.getElementById('helpDialog'),
+  closeHelpBtn: document.getElementById('closeHelpBtn'),
   newNoteDialog: document.getElementById('newNoteDialog'),
   newNoteForm: document.getElementById('newNoteForm'),
   newNoteTitleInput: document.getElementById('newNoteTitleInput'),
@@ -78,6 +81,7 @@ function updateBusyUi() {
   els.reindexBtn.disabled = busy;
   els.newNoteBtn.disabled = busy;
   els.checkUpdatesBtn.disabled = busy;
+  els.helpBtn.disabled = busy;
   els.settingsBtn.disabled = busy;
   els.busyMessage.textContent = state.busyMessage || 'Working...';
   els.busyOverlay.hidden = !busy;
@@ -635,6 +639,10 @@ function openSettings() {
   els.settingsDialog.showModal();
 }
 
+function openHelpDialog() {
+  els.helpDialog.showModal();
+}
+
 function openNewNoteDialog() {
   const now = new Date().toISOString().slice(0, 10);
   renderNewNoteClientOptions();
@@ -750,6 +758,7 @@ async function init() {
   renderAnswer('Run Ask or Summarize to generate grounded output with citations.');
 
   els.newNoteBtn.addEventListener('click', openNewNoteDialog);
+  els.helpBtn.addEventListener('click', openHelpDialog);
   els.checkUpdatesBtn.addEventListener('click', handleCheckForUpdates);
   els.settingsBtn.addEventListener('click', openSettings);
   els.reindexBtn.addEventListener('click', async () => {
@@ -826,6 +835,9 @@ async function init() {
   els.settingsForm.addEventListener('submit', saveSettings);
   els.cancelSettingsBtn.addEventListener('click', () => {
     els.settingsDialog.close();
+  });
+  els.closeHelpBtn.addEventListener('click', () => {
+    els.helpDialog.close();
   });
   els.newNoteForm.addEventListener('submit', createNewNote);
   els.cancelNewNoteBtn.addEventListener('click', () => {
