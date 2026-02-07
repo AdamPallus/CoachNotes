@@ -28,6 +28,7 @@
     ],
     "npmRebuild": true,
     "mac": {
+      "icon": "build/icon.icns",
       "category": "public.app-category.healthcare-fitness",
       "artifactName": "CoachNotes-${version}-${arch}.${ext}",
       "hardenedRuntime": false,

@@ -5,3 +5,5 @@ node_modules
 *.log
 apps/desktop/.coachnotes
 apps/desktop/dist
+output
+apps/desktop/build/icon.iconset

@@ -236,6 +236,24 @@ function updateStatus(patch) {
   }
 }
 
+function setDockIconIfAvailable() {
+  if (process.platform !== 'darwin' || !app.dock?.setIcon) {
+    return;
+  }
+
+  const iconCandidates = [
+    path.join(__dirname, '..', 'build', 'icon_1024.png'),
+    path.join(process.cwd(), 'build', 'icon_1024.png')
+  ];
+
+  for (const iconPath of iconCandidates) {
+    if (fs.existsSync(iconPath)) {
+      app.dock.setIcon(iconPath);
+      return;
+    }
+  }
+}
+
 function sanitizeName(value) {
   return String(value || '')
     .trim()
@@ -1574,6 +1592,7 @@ function setupIpc() {
 async function bootstrap() {
   setupIpc();
   ensureDbSafe();
+  setDockIconIfAvailable();
   createWindow();
 
   const settings = getAppSettings();
