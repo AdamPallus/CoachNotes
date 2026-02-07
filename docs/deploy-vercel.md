@@ -49,6 +49,10 @@ Expected:
 {"ok":true}
 ```
 
+If you get `NOT_FOUND`, check these two things:
+1. Vercel project **Root Directory** is exactly `apps/proxy`.
+2. Redeploy after pulling latest `apps/proxy/vercel.json` (it maps `/health` to `/api/health`).
+
 Auth-protected routes:
 
 ```bash

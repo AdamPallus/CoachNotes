@@ -3,5 +3,11 @@
     "api/*.js": {
       "maxDuration": 30
     }
-  }
+  },
+  "rewrites": [
+    { "source": "/health", "destination": "/api/health" },
+    { "source": "/embed", "destination": "/api/embed" },
+    { "source": "/answer", "destination": "/api/answer" },
+    { "source": "/summarize", "destination": "/api/summarize" }
+  ]
 }
