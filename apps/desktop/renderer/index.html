@@ -14,6 +14,8 @@
           <p id="statusLine">Initializing...</p>
         </div>
         <div class="topbar-actions">
+          <button id="newNoteBtn" class="btn btn-primary">New Note</button>
+          <button id="checkUpdatesBtn" class="btn btn-ghost">Check Updates</button>
           <button id="settingsBtn" class="btn btn-ghost">Settings</button>
           <button id="reindexBtn" class="btn btn-primary">Rebuild Index</button>
         </div>
@@ -59,9 +61,13 @@
                   <h2 id="noteTitle">No note selected</h2>
                   <p id="noteMeta"></p>
                 </div>
-                <button id="revealBtn" class="btn btn-tiny" disabled>Reveal in Finder</button>
+                <div class="row-inline">
+                  <button id="renderedViewBtn" class="btn btn-tiny">Rendered</button>
+                  <button id="rawViewBtn" class="btn btn-tiny">Raw</button>
+                  <button id="revealBtn" class="btn btn-tiny" disabled>Reveal in Finder</button>
+                </div>
               </div>
-              <pre id="noteBody" class="note-body"></pre>
+              <div id="noteBody" class="note-body note-body-raw"></div>
             </div>
           </div>
 
@@ -98,6 +104,44 @@
         </div>
       </form>
     </dialog>
+
+    <dialog id="newNoteDialog">
+      <form method="dialog" id="newNoteForm" class="settings-form">
+        <h2>New Note</h2>
+        <label>
+          Title
+          <input id="newNoteTitleInput" type="text" placeholder="Session check-in" required />
+        </label>
+        <label>
+          Date
+          <input id="newNoteDateInput" type="date" />
+        </label>
+        <label>
+          Client
+          <select id="newNoteClientSelect"></select>
+        </label>
+        <label>
+          Tags (comma separated)
+          <input id="newNoteTagsInput" type="text" placeholder="knee, rehab, progression" list="tagSuggestions" />
+        </label>
+        <datalist id="tagSuggestions"></datalist>
+        <label>
+          Body
+          <textarea id="newNoteBodyInput" rows="10" placeholder="Type plain text or markdown. Markdown is optional."></textarea>
+        </label>
+        <div class="row-inline actions">
+          <button type="button" id="cancelNewNoteBtn" class="btn btn-ghost">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Note</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="busyOverlay" class="busy-overlay" hidden>
+      <div class="busy-card">
+        <div class="busy-spinner" aria-hidden="true"></div>
+        <p id="busyMessage">Working...</p>
+      </div>
+    </div>
 
     <script src="./app.js"></script>
   </body>

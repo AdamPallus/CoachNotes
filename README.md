@@ -2,9 +2,11 @@
 
 CoachNotes is a local macOS notes app for health coaches with:
 - File-based note browsing (`.md`, `.txt`, `.markdown`)
+- In-app note creation (client + tags + note body)
 - Local SQLite indexing + chunking
 - Local semantic retrieval over stored embeddings
 - Grounded Q&A and summaries with source citations
+- Manual `Check Updates` button backed by GitHub Releases
 - Thin Vercel proxy for OpenAI embeddings + answers
 
 ## Project Layout
@@ -64,3 +66,11 @@ All protected by `Authorization: Bearer <INVITE_TOKEN>`.
 ## Deploy Proxy to Vercel
 
 See `docs/deploy-vercel.md`.
+
+## User Guide
+
+See `/Users/pallusa/projects/CoachNotes/docs/user-guide.md` for first-run onboarding, client mapping rules, and demo notes setup.
+
+## Desktop Releases
+
+See `/Users/pallusa/projects/CoachNotes/docs/release-desktop.md` for GitHub Actions build + release tagging flow.

@@ -2,21 +2,62 @@
   "name": "coachnotes-desktop",
   "version": "0.1.0",
   "private": true,
+  "description": "CoachNotes desktop app for health coach client notes",
+  "author": "Adam Pallus",
   "main": "src/main.js",
   "scripts": {
     "dev": "electron .",
     "start": "electron .",
     "lint": "node --check src/main.js src/preload.js renderer/app.js",
     "rebuild-native": "electron-rebuild -f -w better-sqlite3",
+    "dist:mac": "electron-builder --mac dmg zip --x64 --arm64 --publish never",
     "postinstall": "npm run rebuild-native"
+  },
+  "build": {
+    "appId": "com.coachnotes.desktop",
+    "productName": "CoachNotes",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "electronVersion": "37.2.6",
+    "files": [
+      "src/**/*",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "npmRebuild": true,
+    "mac": {
+      "category": "public.app-category.healthcare-fitness",
+      "artifactName": "CoachNotes-${version}-${arch}.${ext}",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    }
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
     "chokidar": "^4.0.3",
-    "electron": "^37.2.6",
     "gray-matter": "^4.0.3"
   },
   "devDependencies": {
-    "@electron/rebuild": "^4.0.3"
+    "@electron/rebuild": "^4.0.3",
+    "electron": "37.2.6",
+    "electron-builder": "^26.0.12"
   }
 }

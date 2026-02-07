@@ -14,6 +14,11 @@ const KEYCHAIN_ACCOUNT = 'coachnotes';
 const DEFAULT_PROXY_URL = 'http://localhost:3001';
 const DEFAULT_EMBED_MODEL = 'text-embedding-3-small';
 const DEFAULT_ANSWER_MODEL = 'gpt-5-mini';
+const UPDATE_REPO = process.env.COACHNOTES_UPDATE_REPO || 'AdamPallus/CoachNotes';
+const UPDATE_RELEASES_URL = `https://github.com/${UPDATE_REPO}/releases`;
+const UPDATE_RELEASE_API = `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`;
+
+app.setName('CoachNotes');
 
 let db;
 let mainWindow;
@@ -28,6 +33,8 @@ let statusState = {
   progress: 0,
   filesProcessed: 0,
   totalFiles: 0,
+  unsupportedCount: 0,
+  unsupportedSummary: '',
   lastError: null,
   lastIndexedAt: null
 };
@@ -235,6 +242,21 @@ function sanitizeName(value) {
     .replace(/\s+/g, ' ');
 }
 
+function slugifyFileStem(value) {
+  const normalized = sanitizeName(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return normalized || 'note';
+}
+
+function yamlQuote(value) {
+  return `"${String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')}"`;
+}
+
 function normalizeArray(value) {
   if (Array.isArray(value)) {
     return [...new Set(value.map((item) => sanitizeName(item)).filter(Boolean))];
@@ -271,6 +293,41 @@ function parseDate(value) {
   }
 
   return null;
+}
+
+function normalizeVersion(value) {
+  const raw = String(value || '')
+    .trim()
+    .replace(/^v/i, '')
+    .split('-')[0];
+
+  const parts = raw
+    .split('.')
+    .map((part) => Number.parseInt(part, 10))
+    .filter((part) => Number.isFinite(part));
+
+  while (parts.length < 3) {
+    parts.push(0);
+  }
+
+  return parts.slice(0, 3);
+}
+
+function compareVersions(left, right) {
+  const a = normalizeVersion(left);
+  const b = normalizeVersion(right);
+
+  for (let i = 0; i < 3; i += 1) {
+    if (a[i] > b[i]) {
+      return 1;
+    }
+
+    if (a[i] < b[i]) {
+      return -1;
+    }
+  }
+
+  return 0;
 }
 
 function extractFirstHeading(text) {
@@ -312,9 +369,14 @@ function parseMetadata(content, filePath, rootFolder) {
   ];
 
   const relativePath = path.relative(rootFolder, filePath);
-  const firstSegment = relativePath && !relativePath.startsWith('..')
-    ? sanitizeName(relativePath.split(path.sep)[0])
-    : '';
+  let firstSegment = '';
+  if (relativePath && !relativePath.startsWith('..')) {
+    const segments = relativePath.split(path.sep).filter(Boolean);
+    // Only treat first segment as client when file is nested under a subfolder.
+    if (segments.length > 1) {
+      firstSegment = sanitizeName(segments[0]);
+    }
+  }
 
   const title = sanitizeName(data.title) || extractFirstHeading(body) || path.basename(filePath, path.extname(filePath));
 
@@ -327,6 +389,24 @@ function parseMetadata(content, filePath, rootFolder) {
     bodyText: body,
     frontmatter: data
   };
+}
+
+async function getUniqueFilePath(directory, baseStem, extension = '.md') {
+  let suffix = 1;
+  while (suffix < 10000) {
+    const candidate = suffix === 1
+      ? path.join(directory, `${baseStem}${extension}`)
+      : path.join(directory, `${baseStem}-${suffix}${extension}`);
+
+    try {
+      await fsp.access(candidate, fs.constants.F_OK);
+      suffix += 1;
+    } catch {
+      return candidate;
+    }
+  }
+
+  throw new Error('Could not create a unique filename.');
 }
 
 function buildChunks(text, targetSize = 2200, maxSize = 3200, overlap = 300) {
@@ -392,8 +472,19 @@ function buildChunks(text, targetSize = 2200, maxSize = 3200, overlap = 300) {
   return chunks;
 }
 
-async function listNoteFiles(rootFolder) {
-  const out = [];
+function buildUnsupportedSummary(counterMap) {
+  const entries = [...counterMap.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([ext, count]) => `${ext} (${count})`);
+
+  return entries.join(', ');
+}
+
+async function scanNoteFiles(rootFolder) {
+  const supported = [];
+  let unsupportedCount = 0;
+  const unsupportedByExt = new Map();
 
   async function walk(currentPath) {
     const entries = await fsp.readdir(currentPath, { withFileTypes: true });
@@ -408,14 +499,27 @@ async function listNoteFiles(rootFolder) {
         continue;
       }
 
-      if (entry.isFile() && SUPPORTED_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
-        out.push(fullPath);
+      if (!entry.isFile()) {
+        continue;
+      }
+
+      const ext = path.extname(entry.name).toLowerCase();
+      if (SUPPORTED_EXTENSIONS.has(ext)) {
+        supported.push(fullPath);
+      } else {
+        unsupportedCount += 1;
+        const key = ext || '(no extension)';
+        unsupportedByExt.set(key, (unsupportedByExt.get(key) || 0) + 1);
       }
     }
   }
 
   await walk(rootFolder);
-  return out;
+  return {
+    supported,
+    unsupportedCount,
+    unsupportedSummary: buildUnsupportedSummary(unsupportedByExt)
+  };
 }
 
 function ensureClient(name) {
@@ -565,7 +669,7 @@ function buildSnippet(text, query) {
   return `${prefix}${clean.slice(start, end)}${suffix}`;
 }
 
-async function upsertFileIndex(filePath, stat, rootFolder, appSettings) {
+async function upsertFileIndex(filePath, stat, rootFolder, appSettings, forceRebuild = false) {
   const rawText = await fsp.readFile(filePath, 'utf8');
   const hash = sha1(rawText);
   const mtimeMs = Math.floor(stat.mtimeMs);
@@ -573,7 +677,7 @@ async function upsertFileIndex(filePath, stat, rootFolder, appSettings) {
     .prepare('SELECT id, sha1 FROM notes WHERE path = ?')
     .get(filePath);
 
-  if (existing && existing.sha1 === hash) {
+  if (existing && existing.sha1 === hash && !forceRebuild) {
     db.prepare('UPDATE notes SET mtime_ms = ?, size = ?, updated_at = ? WHERE id = ?').run(
       mtimeMs,
       stat.size,
@@ -750,7 +854,16 @@ function startWatching(rootFolder) {
   watcher.on('unlink', queue);
 }
 
-async function runIndex(reason = 'manual') {
+function pruneOrphans() {
+  if (!db) {
+    return;
+  }
+
+  db.prepare('DELETE FROM clients WHERE id NOT IN (SELECT DISTINCT client_id FROM note_clients)').run();
+  db.prepare('DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM note_tags)').run();
+}
+
+async function runIndex(reason = 'manual', forceRebuild = false) {
   requireDb();
 
   const settings = getAppSettings();
@@ -777,14 +890,17 @@ async function runIndex(reason = 'manual') {
     progress: 0,
     filesProcessed: 0,
     totalFiles: 0,
+    unsupportedCount: 0,
+    unsupportedSummary: '',
     lastError: null
   });
 
   try {
-    const files = await listNoteFiles(rootFolder);
+    const scan = await scanNoteFiles(rootFolder);
+    const files = scan.supported;
     const existingNotes = db
-      .prepare('SELECT id, path, mtime_ms, size FROM notes WHERE path LIKE ?')
-      .all(`${rootFolder}%`);
+      .prepare('SELECT id, path, mtime_ms, size FROM notes')
+      .all();
 
     const existingByPath = new Map(existingNotes.map((row) => [row.path, row]));
     const liveSet = new Set(files);
@@ -802,9 +918,9 @@ async function runIndex(reason = 'manual') {
       const existing = existingByPath.get(filePath);
       const mtimeMs = Math.floor(stat.mtimeMs);
 
-      const shouldSkip = existing && existing.mtime_ms === mtimeMs && existing.size === stat.size;
+      const shouldSkip = !forceRebuild && existing && existing.mtime_ms === mtimeMs && existing.size === stat.size;
       if (!shouldSkip) {
-        const changed = await upsertFileIndex(filePath, stat, rootFolder, settings);
+        const changed = await upsertFileIndex(filePath, stat, rootFolder, settings, forceRebuild);
         if (changed) {
           changedFiles += 1;
         }
@@ -817,6 +933,8 @@ async function runIndex(reason = 'manual') {
       });
     }
 
+    pruneOrphans();
+
     db.prepare(
       `UPDATE index_state
        SET root_folder = ?, status = ?, last_error = NULL, indexed_files = ?, last_index_at = ?
@@ -827,6 +945,8 @@ async function runIndex(reason = 'manual') {
       indexing: false,
       message: `Up to date. Indexed ${files.length} notes (${changedFiles} changed).`,
       progress: 1,
+      unsupportedCount: scan.unsupportedCount,
+      unsupportedSummary: scan.unsupportedSummary,
       lastIndexedAt: nowIso(),
       lastError: null
     });
@@ -853,7 +973,7 @@ async function runIndex(reason = 'manual') {
     if (reindexQueued) {
       reindexQueued = false;
       setTimeout(() => {
-        runIndex('queued').catch(() => {});
+        runIndex('queued', false).catch(() => {});
       }, 200);
     }
   }
@@ -1081,12 +1201,13 @@ async function runSummarize(payload) {
     return {
       model: DEFAULT_ANSWER_MODEL,
       summary: 'Not found in the provided notes.',
-      citations: []
+      citations: [],
+      sources: []
     };
   }
 
   const settings = getAppSettings();
-  return callProxy(
+  const response = await callProxy(
     '/summarize',
     {
       model: DEFAULT_ANSWER_MODEL,
@@ -1095,6 +1216,123 @@ async function runSummarize(payload) {
     },
     settings
   );
+
+  return {
+    ...response,
+    sources: results.map((item) => ({
+      chunkId: item.chunkId,
+      title: item.title,
+      date: item.date,
+      clientNames: item.clientNames,
+      snippet: item.snippet,
+      noteId: item.noteId,
+      startOffset: item.startOffset,
+      endOffset: item.endOffset
+    }))
+  };
+}
+
+async function createNote(payload) {
+  requireDb();
+
+  const settings = getAppSettings();
+  const rootFolder = settings.rootFolder;
+  if (!rootFolder || !fs.existsSync(rootFolder)) {
+    throw new Error('Set a valid root notes folder before creating notes.');
+  }
+
+  const noteDate = parseDate(payload?.date) || new Date().toISOString().slice(0, 10);
+  const clientName = sanitizeName(payload?.clientName || '');
+  const title = sanitizeName(payload?.title || '') || `Session ${noteDate}`;
+  const tags = normalizeArray(payload?.tags || []);
+  const body = String(payload?.body || '').replace(/\r\n/g, '\n').trimEnd();
+
+  const noteDirectory = clientName ? path.join(rootFolder, clientName) : rootFolder;
+  await fsp.mkdir(noteDirectory, { recursive: true });
+
+  const stem = `${noteDate}-${slugifyFileStem(title)}`.slice(0, 120);
+  const filePath = await getUniqueFilePath(noteDirectory, stem, '.md');
+
+  const frontmatterLines = [
+    '---',
+    `date: ${yamlQuote(noteDate)}`,
+    `tags: [${tags.map((tag) => yamlQuote(tag)).join(', ')}]`
+  ];
+
+  if (clientName) {
+    frontmatterLines.splice(1, 0, `client: ${yamlQuote(clientName)}`);
+  }
+
+  frontmatterLines.push('---', '', `# ${title}`, '');
+
+  const content = `${frontmatterLines.join('\n')}${body ? `${body}\n` : ''}`;
+  await fsp.writeFile(filePath, content, 'utf8');
+
+  const stat = await fsp.stat(filePath);
+  await upsertFileIndex(filePath, stat, rootFolder, settings, true);
+  pruneOrphans();
+
+  const note = db.prepare('SELECT id, path, title, date FROM notes WHERE path = ?').get(filePath);
+  if (!note) {
+    throw new Error('Note file was created but indexing failed.');
+  }
+
+  return {
+    noteId: note.id,
+    path: note.path,
+    title: note.title,
+    date: note.date,
+    clientName,
+    tags
+  };
+}
+
+async function checkForUpdates() {
+  const currentVersion = app.getVersion();
+
+  let response;
+  try {
+    response = await fetch(UPDATE_RELEASE_API, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'CoachNotes Desktop'
+      }
+    });
+  } catch (error) {
+    throw new Error(`Could not reach GitHub releases: ${error.message}`);
+  }
+
+  if (response.status === 404) {
+    return {
+      currentVersion,
+      latestVersion: null,
+      updateAvailable: false,
+      releaseUrl: UPDATE_RELEASES_URL,
+      releasesUrl: UPDATE_RELEASES_URL,
+      message: 'No published release found yet.'
+    };
+  }
+
+  if (!response.ok) {
+    throw new Error(`GitHub release check failed (${response.status}).`);
+  }
+
+  const release = await response.json();
+  const latestVersionRaw = release.tag_name || release.name || '';
+  const latestVersion = latestVersionRaw.replace(/^v/i, '');
+  const updateAvailable = compareVersions(latestVersion, currentVersion) > 0;
+
+  return {
+    currentVersion,
+    latestVersion,
+    updateAvailable,
+    releaseUrl: release.html_url || UPDATE_RELEASES_URL,
+    releasesUrl: UPDATE_RELEASES_URL,
+    publishedAt: release.published_at || null,
+    message: updateAvailable
+      ? `Update available: v${latestVersion}`
+      : `You are up to date (v${currentVersion}).`
+  };
 }
 
 function createWindow() {
@@ -1128,6 +1366,7 @@ function setupIpc() {
   });
 
   ipcMain.handle('app:save-settings', async (_event, payload) => {
+    const previous = getAppSettings();
     const rootFolder = payload?.rootFolder ? String(payload.rootFolder).trim() : '';
     const proxyBaseUrl = payload?.proxyBaseUrl ? String(payload.proxyBaseUrl).trim() : '';
 
@@ -1147,7 +1386,11 @@ function setupIpc() {
     startWatching(latest.rootFolder);
 
     if (payload?.runIndexAfterSave) {
-      await runIndex('settings-update');
+      const forceFullReindex =
+        Boolean(payload?.forceFullReindex) ||
+        latest.proxyBaseUrl !== previous.proxyBaseUrl ||
+        latest.inviteToken !== previous.inviteToken;
+      await runIndex('settings-update', forceFullReindex);
     }
 
     return latest;
@@ -1172,7 +1415,7 @@ function setupIpc() {
 
   ipcMain.handle('app:reindex', async () => {
     requireDb();
-    return runIndex('manual');
+    return runIndex('manual', true);
   });
 
   ipcMain.handle('app:get-clients', async () => {
@@ -1183,7 +1426,22 @@ function setupIpc() {
          FROM clients c
          LEFT JOIN note_clients nc ON nc.client_id = c.id
          GROUP BY c.id
+         HAVING COUNT(DISTINCT nc.note_id) > 0
          ORDER BY LOWER(c.display_name) ASC`
+      )
+      .all();
+  });
+
+  ipcMain.handle('app:get-tags', async () => {
+    requireDb();
+    return db
+      .prepare(
+        `SELECT t.name AS name, COUNT(DISTINCT nt.note_id) AS noteCount
+         FROM tags t
+         LEFT JOIN note_tags nt ON nt.tag_id = t.id
+         GROUP BY t.id
+         HAVING COUNT(DISTINCT nt.note_id) > 0
+         ORDER BY LOWER(t.name) ASC`
       )
       .all();
   });
@@ -1271,6 +1529,24 @@ function setupIpc() {
   ipcMain.handle('app:search', async (_event, payload) => {
     requireDb();
     return runSearch(payload);
+  });
+
+  ipcMain.handle('app:create-note', async (_event, payload) => {
+    return createNote(payload || {});
+  });
+
+  ipcMain.handle('app:check-for-updates', async () => {
+    return checkForUpdates();
+  });
+
+  ipcMain.handle('app:open-external', async (_event, url) => {
+    const target = String(url || '').trim();
+    if (!/^https?:\/\//i.test(target)) {
+      throw new Error('Invalid URL.');
+    }
+
+    await shell.openExternal(target);
+    return true;
   });
 
   ipcMain.handle('app:ask', async (_event, payload) => {
