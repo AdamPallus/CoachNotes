@@ -1,0 +1,14 @@
+{
+  "name": "coachnotes",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/desktop",
+    "apps/proxy"
+  ],
+  "scripts": {
+    "dev:desktop": "npm --workspace apps/desktop run dev",
+    "dev:proxy": "npm --workspace apps/proxy run dev",
+    "lint": "npm --workspace apps/proxy run lint && npm --workspace apps/desktop run lint"
+  }
+}

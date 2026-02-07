@@ -1,0 +1,56 @@
+const {
+  DEFAULT_LLM_MODEL,
+  allowModel,
+  authAndRateLimit,
+  collectCitations,
+  getOpenAIClient,
+  json,
+  validateAnswerLikeSources
+} = require('./_shared');
+
+const summaryPrompt = [
+  'Summarize only what appears in provided sources.',
+  'Use concise coaching language.',
+  'Cite each major point with [c:chunk_id].',
+  'If there is insufficient evidence, respond: Not found in the provided notes.'
+].join(' ');
+
+module.exports = async function summarize(req, res) {
+  const auth = authAndRateLimit(req, res);
+  if (!auth.ok) {
+    return;
+  }
+
+  const sourcesError = validateAnswerLikeSources(req.body?.sources);
+  if (sourcesError) {
+    json(res, 400, { error: sourcesError });
+    return;
+  }
+
+  try {
+    const model = allowModel(req.body.model, DEFAULT_LLM_MODEL, 'LLM_MODEL_ALLOWLIST');
+    const openai = getOpenAIClient();
+
+    const renderedSources = req.body.sources
+      .map((source) => `chunk_id: ${source.chunk_id}\ntext: ${source.text}`)
+      .join('\n\n---\n\n');
+
+    const result = await openai.responses.create({
+      model,
+      input: [
+        { role: 'system', content: summaryPrompt },
+        { role: 'user', content: `Mode: ${req.body.mode || 'search_results_summary'}\n\nSources:\n${renderedSources}` }
+      ]
+    });
+
+    const summary = result.output_text?.trim() || 'Not found in the provided notes.';
+
+    json(res, 200, {
+      model,
+      summary,
+      citations: collectCitations(summary)
+    });
+  } catch (err) {
+    json(res, 502, { error: err.message || 'Summarize request failed.' });
+  }
+};

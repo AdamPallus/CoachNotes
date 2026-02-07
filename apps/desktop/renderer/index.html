@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CoachNotes</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>CoachNotes</h1>
+          <p id="statusLine">Initializing...</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="settingsBtn" class="btn btn-ghost">Settings</button>
+          <button id="reindexBtn" class="btn btn-primary">Rebuild Index</button>
+        </div>
+      </header>
+
+      <div class="content-grid">
+        <aside class="sidebar card">
+          <div class="sidebar-head">
+            <h2>Clients</h2>
+            <button id="allClientsBtn" class="btn btn-tiny">All</button>
+          </div>
+          <ul id="clientsList" class="list"></ul>
+        </aside>
+
+        <section class="main-pane">
+          <div class="card search-card">
+            <div class="search-row">
+              <input id="searchInput" type="text" placeholder="Search notes (e.g. knee pain progression)" />
+              <select id="scopeSelect">
+                <option value="all">All Clients</option>
+                <option value="client">This Client</option>
+              </select>
+              <button id="searchBtn" class="btn btn-primary">Search</button>
+            </div>
+            <div class="search-row ask-row">
+              <input id="askInput" type="text" placeholder="Ask a grounded question from retrieved notes" />
+              <label for="topKInput">Sources</label>
+              <input id="topKInput" type="number" min="3" max="12" value="8" />
+              <button id="askBtn" class="btn btn-primary">Answer</button>
+              <button id="summarizeBtn" class="btn btn-ghost">Summarize</button>
+            </div>
+          </div>
+
+          <div class="split-grid">
+            <div class="card">
+              <h2 id="resultsTitle">Notes</h2>
+              <ul id="resultsList" class="list results"></ul>
+            </div>
+
+            <div class="card detail-card">
+              <div class="detail-head">
+                <div>
+                  <h2 id="noteTitle">No note selected</h2>
+                  <p id="noteMeta"></p>
+                </div>
+                <button id="revealBtn" class="btn btn-tiny" disabled>Reveal in Finder</button>
+              </div>
+              <pre id="noteBody" class="note-body"></pre>
+            </div>
+          </div>
+
+          <div class="card answer-card">
+            <h2>Answer / Summary</h2>
+            <div id="answerText" class="answer-text">Run Ask or Summarize to generate grounded output with citations.</div>
+            <div id="sourcesList" class="sources"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <dialog id="settingsDialog">
+      <form method="dialog" id="settingsForm" class="settings-form">
+        <h2>Settings</h2>
+        <label>
+          Root Notes Folder
+          <div class="row-inline">
+            <input id="rootFolderInput" type="text" placeholder="/Users/.../Notes" />
+            <button type="button" id="browseBtn" class="btn btn-tiny">Browse</button>
+          </div>
+        </label>
+        <label>
+          Proxy Base URL
+          <input id="proxyUrlInput" type="url" placeholder="https://your-proxy.vercel.app" />
+        </label>
+        <label>
+          Invite Token
+          <input id="tokenInput" type="password" placeholder="Paste invite token" />
+        </label>
+        <div class="row-inline actions">
+          <button type="button" id="cancelSettingsBtn" class="btn btn-ghost">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save & Reindex</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
