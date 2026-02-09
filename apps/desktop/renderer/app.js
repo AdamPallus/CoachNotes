@@ -4,11 +4,14 @@ const state = {
   settings: null,
   status: null,
   clients: [],
+  clientTagFilters: [],
   tags: [],
   notes: [],
   results: [],
   selectedClientId: null,
   selectedNoteId: null,
+  clientProfile: null,
+  clientProfileClientId: null,
   currentNote: null,
   selectedHighlight: null,
   scope: 'all',
@@ -22,6 +25,10 @@ const state = {
   answerHistoryIndex: -1,
   answerPanelOpen: false,
   clientsPanelOpen: true,
+  profileClientTagsDraft: [],
+  profileColorValue: '',
+  profileSnapshot: '',
+  profileDirty: false,
   themeMode: 'light',
   theme: 'light'
 };
@@ -33,6 +40,7 @@ const els = {
   themeModeDark: document.getElementById('themeModeDark'),
   statusLine: document.getElementById('statusLine'),
   newNoteBtn: document.getElementById('newNoteBtn'),
+  newClientBtn: document.getElementById('newClientBtn'),
   moreMenuBtn: document.getElementById('moreMenuBtn'),
   moreMenu: document.getElementById('moreMenu'),
   helpBtn: document.getElementById('helpBtn'),
@@ -45,6 +53,9 @@ const els = {
   clientsToggleBtn: document.getElementById('clientsToggleBtn'),
   clientsPanelBody: document.getElementById('clientsPanelBody'),
   allClientsBtn: document.getElementById('allClientsBtn'),
+  clientTagFiltersWrap: document.getElementById('clientTagFiltersWrap'),
+  clientTagFilters: document.getElementById('clientTagFilters'),
+  clearClientTagFiltersBtn: document.getElementById('clearClientTagFiltersBtn'),
   clientsList: document.getElementById('clientsList'),
   queryModeGroup: document.getElementById('queryModeGroup'),
   modeSearch: document.getElementById('modeSearch'),
@@ -58,11 +69,32 @@ const els = {
   relevanceModeSelect: document.getElementById('relevanceModeSelect'),
   resultsTitle: document.getElementById('resultsTitle'),
   resultsList: document.getElementById('resultsList'),
+  profileClientName: document.getElementById('profileClientName'),
+  profileUpdatedAt: document.getElementById('profileUpdatedAt'),
+  profileDisabled: document.getElementById('profileDisabled'),
+  profileFormWrap: document.getElementById('profileFormWrap'),
+  profileTopInput: document.getElementById('profileTopInput'),
+  profileTagPicker: document.getElementById('profileTagPicker'),
+  profileOpenNewTagBtn: document.getElementById('profileOpenNewTagBtn'),
+  profileNewTagRow: document.getElementById('profileNewTagRow'),
+  profileNewTagInput: document.getElementById('profileNewTagInput'),
+  profileConfirmNewTagBtn: document.getElementById('profileConfirmNewTagBtn'),
+  profileCancelNewTagBtn: document.getElementById('profileCancelNewTagBtn'),
+  profileClientTagsList: document.getElementById('profileClientTagsList'),
+  profileColorInput: document.getElementById('profileColorInput'),
+  clearProfileColorBtn: document.getElementById('clearProfileColorBtn'),
+  profileMedicalInput: document.getElementById('profileMedicalInput'),
+  profileAcuteInput: document.getElementById('profileAcuteInput'),
+  profileCompletedInput: document.getElementById('profileCompletedInput'),
+  profileFutureInput: document.getElementById('profileFutureInput'),
+  saveProfileBtn: document.getElementById('saveProfileBtn'),
   noteTitle: document.getElementById('noteTitle'),
   noteMeta: document.getElementById('noteMeta'),
   noteBody: document.getElementById('noteBody'),
   renderedViewBtn: document.getElementById('renderedViewBtn'),
   rawViewBtn: document.getElementById('rawViewBtn'),
+  editNoteBtn: document.getElementById('editNoteBtn'),
+  deleteNoteBtn: document.getElementById('deleteNoteBtn'),
   revealBtn: document.getElementById('revealBtn'),
   answerHeader: document.getElementById('answerHeader'),
   answerCard: document.getElementById('answerCard'),
@@ -95,6 +127,21 @@ const els = {
   newNoteClientSelect: document.getElementById('newNoteClientSelect'),
   newNoteTagsInput: document.getElementById('newNoteTagsInput'),
   newNoteBodyInput: document.getElementById('newNoteBodyInput'),
+  newClientDialog: document.getElementById('newClientDialog'),
+  newClientForm: document.getElementById('newClientForm'),
+  newClientNameInput: document.getElementById('newClientNameInput'),
+  cancelNewClientBtn: document.getElementById('cancelNewClientBtn'),
+  editNoteDialog: document.getElementById('editNoteDialog'),
+  editNoteForm: document.getElementById('editNoteForm'),
+  editNoteTitleInput: document.getElementById('editNoteTitleInput'),
+  editNoteDateInput: document.getElementById('editNoteDateInput'),
+  editNoteClientSelect: document.getElementById('editNoteClientSelect'),
+  editNoteTagsInput: document.getElementById('editNoteTagsInput'),
+  editNoteBodyInput: document.getElementById('editNoteBodyInput'),
+  cancelEditNoteBtn: document.getElementById('cancelEditNoteBtn'),
+  clientProfileDialog: document.getElementById('clientProfileDialog'),
+  clientProfileForm: document.getElementById('clientProfileForm'),
+  cancelProfileBtn: document.getElementById('cancelProfileBtn'),
   tagSuggestions: document.getElementById('tagSuggestions'),
   cancelNewNoteBtn: document.getElementById('cancelNewNoteBtn')
 };
@@ -106,6 +153,62 @@ function escapeHtml(input) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
+}
+
+function sanitizeName(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function normalizeTagList(values, maxItems = 40) {
+  const source = Array.isArray(values)
+    ? values
+    : String(values || '').split(',');
+  const seen = new Set();
+  const rows = [];
+  for (const item of source) {
+    const trimmed = sanitizeName(item);
+    if (!trimmed) {
+      continue;
+    }
+
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    rows.push(trimmed);
+    if (rows.length >= maxItems) {
+      break;
+    }
+  }
+
+  return rows;
+}
+
+function normalizeHexColor(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) {
+    return '';
+  }
+
+  const withHash = raw.startsWith('#') ? raw : `#${raw}`;
+  if (/^#[0-9a-f]{3}$/.test(withHash)) {
+    const expanded = withHash
+      .slice(1)
+      .split('')
+      .map((char) => `${char}${char}`)
+      .join('');
+    return `#${expanded}`;
+  }
+
+  if (/^#[0-9a-f]{6}$/.test(withHash)) {
+    return withHash;
+  }
+
+  return '';
 }
 
 function getSystemTheme() {
@@ -237,6 +340,35 @@ function applyDepthPreset(preset) {
   syncDepthPresetFromTopK();
 }
 
+function isLikelyAcknowledgementFollowup(text) {
+  const normalized = String(text || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[.!?]+$/g, '');
+  if (!normalized) {
+    return false;
+  }
+
+  const directMatches = new Set([
+    'sure',
+    'sure do that',
+    'yes',
+    'yeah',
+    'yep',
+    'ok',
+    'okay',
+    'go ahead',
+    'do that',
+    'please do that',
+    'sounds good',
+    'that works',
+    'continue',
+    'do it'
+  ]);
+
+  return directMatches.has(normalized);
+}
+
 function getIndexProgress() {
   const total = Math.max(0, Number(state.status?.totalFiles) || 0);
   const processed = Math.max(0, Number(state.status?.filesProcessed) || 0);
@@ -270,10 +402,31 @@ function updateBusyUi() {
   els.goBtn.disabled = busy;
   els.reindexBtn.disabled = busy;
   els.newNoteBtn.disabled = busy;
+  els.newClientBtn.disabled = busy;
   els.moreMenuBtn.disabled = busy;
   els.checkUpdatesBtn.disabled = busy;
   els.helpBtn.disabled = busy;
   els.settingsBtn.disabled = busy;
+  els.saveProfileBtn.disabled = busy || !state.selectedClientId;
+  els.profileTopInput.disabled = busy || !state.selectedClientId;
+  els.profileTagPicker.disabled = busy || !state.selectedClientId;
+  els.profileOpenNewTagBtn.disabled = busy || !state.selectedClientId;
+  els.profileNewTagInput.disabled = busy || !state.selectedClientId;
+  els.profileConfirmNewTagBtn.disabled = busy || !state.selectedClientId;
+  els.profileCancelNewTagBtn.disabled = busy || !state.selectedClientId;
+  els.profileColorInput.disabled = busy || !state.selectedClientId;
+  els.clearProfileColorBtn.disabled = busy || !state.selectedClientId;
+  els.profileMedicalInput.disabled = busy || !state.selectedClientId;
+  els.profileAcuteInput.disabled = busy || !state.selectedClientId;
+  els.profileCompletedInput.disabled = busy || !state.selectedClientId;
+  els.profileFutureInput.disabled = busy || !state.selectedClientId;
+  if (busy) {
+    els.editNoteBtn.disabled = true;
+    els.deleteNoteBtn.disabled = true;
+  } else if (state.currentNote) {
+    els.editNoteBtn.disabled = false;
+    els.deleteNoteBtn.disabled = false;
+  }
   els.busyMessage.textContent = getBusyMessage();
   const showProgress = busy && progress.active;
   els.busyProgressWrap.hidden = !showProgress;
@@ -402,31 +555,227 @@ function updateStatusLine() {
 function renderClients() {
   els.clientsList.innerHTML = '';
 
-  for (const client of state.clients) {
+  const selectedTagFilters = new Set((state.clientTagFilters || []).map((tag) => String(tag).toLowerCase()));
+  const filteredClients = state.clients.filter((client) => {
+    if (!selectedTagFilters.size) {
+      return true;
+    }
+
+    const clientTags = (client.profileTags || []).map((tag) => String(tag).toLowerCase());
+    return clientTags.some((tag) => selectedTagFilters.has(tag));
+  });
+
+  if (!filteredClients.length) {
     const li = document.createElement('li');
+    li.className = 'clients-empty';
+    li.textContent = selectedTagFilters.size
+      ? 'No clients match selected tags.'
+      : 'No clients yet.';
+    els.clientsList.appendChild(li);
+    return;
+  }
+
+  for (const client of filteredClients) {
+    const li = document.createElement('li');
+    li.className = 'client-row';
+
     const button = document.createElement('button');
-    button.className = 'item-btn';
+    button.className = 'item-btn client-main-btn';
     if (state.selectedClientId === client.id) {
       button.classList.add('active');
     }
 
+    const color = normalizeHexColor(client.color);
+    const tagSummary = (client.profileTags || []).slice(0, 3).join(', ');
     button.innerHTML = `
-      <div class="item-title">${escapeHtml(client.name)}</div>
-      <div class="item-meta">${client.noteCount} notes</div>
+      <div class="client-title-row">
+        <span class="client-color-dot" style="${color ? `background:${escapeHtml(color)};border-color:${escapeHtml(color)};` : ''}"></span>
+        <span class="item-title">${escapeHtml(client.name)}</span>
+      </div>
+      <div class="item-meta">${client.noteCount} notes${tagSummary ? ` • ${escapeHtml(tagSummary)}` : ''}</div>
     `;
 
     button.addEventListener('click', async () => {
-      state.selectedClientId = client.id;
-      if (state.scope === 'client') {
-        await runSearch();
-      } else {
-        await loadNotes();
-      }
-      renderClients();
+      await selectClient(client.id);
+    });
+
+    const profileButton = document.createElement('button');
+    profileButton.className = 'btn btn-tiny client-profile-btn';
+    profileButton.type = 'button';
+    profileButton.textContent = 'Profile';
+    profileButton.title = `Open profile for ${client.name}`;
+    if (state.selectedClientId === client.id) {
+      profileButton.classList.add('active');
+    }
+    profileButton.addEventListener('click', async () => {
+      await selectClient(client.id, { openProfile: true });
     });
 
     li.appendChild(button);
+    li.appendChild(profileButton);
     els.clientsList.appendChild(li);
+  }
+}
+
+function renderClientTagFilters() {
+  const allTags = [...new Set(
+    state.clients
+      .flatMap((client) => client.profileTags || [])
+      .map((tag) => sanitizeName(tag))
+      .filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b));
+
+  const validFilterSet = new Set(allTags.map((tag) => tag.toLowerCase()));
+  state.clientTagFilters = (state.clientTagFilters || []).filter((tag) => validFilterSet.has(String(tag).toLowerCase()));
+
+  if (!allTags.length) {
+    els.clientTagFiltersWrap.hidden = true;
+    els.clientTagFilters.innerHTML = '';
+    return;
+  }
+
+  els.clientTagFiltersWrap.hidden = false;
+  const active = new Set((state.clientTagFilters || []).map((tag) => String(tag).toLowerCase()));
+  els.clientTagFilters.innerHTML = '';
+
+  for (const tag of allTags) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn btn-tiny tag-chip';
+    if (active.has(tag.toLowerCase())) {
+      button.classList.add('active');
+    }
+    button.textContent = tag;
+    button.addEventListener('click', () => {
+      const key = tag.toLowerCase();
+      if (active.has(key)) {
+        state.clientTagFilters = (state.clientTagFilters || []).filter((entry) => String(entry).toLowerCase() !== key);
+      } else {
+        state.clientTagFilters = [...(state.clientTagFilters || []), tag];
+      }
+      renderClientTagFilters();
+      renderClients();
+    });
+    els.clientTagFilters.appendChild(button);
+  }
+}
+
+function getKnownClientProfileTags() {
+  return [...new Set(
+    state.clients
+      .flatMap((client) => client.profileTags || [])
+      .map((tag) => sanitizeName(tag))
+      .filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b));
+}
+
+function renderProfileTagPickerOptions() {
+  const selected = new Set((state.profileClientTagsDraft || []).map((tag) => String(tag).toLowerCase()));
+  const known = getKnownClientProfileTags();
+  const nextOptions = ['<option value="" selected>Select tag...</option>', '<option value="__new__">Add tag...</option>'];
+  for (const tag of known) {
+    if (!selected.has(tag.toLowerCase())) {
+      nextOptions.push(`<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`);
+    }
+  }
+  els.profileTagPicker.innerHTML = nextOptions.join('');
+  els.profileTagPicker.value = '';
+}
+
+function renderProfileClientTagsList() {
+  const tags = state.profileClientTagsDraft || [];
+  els.profileClientTagsList.innerHTML = '';
+  if (!tags.length) {
+    els.profileClientTagsList.innerHTML = '<span class="profile-tags-empty">No tags selected.</span>';
+    return;
+  }
+
+  for (const tag of tags) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'profile-tag-chip';
+    chip.dataset.tag = tag;
+    chip.title = `Remove tag: ${tag}`;
+    chip.textContent = `${tag} ×`;
+    els.profileClientTagsList.appendChild(chip);
+  }
+}
+
+function hideProfileNewTagRow() {
+  els.profileNewTagRow.hidden = true;
+  els.profileNewTagInput.value = '';
+}
+
+function showProfileNewTagRow() {
+  els.profileNewTagRow.hidden = false;
+  els.profileNewTagInput.focus();
+  els.profileNewTagInput.select();
+}
+
+function submitProfileNewTagFromInput() {
+  const created = String(els.profileNewTagInput.value || '').trim();
+  const added = addProfileTag(created);
+  if (added) {
+    hideProfileNewTagRow();
+  }
+}
+
+function setProfileClientTagsDraft(values) {
+  state.profileClientTagsDraft = normalizeTagList(values, 40);
+  hideProfileNewTagRow();
+  renderProfileTagPickerOptions();
+  renderProfileClientTagsList();
+}
+
+function addProfileTag(rawValue) {
+  const normalized = sanitizeName(rawValue);
+  if (!normalized) {
+    return false;
+  }
+
+  const exists = (state.profileClientTagsDraft || []).some(
+    (tag) => String(tag).toLowerCase() === normalized.toLowerCase()
+  );
+  if (exists) {
+    return false;
+  }
+
+  state.profileClientTagsDraft = [...(state.profileClientTagsDraft || []), normalized];
+  renderProfileTagPickerOptions();
+  renderProfileClientTagsList();
+  refreshProfileDirtyState();
+  return true;
+}
+
+function removeProfileTag(rawValue) {
+  const key = String(rawValue || '').toLowerCase();
+  state.profileClientTagsDraft = (state.profileClientTagsDraft || []).filter(
+    (tag) => String(tag).toLowerCase() !== key
+  );
+  renderProfileTagPickerOptions();
+  renderProfileClientTagsList();
+  refreshProfileDirtyState();
+}
+
+async function selectClient(clientId, options = {}) {
+  const openProfile = Boolean(options?.openProfile);
+  state.selectedClientId = clientId;
+
+  if (state.scope === 'client') {
+    if (state.activeQuery) {
+      await runSearch(state.activeQuery);
+    } else {
+      await loadNotes();
+    }
+  } else {
+    await loadNotes();
+  }
+
+  await loadClientProfile();
+  renderClients();
+
+  if (openProfile) {
+    await openClientProfileDialog({ reload: false });
   }
 }
 
@@ -703,7 +1052,6 @@ async function openSource(source) {
   }
 
   await openNote(source.noteId);
-  els.noteTitle.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function renderAnswer(text, sources = [], citations = [], options = {}) {
@@ -829,6 +1177,8 @@ function renderNote(note) {
       </div>
     `;
     els.revealBtn.disabled = true;
+    els.editNoteBtn.disabled = true;
+    els.deleteNoteBtn.disabled = true;
     return;
   }
 
@@ -855,16 +1205,31 @@ function renderNote(note) {
       const target = escapeHtml(text.slice(start, end));
       const after = escapeHtml(text.slice(end));
       els.noteBody.innerHTML = `${before}<mark>${target}</mark>${after}`;
+      const mark = els.noteBody.querySelector('mark');
+      if (mark) {
+        requestAnimationFrame(() => {
+          mark.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        });
+      }
     } else {
       els.noteBody.textContent = text;
     }
   }
 
   els.revealBtn.disabled = false;
+  if (state.busyCount === 0) {
+    els.editNoteBtn.disabled = false;
+    els.deleteNoteBtn.disabled = false;
+  }
 }
 
 async function loadClients() {
   state.clients = await window.coachNotes.getClients();
+  if (state.selectedClientId && !state.clients.some((client) => client.id === state.selectedClientId)) {
+    state.selectedClientId = null;
+  }
+  renderClientTagFilters();
+  renderProfileTagPickerOptions();
   renderClients();
 }
 
@@ -873,6 +1238,216 @@ function parseTagInput(value) {
     .split(',')
     .map((tag) => tag.trim())
     .filter((tag) => tag.length > 0);
+}
+
+function parseMultilineList(value, maxItems = 120) {
+  const seen = new Set();
+  const rows = [];
+  for (const line of String(value || '').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    rows.push(trimmed);
+    if (rows.length >= maxItems) {
+      break;
+    }
+  }
+
+  return rows;
+}
+
+function formatIsoDate(value) {
+  const date = new Date(value || '');
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  return date.toLocaleDateString();
+}
+
+function getProfileDraftFromInputs() {
+  return {
+    topPriorities: parseMultilineList(els.profileTopInput.value, 12),
+    clientTags: [...(state.profileClientTagsDraft || [])],
+    clientColor: state.profileColorValue || '',
+    ongoingMedicalConsiderations: parseMultilineList(els.profileMedicalInput.value),
+    acuteInjuries: parseMultilineList(els.profileAcuteInput.value),
+    completedFocus: parseMultilineList(els.profileCompletedInput.value),
+    futureFocus: parseMultilineList(els.profileFutureInput.value)
+  };
+}
+
+function serializeProfileDraft(draft) {
+  return JSON.stringify({
+    topPriorities: draft.topPriorities || [],
+    clientTags: draft.clientTags || [],
+    clientColor: draft.clientColor || '',
+    ongoingMedicalConsiderations: draft.ongoingMedicalConsiderations || [],
+    acuteInjuries: draft.acuteInjuries || [],
+    completedFocus: draft.completedFocus || [],
+    futureFocus: draft.futureFocus || []
+  });
+}
+
+function captureProfileSnapshot() {
+  state.profileSnapshot = serializeProfileDraft(getProfileDraftFromInputs());
+  state.profileDirty = false;
+}
+
+function refreshProfileDirtyState() {
+  state.profileDirty = serializeProfileDraft(getProfileDraftFromInputs()) !== state.profileSnapshot;
+}
+
+function renderClientProfile(profile) {
+  state.clientProfile = profile || null;
+  state.clientProfileClientId = state.selectedClientId || null;
+  if (!state.selectedClientId) {
+    els.profileClientName.textContent = 'Select a client to edit profile details.';
+    els.profileUpdatedAt.textContent = '';
+    els.profileDisabled.hidden = false;
+    els.profileFormWrap.hidden = true;
+    els.profileTopInput.value = '';
+    setProfileClientTagsDraft([]);
+    state.profileColorValue = '';
+    els.profileColorInput.value = '#2aa994';
+    els.profileMedicalInput.value = '';
+    els.profileAcuteInput.value = '';
+    els.profileCompletedInput.value = '';
+    els.profileFutureInput.value = '';
+    captureProfileSnapshot();
+    updateBusyUi();
+    return;
+  }
+
+  const clientName = profile?.clientName || 'Selected client';
+  els.profileClientName.textContent = clientName;
+  els.profileUpdatedAt.textContent = profile?.updatedAt
+    ? `Last updated: ${formatIsoDate(profile.updatedAt)}`
+    : 'No saved profile yet.';
+  els.profileDisabled.hidden = true;
+  els.profileFormWrap.hidden = false;
+  els.profileTopInput.value = (profile?.topPriorities || []).join('\n');
+  setProfileClientTagsDraft(profile?.clientTags || []);
+  state.profileColorValue = normalizeHexColor(profile?.clientColor || '');
+  els.profileColorInput.value = state.profileColorValue || '#2aa994';
+  els.profileMedicalInput.value = (profile?.ongoingMedicalConsiderations || []).join('\n');
+  els.profileAcuteInput.value = (profile?.acuteInjuries || []).join('\n');
+  els.profileCompletedInput.value = (profile?.completedFocus || []).join('\n');
+  els.profileFutureInput.value = (profile?.futureFocus || []).join('\n');
+  captureProfileSnapshot();
+  updateBusyUi();
+}
+
+async function loadClientProfile() {
+  if (!state.selectedClientId) {
+    renderClientProfile(null);
+    return;
+  }
+
+  try {
+    const profile = await window.coachNotes.getClientProfile({ clientId: state.selectedClientId });
+    renderClientProfile(profile);
+  } catch (error) {
+    renderClientProfile({
+      clientName: state.clients.find((client) => client.id === state.selectedClientId)?.name || 'Selected client',
+      topPriorities: [],
+      clientTags: [],
+      clientColor: '',
+      ongoingMedicalConsiderations: [],
+      acuteInjuries: [],
+      completedFocus: [],
+      futureFocus: [],
+      updatedAt: null
+    });
+    renderAnswer(`Load client profile failed: ${error.message}`);
+  }
+}
+
+async function saveClientProfile(options = {}) {
+  if (!state.selectedClientId) {
+    renderAnswer('Select a client before saving profile.');
+    return false;
+  }
+
+  const topPrioritiesRaw = parseMultilineList(els.profileTopInput.value, 12);
+  if (topPrioritiesRaw.length > 3) {
+    renderAnswer('Top Priorities is limited to 3 items.');
+    return false;
+  }
+
+  const payload = {
+    clientId: state.selectedClientId,
+    topPriorities: topPrioritiesRaw,
+    clientTags: [...(state.profileClientTagsDraft || [])],
+    clientColor: state.profileColorValue || '',
+    ongoingMedicalConsiderations: parseMultilineList(els.profileMedicalInput.value),
+    acuteInjuries: parseMultilineList(els.profileAcuteInput.value),
+    completedFocus: parseMultilineList(els.profileCompletedInput.value),
+    futureFocus: parseMultilineList(els.profileFutureInput.value)
+  };
+
+  setBusy(true, 'Saving client profile...');
+  try {
+    const saved = await window.coachNotes.saveClientProfile(payload);
+    renderClientProfile(saved);
+    await loadClients();
+    renderAnswer(`Saved profile for ${saved.clientName}.`);
+    if (options?.closeDialog && els.clientProfileDialog.open) {
+      els.clientProfileDialog.close();
+    }
+    return true;
+  } catch (error) {
+    renderAnswer(`Save client profile failed: ${error.message}`);
+    return false;
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function requestCloseClientProfileDialog() {
+  if (!els.clientProfileDialog.open) {
+    return;
+  }
+
+  refreshProfileDirtyState();
+  if (!state.profileDirty) {
+    els.clientProfileDialog.close();
+    return;
+  }
+
+  const shouldSave = window.confirm(
+    'You have unsaved profile changes.\n\nClick OK to save before closing.'
+  );
+  if (shouldSave) {
+    const saved = await saveClientProfile({ closeDialog: true });
+    if (!saved) {
+      return;
+    }
+    return;
+  }
+
+  const shouldDiscard = window.confirm('Discard unsaved profile changes and close?');
+  if (!shouldDiscard) {
+    return;
+  }
+
+  await loadClientProfile();
+  els.clientProfileDialog.close();
+}
+
+async function openClientProfileDialog(options = {}) {
+  if (options?.reload !== false) {
+    await loadClientProfile();
+  }
+  els.clientProfileDialog.showModal();
 }
 
 function renderTagSuggestions() {
@@ -884,20 +1459,58 @@ function renderTagSuggestions() {
   }
 }
 
-function renderNewNoteClientOptions() {
-  els.newNoteClientSelect.innerHTML = '';
+function populateClientSelect(selectEl, emptyLabel = 'No client folder (root)') {
+  selectEl.innerHTML = '';
 
   const emptyOption = document.createElement('option');
   emptyOption.value = '';
-  emptyOption.textContent = 'No client folder (root)';
-  els.newNoteClientSelect.appendChild(emptyOption);
+  emptyOption.textContent = emptyLabel;
+  selectEl.appendChild(emptyOption);
 
   for (const client of state.clients) {
     const option = document.createElement('option');
     option.value = client.name;
     option.textContent = client.name;
-    els.newNoteClientSelect.appendChild(option);
+    selectEl.appendChild(option);
   }
+}
+
+function renderNewNoteClientOptions() {
+  populateClientSelect(els.newNoteClientSelect);
+}
+
+function stripFrontmatter(text) {
+  const raw = String(text || '').replace(/\r\n/g, '\n');
+  if (!raw.startsWith('---\n')) {
+    return raw;
+  }
+
+  const end = raw.indexOf('\n---\n', 4);
+  if (end < 0) {
+    return raw;
+  }
+
+  return raw.slice(end + 5).trimStart();
+}
+
+function stripAutoTitleHeading(text, title) {
+  const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+  if (!lines.length) {
+    return '';
+  }
+
+  const first = lines[0].match(/^#\s+(.+)$/);
+  const normalizedTitle = sanitizeName(title || '').toLowerCase();
+  if (!first || !normalizedTitle || sanitizeName(first[1]).toLowerCase() !== normalizedTitle) {
+    return text;
+  }
+
+  let start = 1;
+  while (start < lines.length && !lines[start].trim()) {
+    start += 1;
+  }
+
+  return lines.slice(start).join('\n');
 }
 
 async function loadTags() {
@@ -970,6 +1583,18 @@ async function runAsk() {
     return;
   }
 
+  if (isLikelyAcknowledgementFollowup(question)) {
+    renderAnswer(
+      'Ask works one question at a time and does not keep chat context yet. Please restate the full request explicitly.',
+      [],
+      [],
+      {
+        context: `Question: ${question}`
+      }
+    );
+    return;
+  }
+
   setBusy(true, 'Thinking...');
   try {
     const topK = normalizeTopK(els.topKInput.value);
@@ -982,9 +1607,10 @@ async function runAsk() {
       topK,
       relevanceMode: els.relevanceModeSelect.value
     });
+    const fallbackSuffix = result.fallbackUsed ? ' (fallback mode)' : '';
 
     renderAnswer(result.answer, result.sources || [], result.citations || [], {
-      context: `Question: ${question}`,
+      context: `Question: ${question}${fallbackSuffix}`,
       addToHistory: true,
       autoOpen: true
     });
@@ -1017,17 +1643,30 @@ async function runSummarize() {
     const matchCount = Number(searchResult.count) || 0;
     els.topKInput.value = String(topK);
     syncDepthPresetFromTopK();
+    const retrieved = (state.results || []).slice(0, topK).map((item) => ({
+      chunkId: item.chunkId,
+      noteId: item.noteId,
+      title: item.title,
+      date: item.date,
+      clientNames: item.clientNames || [],
+      snippet: item.snippet || '',
+      startOffset: item.startOffset,
+      endOffset: item.endOffset,
+      chunkText: item.chunkText
+    }));
     const result = await window.coachNotes.summarize({
       query,
       scope: els.scopeSelect.value,
       clientId: els.scopeSelect.value === 'client' ? state.selectedClientId : null,
       topK,
-      relevanceMode: els.relevanceModeSelect.value
+      relevanceMode: els.relevanceModeSelect.value,
+      retrieved
     });
+    const fallbackSuffix = result.fallbackUsed ? ' (fallback mode)' : '';
 
     const context = matchCount > 0
-      ? `Summary of top ${Math.min(topK, matchCount)} of ${matchCount} matches for "${query}"`
-      : `Summary for "${query}"`;
+      ? `Summary of top ${Math.min(topK, matchCount)} of ${matchCount} matches for "${query}"${fallbackSuffix}`
+      : `Summary for "${query}"${fallbackSuffix}`;
 
     renderAnswer(result.summary || '', result.sources || [], result.citations || [], {
       context,
@@ -1088,6 +1727,138 @@ function openNewNoteDialog() {
 
   els.newNoteDialog.showModal();
   els.newNoteTitleInput.focus();
+}
+
+function openNewClientDialog() {
+  els.newClientNameInput.value = '';
+  els.newClientDialog.showModal();
+  els.newClientNameInput.focus();
+}
+
+async function createNewClient(event) {
+  event.preventDefault();
+  const name = String(els.newClientNameInput.value || '').trim();
+  if (!name) {
+    renderAnswer('Client name is required.');
+    return;
+  }
+
+  setBusy(true, 'Creating client...');
+  try {
+    const created = await window.coachNotes.createClient({ name });
+    await loadClients();
+    if (created.id) {
+      state.selectedClientId = created.id;
+    }
+    await loadClientProfile();
+    renderClients();
+    renderNewNoteClientOptions();
+    els.newClientDialog.close();
+    renderAnswer(`Created client: ${created.name}`);
+  } catch (error) {
+    renderAnswer(`Create client failed: ${error.message}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function openEditNoteDialog() {
+  if (!state.currentNote || !state.selectedNoteId) {
+    renderAnswer('Select a note before editing.');
+    return;
+  }
+
+  populateClientSelect(els.editNoteClientSelect, 'No client folder (root)');
+  const now = new Date().toISOString().slice(0, 10);
+  els.editNoteTitleInput.value = state.currentNote.title || '';
+  els.editNoteDateInput.value = state.currentNote.date || now;
+  els.editNoteClientSelect.value = state.currentNote.clients?.[0] || '';
+  els.editNoteTagsInput.value = (state.currentNote.tags || []).join(', ');
+  const bodyNoFrontmatter = stripFrontmatter(state.currentNote.text || '');
+  els.editNoteBodyInput.value = stripAutoTitleHeading(bodyNoFrontmatter, state.currentNote.title || '');
+  els.editNoteDialog.showModal();
+  els.editNoteTitleInput.focus();
+}
+
+async function saveEditedNote(event) {
+  event.preventDefault();
+  if (!state.selectedNoteId) {
+    renderAnswer('Select a note before editing.');
+    return;
+  }
+
+  const title = String(els.editNoteTitleInput.value || '').trim();
+  if (!title) {
+    renderAnswer('Title is required to save note changes.');
+    return;
+  }
+
+  const payload = {
+    noteId: state.selectedNoteId,
+    title,
+    date: els.editNoteDateInput.value,
+    clientName: els.editNoteClientSelect.value,
+    tags: parseTagInput(els.editNoteTagsInput.value),
+    body: els.editNoteBodyInput.value
+  };
+
+  setBusy(true, 'Saving note changes...');
+  try {
+    const updated = await window.coachNotes.updateNote(payload);
+    await loadClients();
+    await loadClientProfile();
+    renderClients();
+    await loadTags();
+    await loadNotes();
+    els.editNoteDialog.close();
+    if (updated.noteId) {
+      state.selectedHighlight = null;
+      await openNote(updated.noteId);
+    }
+    renderAnswer(`Updated note: ${updated.title}`);
+  } catch (error) {
+    renderAnswer(`Update note failed: ${error.message}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function deleteCurrentNote() {
+  if (!state.selectedNoteId || !state.currentNote) {
+    renderAnswer('Select a note before deleting.');
+    return;
+  }
+
+  const title = state.currentNote.title || 'this note';
+  const shouldDelete = window.confirm(
+    `Move "${title}" to "Deleted Notes"?\n\nThis removes it from indexed notes but keeps the file on disk.`
+  );
+  if (!shouldDelete) {
+    return;
+  }
+
+  setBusy(true, 'Moving note to Deleted Notes...');
+  try {
+    const result = await window.coachNotes.deleteNote({ noteId: state.selectedNoteId });
+    state.selectedNoteId = null;
+    state.currentNote = null;
+    state.selectedHighlight = null;
+    await loadClients();
+    await loadClientProfile();
+    renderClients();
+    await loadTags();
+    if (state.activeQuery) {
+      await runSearch(state.activeQuery);
+    } else {
+      await loadNotes();
+    }
+    renderNote(null);
+    renderAnswer(`Moved note to Deleted Notes: ${result.title}`);
+  } catch (error) {
+    renderAnswer(`Delete note failed: ${error.message}`);
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function createNewNote(event) {
@@ -1212,6 +1983,7 @@ async function saveSettings(event) {
     await loadClients();
     await loadTags();
     await loadNotes();
+    await loadClientProfile();
   } catch (error) {
     renderAnswer(`Saving settings failed: ${error.message}`);
   } finally {
@@ -1235,6 +2007,7 @@ async function init() {
   await loadClients();
   await loadTags();
   await loadNotes();
+  await loadClientProfile();
   setNoteViewMode('rendered');
   renderNote(null);
   renderAnswer('Run Ask or Summarize to generate grounded output with citations.');
@@ -1244,6 +2017,7 @@ async function init() {
   setClientsPanelOpen(true);
 
   els.newNoteBtn.addEventListener('click', openNewNoteDialog);
+  els.newClientBtn.addEventListener('click', openNewClientDialog);
   els.themeModeGroup.addEventListener('change', (event) => {
     const target = event.target;
     if (!target || target.name !== 'themeMode') {
@@ -1295,6 +2069,7 @@ async function init() {
       await loadClients();
       await loadTags();
       await loadNotes();
+      await loadClientProfile();
     } finally {
       setBusy(false);
     }
@@ -1312,6 +2087,7 @@ async function init() {
     } else {
       await loadNotes();
     }
+    await loadClientProfile();
   });
 
   els.scopeSelect.addEventListener('change', async () => {
@@ -1368,12 +2144,85 @@ async function init() {
     showHistoryEntry(state.answerHistoryIndex + 1);
   });
   els.copyAnswerBtn.addEventListener('click', copyAnswerToClipboard);
+  els.saveProfileBtn.addEventListener('click', async () => {
+    await saveClientProfile({ closeDialog: true });
+  });
+  const profileInputs = [
+    els.profileTopInput,
+    els.profileMedicalInput,
+    els.profileAcuteInput,
+    els.profileCompletedInput,
+    els.profileFutureInput
+  ];
+  for (const input of profileInputs) {
+    input.addEventListener('input', () => {
+      refreshProfileDirtyState();
+    });
+  }
+  els.profileColorInput.addEventListener('input', () => {
+    state.profileColorValue = normalizeHexColor(els.profileColorInput.value);
+    refreshProfileDirtyState();
+  });
+  els.clearProfileColorBtn.addEventListener('click', () => {
+    state.profileColorValue = '';
+    els.profileColorInput.value = '#2aa994';
+    refreshProfileDirtyState();
+  });
+  els.profileTagPicker.addEventListener('change', () => {
+    const picked = String(els.profileTagPicker.value || '').trim();
+    if (!picked) {
+      return;
+    }
+
+    if (picked === '__new__') {
+      showProfileNewTagRow();
+      els.profileTagPicker.value = '';
+      return;
+    }
+
+    addProfileTag(picked);
+    els.profileTagPicker.value = '';
+  });
+  els.profileOpenNewTagBtn.addEventListener('click', () => {
+    showProfileNewTagRow();
+  });
+  els.profileConfirmNewTagBtn.addEventListener('click', () => {
+    submitProfileNewTagFromInput();
+  });
+  els.profileCancelNewTagBtn.addEventListener('click', () => {
+    hideProfileNewTagRow();
+  });
+  els.profileNewTagInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      submitProfileNewTagFromInput();
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      hideProfileNewTagRow();
+    }
+  });
+  els.profileClientTagsList.addEventListener('click', (event) => {
+    const button = event.target.closest('.profile-tag-chip');
+    if (!button) {
+      return;
+    }
+
+    removeProfileTag(button.dataset.tag || '');
+  });
+  els.clearClientTagFiltersBtn.addEventListener('click', () => {
+    state.clientTagFilters = [];
+    renderClientTagFilters();
+    renderClients();
+  });
 
   els.revealBtn.addEventListener('click', async () => {
     if (state.selectedNoteId) {
       await window.coachNotes.revealInFinder(state.selectedNoteId);
     }
   });
+  els.editNoteBtn.addEventListener('click', openEditNoteDialog);
+  els.deleteNoteBtn.addEventListener('click', deleteCurrentNote);
 
   els.clientsHeader.addEventListener('click', (event) => {
     if (isInteractiveTarget(event.target)) {
@@ -1428,6 +2277,26 @@ async function init() {
   els.newNoteForm.addEventListener('submit', createNewNote);
   els.cancelNewNoteBtn.addEventListener('click', () => {
     els.newNoteDialog.close();
+  });
+  els.newClientForm.addEventListener('submit', createNewClient);
+  els.cancelNewClientBtn.addEventListener('click', () => {
+    els.newClientDialog.close();
+  });
+  els.editNoteForm.addEventListener('submit', saveEditedNote);
+  els.cancelEditNoteBtn.addEventListener('click', () => {
+    els.editNoteDialog.close();
+  });
+  els.cancelProfileBtn.addEventListener('click', async () => {
+    await requestCloseClientProfileDialog();
+  });
+  els.clientProfileDialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    requestCloseClientProfileDialog();
+  });
+  els.clientProfileDialog.addEventListener('click', (event) => {
+    if (event.target === els.clientProfileDialog) {
+      requestCloseClientProfileDialog();
+    }
   });
 }
 

@@ -15,7 +15,10 @@ const systemPrompt = [
   'Cite every major claim using [c:chunk_id].',
   'If information is missing, reply exactly: Not found in the provided notes.',
   'Do not invent details, dates, or exercises.',
-  'Avoid diagnosis language and summarize what the notes explicitly say.'
+  'Avoid diagnosis language and summarize what the notes explicitly say.',
+  'Do not offer follow-up actions.',
+  'Do not ask follow-up questions.',
+  'End after the direct answer.'
 ].join(' ');
 
 module.exports = async function answer(req, res) {
@@ -58,6 +61,7 @@ module.exports = async function answer(req, res) {
 
     const result = await openai.responses.create({
       model,
+      max_output_tokens: 700,
       input: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }

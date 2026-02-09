@@ -9,8 +9,11 @@ const Database = require('better-sqlite3');
 const matter = require('gray-matter');
 
 const SUPPORTED_EXTENSIONS = new Set(['.md', '.txt', '.markdown', '.pdf']);
+const EDITABLE_EXTENSIONS = new Set(['.md', '.markdown', '.txt']);
 const KEYCHAIN_SERVICE = 'coachnotes-invite-token';
 const KEYCHAIN_ACCOUNT = 'coachnotes';
+const DELETED_NOTES_DIRNAME = 'Deleted Notes';
+const CLIENT_PROFILE_FILE = '_client-profile.md';
 const DEFAULT_PROXY_URL = 'https://coach-notes-five.vercel.app';
 const DEFAULT_EMBED_MODEL = 'text-embedding-3-small';
 const DEFAULT_ANSWER_MODEL = 'gpt-5-mini';
@@ -314,6 +317,29 @@ function parseDate(value) {
   return null;
 }
 
+function normalizeHexColor(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) {
+    return '';
+  }
+
+  const withHash = raw.startsWith('#') ? raw : `#${raw}`;
+  if (/^#[0-9a-f]{3}$/.test(withHash)) {
+    const expanded = withHash
+      .slice(1)
+      .split('')
+      .map((char) => `${char}${char}`)
+      .join('');
+    return `#${expanded}`;
+  }
+
+  if (/^#[0-9a-f]{6}$/.test(withHash)) {
+    return withHash;
+  }
+
+  return '';
+}
+
 function normalizeVersion(value) {
   const raw = String(value || '')
     .trim()
@@ -426,6 +452,149 @@ async function getUniqueFilePath(directory, baseStem, extension = '.md') {
   }
 
   throw new Error('Could not create a unique filename.');
+}
+
+function getClientFolderNames(rootFolder) {
+  if (!rootFolder || !fs.existsSync(rootFolder)) {
+    return [];
+  }
+
+  const names = [];
+  const entries = fs.readdirSync(rootFolder, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    if (entry.name.startsWith('.')) {
+      continue;
+    }
+
+    if (entry.name === DELETED_NOTES_DIRNAME) {
+      continue;
+    }
+
+    const normalized = sanitizeName(entry.name).toLowerCase();
+    if (normalized) {
+      names.push(normalized);
+    }
+  }
+
+  return names;
+}
+
+function findClientDirectory(rootFolder, clientRow) {
+  const preferred = path.join(rootFolder, clientRow.display_name || '');
+  if (clientRow.display_name && fs.existsSync(preferred) && fs.statSync(preferred).isDirectory()) {
+    return preferred;
+  }
+
+  if (!rootFolder || !fs.existsSync(rootFolder)) {
+    return preferred;
+  }
+
+  const entries = fs.readdirSync(rootFolder, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) {
+      continue;
+    }
+
+    if (entry.name === DELETED_NOTES_DIRNAME) {
+      continue;
+    }
+
+    const normalized = sanitizeName(entry.name).toLowerCase();
+    if (normalized === String(clientRow.name || '').toLowerCase()) {
+      return path.join(rootFolder, entry.name);
+    }
+  }
+
+  return preferred;
+}
+
+function normalizeFocusList(values, maxItems = 80) {
+  return normalizeArray(values)
+    .map((value) => sanitizeName(value))
+    .filter(Boolean)
+    .slice(0, maxItems);
+}
+
+function parseClientProfileContent(content) {
+  let data = {};
+  try {
+    const parsed = matter(content);
+    data = parsed.data || {};
+  } catch {
+    data = {};
+  }
+
+  return {
+    topPriorities: normalizeFocusList(data.top_priorities || data.topPriorities || data.current_focus || data.currentFocus, 3),
+    clientTags: normalizeFocusList(data.client_tags || data.clientTags || data.profile_tags || data.profileTags, 40),
+    clientColor: normalizeHexColor(data.client_color || data.clientColor || data.color),
+    ongoingMedicalConsiderations: normalizeFocusList(
+      data.ongoing_medical_considerations
+      || data.ongoingMedicalConsiderations
+      || data.medical_considerations
+      || data.medicalConsiderations
+    ),
+    acuteInjuries: normalizeFocusList(data.acute_injuries || data.acuteInjuries),
+    completedFocus: normalizeFocusList(data.completed_focus || data.completedFocus),
+    futureFocus: normalizeFocusList(data.future_focus || data.futureFocus),
+    updatedAt: parseDate(data.updated_at || data.updatedAt) || null
+  };
+}
+
+function buildClientProfileContent({
+  clientName,
+  topPriorities,
+  clientTags,
+  clientColor,
+  ongoingMedicalConsiderations,
+  acuteInjuries,
+  completedFocus,
+  futureFocus,
+  updatedAt
+}) {
+  const lines = ['---'];
+
+  function appendList(key, items) {
+    lines.push(`${key}:`);
+    if (!items.length) {
+      lines.push('  []');
+      return;
+    }
+
+    for (const item of items) {
+      lines.push(`  - ${yamlQuote(item)}`);
+    }
+  }
+
+  appendList('top_priorities', topPriorities);
+  appendList('client_tags', clientTags);
+  lines.push(`client_color: ${yamlQuote(clientColor)}`);
+  appendList('ongoing_medical_considerations', ongoingMedicalConsiderations);
+  appendList('acute_injuries', acuteInjuries);
+  appendList('completed_focus', completedFocus);
+  appendList('future_focus', futureFocus);
+  lines.push(`updated_at: ${yamlQuote(updatedAt)}`);
+  lines.push('---', '', `# ${clientName} Focus Profile`, '', 'Managed by CoachNotes.');
+  return `${lines.join('\n')}\n`;
+}
+
+function buildStructuredNoteContent({ title, noteDate, clientName, tags, body }) {
+  const frontmatterLines = [
+    '---',
+    `date: ${yamlQuote(noteDate)}`,
+    `tags: [${tags.map((tag) => yamlQuote(tag)).join(', ')}]`
+  ];
+
+  if (clientName) {
+    frontmatterLines.splice(1, 0, `client: ${yamlQuote(clientName)}`);
+  }
+
+  frontmatterLines.push('---', '', `# ${title}`, '');
+  return `${frontmatterLines.join('\n')}${body ? `${body}\n` : ''}`;
 }
 
 function buildChunks(text, targetSize = 2200, maxSize = 3200, overlap = 300) {
@@ -571,11 +740,18 @@ async function scanNoteFiles(rootFolder) {
 
       const fullPath = path.join(currentPath, entry.name);
       if (entry.isDirectory()) {
+        if (entry.name === DELETED_NOTES_DIRNAME) {
+          continue;
+        }
         await walk(fullPath);
         continue;
       }
 
       if (!entry.isFile()) {
+        continue;
+      }
+
+      if (entry.name.toLowerCase() === CLIENT_PROFILE_FILE.toLowerCase()) {
         continue;
       }
 
@@ -802,6 +978,11 @@ function relevanceProfile(mode) {
   return profiles[parseRelevanceMode(mode)];
 }
 
+function isTimeoutLikeError(error) {
+  const message = String(error?.message || error || '');
+  return /FUNCTION_INVOCATION_TIMEOUT|timeout|timed out/i.test(message);
+}
+
 async function upsertFileIndex(filePath, stat, rootFolder, appSettings, forceRebuild = false, diagnostics = null) {
   const rawText = await readNoteText(filePath);
   const hash = sha1(rawText);
@@ -992,7 +1173,19 @@ function pruneOrphans() {
     return;
   }
 
-  db.prepare('DELETE FROM clients WHERE id NOT IN (SELECT DISTINCT client_id FROM note_clients)').run();
+  const rootFolder = getSetting('rootFolder', '');
+  const folderNames = getClientFolderNames(rootFolder);
+  if (folderNames.length) {
+    const placeholders = folderNames.map(() => '?').join(', ');
+    db.prepare(
+      `DELETE FROM clients
+       WHERE id NOT IN (SELECT DISTINCT client_id FROM note_clients)
+         AND name NOT IN (${placeholders})`
+    ).run(...folderNames);
+  } else {
+    db.prepare('DELETE FROM clients WHERE id NOT IN (SELECT DISTINCT client_id FROM note_clients)').run();
+  }
+
   db.prepare('DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM note_tags)').run();
 }
 
@@ -1341,17 +1534,62 @@ async function runAsk(payload) {
     text: item.chunkText
   }));
 
-  const response = await callProxy(
-    '/answer',
-    {
-      model: DEFAULT_ANSWER_MODEL,
-      question,
-      instructions: payload?.instructions || '',
-      sources,
-      response_format: 'coachnotes.v1'
-    },
-    settings
-  );
+  let response;
+  let fallbackUsed = false;
+  try {
+    response = await callProxy(
+      '/answer',
+      {
+        model: DEFAULT_ANSWER_MODEL,
+        question,
+        instructions: payload?.instructions || '',
+        sources,
+        response_format: 'coachnotes.v1'
+      },
+      settings
+    );
+  } catch (error) {
+    if (!isTimeoutLikeError(error)) {
+      throw error;
+    }
+
+    fallbackUsed = true;
+    const reducedSources = sources
+      .slice(0, Math.min(4, sources.length))
+      .map((source) => ({
+        ...source,
+        text: String(source.text || '').slice(0, 1800)
+      }));
+
+    try {
+      response = await callProxy(
+        '/answer',
+        {
+          model: DEFAULT_ANSWER_MODEL,
+          question,
+          instructions: 'Answer concisely from the provided sources only.',
+          sources: reducedSources,
+          response_format: 'coachnotes.v1'
+        },
+        settings
+      );
+    } catch (retryError) {
+      if (!isTimeoutLikeError(retryError)) {
+        throw retryError;
+      }
+
+      const timeoutAnswer = 'Answer timed out on the server. Try a more specific question or lower AI source depth.';
+      response = {
+        model: DEFAULT_ANSWER_MODEL,
+        answer: timeoutAnswer,
+        citations: [],
+        structured: {
+          bullets: [timeoutAnswer],
+          warnings: ['Request timed out in proxy function.']
+        }
+      };
+    }
+  }
 
   db.prepare(
     `INSERT INTO llm_answers (created_at, question_text, scope, retrieval_params, model, answer_text, citations)
@@ -1360,7 +1598,7 @@ async function runAsk(payload) {
     nowIso(),
     question,
     scope,
-    JSON.stringify({ topK: maxSources, relevanceMode }),
+    JSON.stringify({ topK: maxSources, relevanceMode, fallbackUsed }),
     response.model || DEFAULT_ANSWER_MODEL,
     response.answer || '',
     JSON.stringify(response.citations || [])
@@ -1368,6 +1606,7 @@ async function runAsk(payload) {
 
   return {
     ...response,
+    fallbackUsed,
     sources: results.map((item) => ({
       chunkId: item.chunkId,
       title: item.title,
@@ -1391,20 +1630,38 @@ async function runSummarize(payload) {
   const clientId = payload?.clientId ? Number(payload.clientId) : null;
   const topK = Math.max(3, Math.min(Number(payload?.topK) || 8, 12));
   const relevanceMode = parseRelevanceMode(payload?.relevanceMode);
+  const providedResults = Array.isArray(payload?.retrieved)
+    ? payload.retrieved
+      .map((row) => ({
+        chunkId: String(row?.chunkId || '').trim(),
+        noteId: Number(row?.noteId),
+        title: String(row?.title || ''),
+        date: String(row?.date || ''),
+        clientNames: Array.isArray(row?.clientNames) ? row.clientNames.map((name) => String(name || '')) : [],
+        snippet: String(row?.snippet || ''),
+        startOffset: Number(row?.startOffset),
+        endOffset: Number(row?.endOffset),
+        chunkText: String(row?.chunkText || '')
+      }))
+      .filter((row) => row.chunkId && row.chunkText)
+      .slice(0, topK)
+    : [];
 
-  const results = await runSearch({
-    query,
-    scope,
-    clientId,
-    limit: topK,
-    relevanceMode
-  });
-  const sources = results.map((item) => ({
+  const results = providedResults.length
+    ? providedResults
+    : await runSearch({
+      query,
+      scope,
+      clientId,
+      limit: topK,
+      relevanceMode
+    });
+  const summarizeSources = results.map((item) => ({
     chunk_id: item.chunkId,
     text: item.chunkText
   }));
 
-  if (!sources.length) {
+  if (!summarizeSources.length) {
     return {
       model: DEFAULT_ANSWER_MODEL,
       summary: 'Not found in the provided notes.',
@@ -1414,18 +1671,57 @@ async function runSummarize(payload) {
   }
 
   const settings = getAppSettings();
-  const response = await callProxy(
-    '/summarize',
-    {
-      model: DEFAULT_ANSWER_MODEL,
-      mode: 'search_results_summary',
-      sources
-    },
-    settings
-  );
+  const answerSources = results.map((item) => ({
+    chunk_id: item.chunkId,
+    note_id: `note_${item.noteId}`,
+    client_ids: item.clientNames,
+    title: item.title,
+    date: item.date,
+    text: item.chunkText
+  }));
+
+  let response;
+  let fallbackUsed = false;
+  try {
+    response = await callProxy(
+      '/summarize',
+      {
+        model: DEFAULT_ANSWER_MODEL,
+        mode: 'search_results_summary',
+        sources: summarizeSources
+      },
+      settings
+    );
+  } catch (error) {
+    const message = String(error?.message || error || '');
+    const isTimeout = /FUNCTION_INVOCATION_TIMEOUT|timeout|timed out/i.test(message);
+    if (!isTimeout) {
+      throw error;
+    }
+
+    fallbackUsed = true;
+    const fallback = await callProxy(
+      '/answer',
+      {
+        model: DEFAULT_ANSWER_MODEL,
+        question: `Summarize these notes for query: ${query}`,
+        instructions: 'Provide a concise summary with citations for each major point.',
+        sources: answerSources,
+        response_format: 'coachnotes.v1'
+      },
+      settings
+    );
+
+    response = {
+      model: fallback.model || DEFAULT_ANSWER_MODEL,
+      summary: fallback.answer || 'Not found in the provided notes.',
+      citations: fallback.citations || []
+    };
+  }
 
   return {
     ...response,
+    fallbackUsed,
     sources: results.map((item) => ({
       chunkId: item.chunkId,
       title: item.title,
@@ -1459,20 +1755,13 @@ async function createNote(payload) {
 
   const stem = `${noteDate}-${slugifyFileStem(title)}`.slice(0, 120);
   const filePath = await getUniqueFilePath(noteDirectory, stem, '.md');
-
-  const frontmatterLines = [
-    '---',
-    `date: ${yamlQuote(noteDate)}`,
-    `tags: [${tags.map((tag) => yamlQuote(tag)).join(', ')}]`
-  ];
-
-  if (clientName) {
-    frontmatterLines.splice(1, 0, `client: ${yamlQuote(clientName)}`);
-  }
-
-  frontmatterLines.push('---', '', `# ${title}`, '');
-
-  const content = `${frontmatterLines.join('\n')}${body ? `${body}\n` : ''}`;
+  const content = buildStructuredNoteContent({
+    title,
+    noteDate,
+    clientName,
+    tags,
+    body
+  });
   await fsp.writeFile(filePath, content, 'utf8');
 
   const stat = await fsp.stat(filePath);
@@ -1491,6 +1780,286 @@ async function createNote(payload) {
     date: note.date,
     clientName,
     tags
+  };
+}
+
+async function createClient(payload) {
+  requireDb();
+
+  const settings = getAppSettings();
+  const rootFolder = settings.rootFolder;
+  if (!rootFolder || !fs.existsSync(rootFolder)) {
+    throw new Error('Set a valid root notes folder before creating clients.');
+  }
+
+  const clientName = sanitizeName(payload?.name || '');
+  if (!clientName) {
+    throw new Error('Client name is required.');
+  }
+
+  const clientDirectory = path.join(rootFolder, clientName);
+  await fsp.mkdir(clientDirectory, { recursive: true });
+  const clientId = ensureClient(clientName);
+
+  return {
+    id: clientId,
+    name: clientName,
+    noteCount: 0,
+    path: clientDirectory
+  };
+}
+
+async function updateNote(payload) {
+  requireDb();
+
+  const noteId = Number(payload?.noteId);
+  if (!Number.isFinite(noteId)) {
+    throw new Error('noteId is required.');
+  }
+
+  const existing = db
+    .prepare('SELECT id, path, title, date FROM notes WHERE id = ?')
+    .get(noteId);
+  if (!existing) {
+    throw new Error('Note not found.');
+  }
+
+  const settings = getAppSettings();
+  const rootFolder = settings.rootFolder;
+  if (!rootFolder || !fs.existsSync(rootFolder)) {
+    throw new Error('Set a valid root notes folder before editing notes.');
+  }
+
+  const currentPath = existing.path;
+  const extension = path.extname(currentPath).toLowerCase();
+  if (!EDITABLE_EXTENSIONS.has(extension)) {
+    throw new Error(`Editing is supported for ${[...EDITABLE_EXTENSIONS].join(', ')} files only.`);
+  }
+
+  const noteDate = parseDate(payload?.date) || parseDate(existing.date) || new Date().toISOString().slice(0, 10);
+  const clientName = sanitizeName(payload?.clientName || '');
+  const title = sanitizeName(payload?.title || '') || sanitizeName(existing.title) || `Session ${noteDate}`;
+  const tags = normalizeArray(payload?.tags || []);
+  const body = String(payload?.body || '').replace(/\r\n/g, '\n').trimEnd();
+
+  const targetDirectory = clientName ? path.join(rootFolder, clientName) : rootFolder;
+  await fsp.mkdir(targetDirectory, { recursive: true });
+
+  const stem = `${noteDate}-${slugifyFileStem(title)}`.slice(0, 120);
+  const desiredPath = path.join(targetDirectory, `${stem}${extension}`);
+  let targetPath = desiredPath;
+  if (path.resolve(desiredPath) !== path.resolve(currentPath)) {
+    try {
+      await fsp.access(desiredPath, fs.constants.F_OK);
+      targetPath = await getUniqueFilePath(targetDirectory, stem, extension);
+    } catch {
+      targetPath = desiredPath;
+    }
+  }
+
+  const content = buildStructuredNoteContent({
+    title,
+    noteDate,
+    clientName,
+    tags,
+    body
+  });
+  await fsp.writeFile(targetPath, content, 'utf8');
+  if (path.resolve(targetPath) !== path.resolve(currentPath) && fs.existsSync(currentPath)) {
+    await fsp.unlink(currentPath);
+  }
+
+  const stat = await fsp.stat(targetPath);
+  await upsertFileIndex(targetPath, stat, rootFolder, settings, true);
+  if (path.resolve(targetPath) !== path.resolve(currentPath)) {
+    db.prepare('DELETE FROM notes WHERE path = ?').run(currentPath);
+  }
+  pruneOrphans();
+
+  const note = db.prepare('SELECT id, path, title, date FROM notes WHERE path = ?').get(targetPath);
+  if (!note) {
+    throw new Error('Note was updated but indexing failed.');
+  }
+
+  return {
+    noteId: note.id,
+    path: note.path,
+    title: note.title,
+    date: note.date,
+    clientName,
+    tags
+  };
+}
+
+async function deleteNote(payload) {
+  requireDb();
+
+  const noteId = Number(payload?.noteId);
+  if (!Number.isFinite(noteId)) {
+    throw new Error('noteId is required.');
+  }
+
+  const note = db
+    .prepare('SELECT id, path, title FROM notes WHERE id = ?')
+    .get(noteId);
+  if (!note) {
+    throw new Error('Note not found.');
+  }
+
+  const settings = getAppSettings();
+  const rootFolder = settings.rootFolder;
+  if (!rootFolder || !fs.existsSync(rootFolder)) {
+    throw new Error('Set a valid root notes folder before deleting notes.');
+  }
+
+  const relativePath = path.relative(rootFolder, note.path);
+  if (!relativePath || relativePath.startsWith('..')) {
+    throw new Error('Note is outside the configured root folder.');
+  }
+
+  const deletedRoot = path.join(rootFolder, DELETED_NOTES_DIRNAME);
+  const relativeDir = path.dirname(relativePath);
+  const targetDirectory = relativeDir === '.'
+    ? deletedRoot
+    : path.join(deletedRoot, relativeDir);
+  await fsp.mkdir(targetDirectory, { recursive: true });
+
+  const extension = path.extname(note.path);
+  const baseName = path.basename(note.path, extension);
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const destinationPath = await getUniqueFilePath(
+    targetDirectory,
+    `${stamp}-${slugifyFileStem(baseName)}`,
+    extension
+  );
+
+  await fsp.rename(note.path, destinationPath);
+  db.prepare('DELETE FROM notes WHERE id = ?').run(note.id);
+  pruneOrphans();
+
+  return {
+    noteId: note.id,
+    title: note.title,
+    movedTo: destinationPath
+  };
+}
+
+async function getClientProfile(payload) {
+  requireDb();
+
+  const clientId = Number(payload?.clientId);
+  if (!Number.isFinite(clientId)) {
+    throw new Error('clientId is required.');
+  }
+
+  const client = db.prepare('SELECT id, name, display_name FROM clients WHERE id = ?').get(clientId);
+  if (!client) {
+    throw new Error('Client not found.');
+  }
+
+  const settings = getAppSettings();
+  const rootFolder = settings.rootFolder;
+  if (!rootFolder || !fs.existsSync(rootFolder)) {
+    throw new Error('Set a valid root notes folder before editing client profiles.');
+  }
+
+  const clientDirectory = findClientDirectory(rootFolder, client);
+  const profilePath = path.join(clientDirectory, CLIENT_PROFILE_FILE);
+
+  let parsed = {
+    topPriorities: [],
+    clientTags: [],
+    clientColor: '',
+    ongoingMedicalConsiderations: [],
+    acuteInjuries: [],
+    completedFocus: [],
+    futureFocus: [],
+    updatedAt: null
+  };
+  let exists = false;
+
+  try {
+    const content = await fsp.readFile(profilePath, 'utf8');
+    parsed = parseClientProfileContent(content);
+    exists = true;
+  } catch {
+    exists = false;
+  }
+
+  return {
+    clientId: client.id,
+    clientName: client.display_name,
+    topPriorities: parsed.topPriorities,
+    clientTags: parsed.clientTags,
+    clientColor: parsed.clientColor,
+    ongoingMedicalConsiderations: parsed.ongoingMedicalConsiderations,
+    acuteInjuries: parsed.acuteInjuries,
+    completedFocus: parsed.completedFocus,
+    futureFocus: parsed.futureFocus,
+    updatedAt: parsed.updatedAt,
+    exists
+  };
+}
+
+async function saveClientProfile(payload) {
+  requireDb();
+
+  const clientId = Number(payload?.clientId);
+  if (!Number.isFinite(clientId)) {
+    throw new Error('clientId is required.');
+  }
+
+  const client = db.prepare('SELECT id, name, display_name FROM clients WHERE id = ?').get(clientId);
+  if (!client) {
+    throw new Error('Client not found.');
+  }
+
+  const settings = getAppSettings();
+  const rootFolder = settings.rootFolder;
+  if (!rootFolder || !fs.existsSync(rootFolder)) {
+    throw new Error('Set a valid root notes folder before editing client profiles.');
+  }
+
+  const topPriorities = normalizeFocusList(payload?.topPriorities, 3);
+  if (normalizeArray(payload?.topPriorities).length > 3) {
+    throw new Error('Top priorities is limited to 3 items.');
+  }
+
+  const clientTags = normalizeFocusList(payload?.clientTags, 40);
+  const clientColor = normalizeHexColor(payload?.clientColor);
+  const completedFocus = normalizeFocusList(payload?.completedFocus);
+  const futureFocus = normalizeFocusList(payload?.futureFocus);
+  const ongoingMedicalConsiderations = normalizeFocusList(payload?.ongoingMedicalConsiderations);
+  const acuteInjuries = normalizeFocusList(payload?.acuteInjuries);
+  const clientDirectory = findClientDirectory(rootFolder, client);
+  await fsp.mkdir(clientDirectory, { recursive: true });
+  const profilePath = path.join(clientDirectory, CLIENT_PROFILE_FILE);
+  const updatedAt = nowIso();
+  const content = buildClientProfileContent({
+    clientName: client.display_name,
+    topPriorities,
+    clientTags,
+    clientColor,
+    ongoingMedicalConsiderations,
+    acuteInjuries,
+    completedFocus,
+    futureFocus,
+    updatedAt
+  });
+  await fsp.writeFile(profilePath, content, 'utf8');
+
+  return {
+    clientId: client.id,
+    clientName: client.display_name,
+    topPriorities,
+    clientTags,
+    clientColor,
+    ongoingMedicalConsiderations,
+    acuteInjuries,
+    completedFocus,
+    futureFocus,
+    updatedAt: parseDate(updatedAt),
+    exists: true
   };
 }
 
@@ -1637,16 +2206,54 @@ function setupIpc() {
 
   ipcMain.handle('app:get-clients', async () => {
     requireDb();
-    return db
+    const rows = db
       .prepare(
-        `SELECT c.id, c.display_name AS name, COUNT(DISTINCT nc.note_id) AS noteCount
+        `SELECT c.id, c.name AS key_name, c.display_name AS display_name, COUNT(DISTINCT nc.note_id) AS noteCount
          FROM clients c
          LEFT JOIN note_clients nc ON nc.client_id = c.id
          GROUP BY c.id
-         HAVING COUNT(DISTINCT nc.note_id) > 0
          ORDER BY LOWER(c.display_name) ASC`
       )
       .all();
+
+    const settings = getAppSettings();
+    const rootFolder = settings.rootFolder;
+    const canReadProfiles = Boolean(rootFolder && fs.existsSync(rootFolder));
+
+    const enriched = await Promise.all(rows.map(async (row) => {
+      let parsed = null;
+      if (canReadProfiles) {
+        const clientDirectory = findClientDirectory(rootFolder, {
+          name: row.key_name,
+          display_name: row.display_name
+        });
+        const profilePath = path.join(clientDirectory, CLIENT_PROFILE_FILE);
+        try {
+          const content = await fsp.readFile(profilePath, 'utf8');
+          parsed = parseClientProfileContent(content);
+        } catch {
+          parsed = null;
+        }
+      }
+
+      return {
+        id: row.id,
+        name: row.display_name,
+        noteCount: Number(row.noteCount || 0),
+        profileTags: parsed?.clientTags || [],
+        color: parsed?.clientColor || ''
+      };
+    }));
+
+    return enriched;
+  });
+
+  ipcMain.handle('app:get-client-profile', async (_event, payload) => {
+    return getClientProfile(payload || {});
+  });
+
+  ipcMain.handle('app:save-client-profile', async (_event, payload) => {
+    return saveClientProfile(payload || {});
   });
 
   ipcMain.handle('app:get-tags', async () => {
@@ -1750,6 +2357,18 @@ function setupIpc() {
 
   ipcMain.handle('app:create-note', async (_event, payload) => {
     return createNote(payload || {});
+  });
+
+  ipcMain.handle('app:create-client', async (_event, payload) => {
+    return createClient(payload || {});
+  });
+
+  ipcMain.handle('app:update-note', async (_event, payload) => {
+    return updateNote(payload || {});
+  });
+
+  ipcMain.handle('app:delete-note', async (_event, payload) => {
+    return deleteNote(payload || {});
   });
 
   ipcMain.handle('app:check-for-updates', async () => {

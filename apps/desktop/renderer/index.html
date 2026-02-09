@@ -15,6 +15,7 @@
         </div>
         <div class="topbar-actions">
           <button id="newNoteBtn" class="btn btn-primary">New Note</button>
+          <button id="newClientBtn" class="btn btn-ghost">New Client</button>
           <div id="themeModeGroup" class="theme-mode" role="radiogroup" aria-label="Theme mode">
             <input id="themeModeLight" class="theme-mode-input" type="radio" name="themeMode" value="light" checked />
             <label for="themeModeLight" class="theme-mode-option" title="Light mode">☀</label>
@@ -42,6 +43,13 @@
             </div>
           </div>
           <div id="clientsPanelBody">
+            <div id="clientTagFiltersWrap" class="client-tag-filters" hidden>
+              <div class="client-tag-filters-head">
+                <span>Filter by tag</span>
+                <button id="clearClientTagFiltersBtn" class="btn btn-tiny" type="button">Clear</button>
+              </div>
+              <div id="clientTagFilters" class="client-tag-filter-chips"></div>
+            </div>
             <ul id="clientsList" class="list"></ul>
           </div>
         </aside>
@@ -122,6 +130,8 @@
                 <div class="row-inline">
                   <button id="renderedViewBtn" class="btn btn-tiny">Rendered</button>
                   <button id="rawViewBtn" class="btn btn-tiny">Raw</button>
+                  <button id="editNoteBtn" class="btn btn-tiny" disabled>Edit Note</button>
+                  <button id="deleteNoteBtn" class="btn btn-tiny btn-danger" disabled>Delete</button>
                   <button id="revealBtn" class="btn btn-tiny" disabled>Reveal in Finder</button>
                 </div>
               </div>
@@ -192,6 +202,109 @@
       </form>
     </dialog>
 
+    <dialog id="clientProfileDialog">
+      <form method="dialog" id="clientProfileForm" class="settings-form">
+        <h2>Client Profile</h2>
+        <div class="profile-head-row">
+          <p id="profileClientName" class="profile-client-name">Select a client in the left sidebar, then open Profile.</p>
+          <div class="profile-color-inline">
+            <label for="profileColorInput">Color</label>
+            <input id="profileColorInput" type="color" value="#2aa994" />
+            <button id="clearProfileColorBtn" class="btn btn-tiny" type="button">Default</button>
+          </div>
+        </div>
+        <p id="profileUpdatedAt" class="profile-updated"></p>
+        <p id="profileDisabled" class="advanced-note">Choose a client in the left sidebar to edit profile details.</p>
+        <div id="profileFormWrap" class="profile-grid" hidden>
+          <label>
+            Top Priorities (max 3)
+            <textarea id="profileTopInput" rows="4" placeholder="One item per line"></textarea>
+          </label>
+          <label>
+            Client Tags
+            <div class="profile-tag-picker-row">
+              <select id="profileTagPicker">
+                <option value="" selected>Select tag...</option>
+                <option value="__new__">Add tag...</option>
+              </select>
+              <button id="profileOpenNewTagBtn" class="btn btn-tiny" type="button">New</button>
+            </div>
+            <div id="profileNewTagRow" class="profile-new-tag-row" hidden>
+              <input id="profileNewTagInput" type="text" placeholder="New tag name" />
+              <button id="profileConfirmNewTagBtn" class="btn btn-tiny" type="button">Add</button>
+              <button id="profileCancelNewTagBtn" class="btn btn-tiny" type="button">Cancel</button>
+            </div>
+            <div id="profileClientTagsList" class="profile-tags-list"></div>
+          </label>
+          <label>
+            Ongoing Medical Considerations
+            <textarea id="profileMedicalInput" rows="4" placeholder="One item per line"></textarea>
+          </label>
+          <label>
+            Acute Injuries
+            <textarea id="profileAcuteInput" rows="4" placeholder="One item per line"></textarea>
+          </label>
+          <label>
+            Completed Focus Areas
+            <textarea id="profileCompletedInput" rows="4" placeholder="One item per line"></textarea>
+          </label>
+          <label>
+            Future Focus Areas
+            <textarea id="profileFutureInput" rows="4" placeholder="One item per line"></textarea>
+          </label>
+        </div>
+        <div class="row-inline actions">
+          <button type="button" id="cancelProfileBtn" class="btn btn-ghost">Cancel</button>
+          <button type="button" id="saveProfileBtn" class="btn btn-primary">Save &amp; Close</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="newClientDialog">
+      <form method="dialog" id="newClientForm" class="settings-form">
+        <h2>New Client</h2>
+        <label>
+          Client Name
+          <input id="newClientNameInput" type="text" placeholder="Sarah Mitchell" required />
+        </label>
+        <p class="advanced-note">This creates a client folder under your root notes folder.</p>
+        <div class="row-inline actions">
+          <button type="button" id="cancelNewClientBtn" class="btn btn-ghost">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Client</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="editNoteDialog">
+      <form method="dialog" id="editNoteForm" class="settings-form">
+        <h2>Edit Note</h2>
+        <label>
+          Title
+          <input id="editNoteTitleInput" type="text" required />
+        </label>
+        <label>
+          Date
+          <input id="editNoteDateInput" type="date" />
+        </label>
+        <label>
+          Client
+          <select id="editNoteClientSelect"></select>
+        </label>
+        <label>
+          Tags (comma separated)
+          <input id="editNoteTagsInput" type="text" placeholder="knee, rehab, progression" list="tagSuggestions" />
+        </label>
+        <label>
+          Body
+          <textarea id="editNoteBodyInput" rows="12"></textarea>
+        </label>
+        <div class="row-inline actions">
+          <button type="button" id="cancelEditNoteBtn" class="btn btn-ghost">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="helpDialog">
       <form method="dialog" class="settings-form" id="helpForm">
         <h2>CoachNotes Help</h2>
@@ -209,9 +322,14 @@
 
           <p><strong>4. Creating notes in app</strong></p>
           <p>Use <strong>New Note</strong> to create markdown files with client, date, tags, and body.</p>
+          <p>Use <strong>New Client</strong> to create client folders without using Finder.</p>
 
-          <p><strong>5. Search and Ask</strong></p>
+          <p><strong>5. Editing and deleting notes</strong></p>
+          <p>Use <strong>Edit Note</strong> to update a selected note. <strong>Delete</strong> moves the file into <code>Deleted Notes/</code> under your root folder.</p>
+
+          <p><strong>6. Search and Ask</strong></p>
           <p>Search finds relevant chunks. Ask/Summarize use retrieved sources and provide clickable citations.</p>
+          <p>Ask is currently single-turn: include full context in each question instead of "do that".</p>
         </div>
         <div class="row-inline actions">
           <button type="button" id="closeHelpBtn" class="btn btn-primary">Close</button>
