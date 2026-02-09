@@ -13,6 +13,7 @@ const state = {
   selectedHighlight: null,
   scope: 'all',
   activeQuery: '',
+  queryMode: 'search',
   noteViewMode: 'rendered',
   busyCount: 0,
   busyMessage: 'Working...',
@@ -45,14 +46,16 @@ const els = {
   clientsPanelBody: document.getElementById('clientsPanelBody'),
   allClientsBtn: document.getElementById('allClientsBtn'),
   clientsList: document.getElementById('clientsList'),
-  searchInput: document.getElementById('searchInput'),
+  queryModeGroup: document.getElementById('queryModeGroup'),
+  modeSearch: document.getElementById('modeSearch'),
+  modeAsk: document.getElementById('modeAsk'),
+  modeSummarize: document.getElementById('modeSummarize'),
+  queryInput: document.getElementById('queryInput'),
   scopeSelect: document.getElementById('scopeSelect'),
-  searchBtn: document.getElementById('searchBtn'),
-  askInput: document.getElementById('askInput'),
+  goBtn: document.getElementById('goBtn'),
+  depthPresetSelect: document.getElementById('depthPresetSelect'),
   topKInput: document.getElementById('topKInput'),
   relevanceModeSelect: document.getElementById('relevanceModeSelect'),
-  askBtn: document.getElementById('askBtn'),
-  summarizeBtn: document.getElementById('summarizeBtn'),
   resultsTitle: document.getElementById('resultsTitle'),
   resultsList: document.getElementById('resultsList'),
   noteTitle: document.getElementById('noteTitle'),
@@ -139,6 +142,101 @@ function initTheme() {
   applyTheme(initialMode, false);
 }
 
+function getQueryModeConfig(mode) {
+  if (mode === 'ask') {
+    return {
+      placeholder: 'Ask a question about your notes...',
+      buttonText: 'Ask'
+    };
+  }
+
+  if (mode === 'summarize') {
+    return {
+      placeholder: 'Summarize notes about...',
+      buttonText: 'Summarize'
+    };
+  }
+
+  return {
+    placeholder: 'Search notes (e.g. knee pain progression)',
+    buttonText: 'Search'
+  };
+}
+
+function syncQueryModeControls() {
+  els.modeSearch.checked = state.queryMode === 'search';
+  els.modeAsk.checked = state.queryMode === 'ask';
+  els.modeSummarize.checked = state.queryMode === 'summarize';
+}
+
+function setQueryMode(mode) {
+  const normalized = mode === 'ask' || mode === 'summarize' ? mode : 'search';
+  state.queryMode = normalized;
+  const config = getQueryModeConfig(normalized);
+  els.queryInput.placeholder = config.placeholder;
+  els.goBtn.textContent = config.buttonText;
+  syncQueryModeControls();
+}
+
+function normalizeTopK(value) {
+  const numeric = Math.round(Number(value) || 8);
+  return Math.max(3, Math.min(numeric, 12));
+}
+
+function topKFromPreset(preset) {
+  if (preset === 'fast') {
+    return 5;
+  }
+
+  if (preset === 'deep') {
+    return 12;
+  }
+
+  if (preset === 'standard') {
+    return 8;
+  }
+
+  return null;
+}
+
+function presetFromTopK(topK) {
+  if (topK === 5) {
+    return 'fast';
+  }
+
+  if (topK === 8) {
+    return 'standard';
+  }
+
+  if (topK === 12) {
+    return 'deep';
+  }
+
+  return 'custom';
+}
+
+function syncDepthPresetFromTopK() {
+  const raw = Number(els.topKInput.value);
+  if (!Number.isFinite(raw)) {
+    els.depthPresetSelect.value = 'custom';
+    return;
+  }
+
+  const topK = normalizeTopK(raw);
+  els.depthPresetSelect.value = presetFromTopK(topK);
+}
+
+function applyDepthPreset(preset) {
+  const topK = topKFromPreset(preset);
+  if (topK === null) {
+    syncDepthPresetFromTopK();
+    return;
+  }
+
+  els.topKInput.value = String(topK);
+  syncDepthPresetFromTopK();
+}
+
 function getIndexProgress() {
   const total = Math.max(0, Number(state.status?.totalFiles) || 0);
   const processed = Math.max(0, Number(state.status?.filesProcessed) || 0);
@@ -169,9 +267,7 @@ function getBusyMessage() {
 function updateBusyUi() {
   const busy = state.busyCount > 0;
   const progress = getIndexProgress();
-  els.searchBtn.disabled = busy;
-  els.askBtn.disabled = busy;
-  els.summarizeBtn.disabled = busy;
+  els.goBtn.disabled = busy;
   els.reindexBtn.disabled = busy;
   els.newNoteBtn.disabled = busy;
   els.moreMenuBtn.disabled = busy;
@@ -828,8 +924,11 @@ async function openNote(noteId) {
   renderNote(note);
 }
 
-async function runSearch() {
-  const query = els.searchInput.value.trim();
+async function runSearch(inputQuery = null) {
+  const query = String(inputQuery ?? els.queryInput.value).trim();
+  if (inputQuery !== null) {
+    els.queryInput.value = query;
+  }
   state.scope = els.scopeSelect.value;
 
   if (!query) {
@@ -855,15 +954,17 @@ async function runSearch() {
       };
       await openNote(state.results[0].noteId);
     }
+    return { ok: true, count: state.results.length };
   } catch (error) {
     renderAnswer(`Search failed: ${error.message}`);
+    return { ok: false, count: 0, error: error.message };
   } finally {
     setBusy(false);
   }
 }
 
 async function runAsk() {
-  const question = els.askInput.value.trim();
+  const question = String(els.queryInput.value || '').trim();
   if (!question) {
     renderAnswer('Please enter a question first.');
     return;
@@ -871,11 +972,14 @@ async function runAsk() {
 
   setBusy(true, 'Thinking...');
   try {
+    const topK = normalizeTopK(els.topKInput.value);
+    els.topKInput.value = String(topK);
+    syncDepthPresetFromTopK();
     const result = await window.coachNotes.ask({
       question,
       scope: els.scopeSelect.value,
       clientId: els.scopeSelect.value === 'client' ? state.selectedClientId : null,
-      topK: Number(els.topKInput.value) || 8,
+      topK,
       relevanceMode: els.relevanceModeSelect.value
     });
 
@@ -896,36 +1000,68 @@ async function runAsk() {
 }
 
 async function runSummarize() {
-  const query = els.searchInput.value.trim() || els.askInput.value.trim();
+  const query = String(els.queryInput.value || '').trim();
   if (!query) {
     renderAnswer('Enter search text or question first.');
     return;
   }
 
+  const searchResult = await runSearch(query);
+  if (!searchResult?.ok) {
+    return;
+  }
+
   setBusy(true, 'Summarizing sources...');
   try {
+    const topK = normalizeTopK(els.topKInput.value);
+    const matchCount = Number(searchResult.count) || 0;
+    els.topKInput.value = String(topK);
+    syncDepthPresetFromTopK();
     const result = await window.coachNotes.summarize({
       query,
       scope: els.scopeSelect.value,
       clientId: els.scopeSelect.value === 'client' ? state.selectedClientId : null,
-      topK: Number(els.topKInput.value) || 8,
+      topK,
       relevanceMode: els.relevanceModeSelect.value
     });
 
+    const context = matchCount > 0
+      ? `Summary of top ${Math.min(topK, matchCount)} of ${matchCount} matches for "${query}"`
+      : `Summary for "${query}"`;
+
     renderAnswer(result.summary || '', result.sources || [], result.citations || [], {
-      context: `Summary Query: ${query}`,
+      context,
       addToHistory: true,
       autoOpen: true
     });
   } catch (error) {
+    const topK = normalizeTopK(els.topKInput.value);
+    const matchCount = Number(searchResult.count) || 0;
+    const context = matchCount > 0
+      ? `Summary of top ${Math.min(topK, matchCount)} of ${matchCount} matches for "${query}"`
+      : `Summary for "${query}"`;
     renderAnswer(`Summarize failed: ${error.message}`, [], [], {
-      context: `Summary Query: ${query}`,
+      context,
       addToHistory: true,
       autoOpen: true
     });
   } finally {
     setBusy(false);
   }
+}
+
+async function runActiveMode() {
+  if (state.queryMode === 'ask') {
+    await runAsk();
+    return;
+  }
+
+  if (state.queryMode === 'summarize') {
+    await runSummarize();
+    return;
+  }
+
+  await runSearch();
 }
 
 function openSettings() {
@@ -1102,6 +1238,8 @@ async function init() {
   setNoteViewMode('rendered');
   renderNote(null);
   renderAnswer('Run Ask or Summarize to generate grounded output with citations.');
+  setQueryMode('search');
+  syncDepthPresetFromTopK();
   setAnswerPanelOpen(false);
   setClientsPanelOpen(true);
 
@@ -1166,7 +1304,11 @@ async function init() {
     state.selectedClientId = null;
     renderClients();
     if (els.scopeSelect.value === 'client') {
-      await runSearch();
+      if (state.activeQuery) {
+        await runSearch(state.activeQuery);
+      } else {
+        await loadNotes();
+      }
     } else {
       await loadNotes();
     }
@@ -1175,25 +1317,35 @@ async function init() {
   els.scopeSelect.addEventListener('change', async () => {
     state.scope = els.scopeSelect.value;
     if (state.activeQuery) {
-      await runSearch();
+      await runSearch(state.activeQuery);
     }
   });
 
-  els.searchBtn.addEventListener('click', runSearch);
-  els.searchInput.addEventListener('keydown', (event) => {
+  els.queryModeGroup.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!target || target.name !== 'queryMode') {
+      return;
+    }
+
+    setQueryMode(target.value);
+  });
+  els.depthPresetSelect.addEventListener('change', () => {
+    applyDepthPreset(els.depthPresetSelect.value);
+  });
+  els.topKInput.addEventListener('input', () => {
+    syncDepthPresetFromTopK();
+  });
+  els.topKInput.addEventListener('change', () => {
+    const normalized = normalizeTopK(els.topKInput.value);
+    els.topKInput.value = String(normalized);
+    syncDepthPresetFromTopK();
+  });
+  els.goBtn.addEventListener('click', runActiveMode);
+  els.queryInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
-      runSearch();
+      runActiveMode();
     }
   });
-
-  els.askBtn.addEventListener('click', runAsk);
-  els.askInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
-      runAsk();
-    }
-  });
-
-  els.summarizeBtn.addEventListener('click', runSummarize);
   els.answerToggleBtn.addEventListener('click', () => {
     setAnswerPanelOpen(!state.answerPanelOpen);
   });

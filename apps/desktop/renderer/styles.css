@@ -269,14 +269,43 @@ body {
   gap: 10px;
 }
 
-.search-row {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 8px;
+.mode-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-ghost);
+  justify-self: start;
 }
 
-.ask-row {
-  grid-template-columns: 1fr auto auto;
+.mode-selector-input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mode-selector-option {
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--muted);
+  transition: color 150ms ease, background 150ms ease, border-color 150ms ease;
+}
+
+.mode-selector-input:checked + .mode-selector-option {
+  color: var(--text);
+  background: var(--surface-btn);
+  border-color: var(--line);
+}
+
+.query-row {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto auto;
+  gap: 8px;
   align-items: center;
 }
 
@@ -906,5 +935,9 @@ dialog::backdrop {
 
   .results {
     max-height: 260px;
+  }
+
+  .query-row {
+    grid-template-columns: 1fr;
   }
 }
