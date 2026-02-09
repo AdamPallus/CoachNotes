@@ -677,6 +677,32 @@ async function embedTexts(inputs, settings) {
   return vectors;
 }
 
+async function verifyEmbeddingProxy(settings) {
+  if (!settings?.proxyBaseUrl || !settings?.inviteToken) {
+    return {
+      ok: false,
+      error: 'Proxy URL or invite token is missing in Settings.'
+    };
+  }
+
+  try {
+    await callProxy(
+      '/embed',
+      {
+        model: DEFAULT_EMBED_MODEL,
+        inputs: [{ id: 'healthcheck', text: 'proxy check' }]
+      },
+      settings
+    );
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error.message
+    };
+  }
+}
+
 function keywordScore(text, title, terms) {
   if (terms.length === 0) {
     return 0;
@@ -745,7 +771,38 @@ function buildSnippet(text, query) {
   return `${prefix}${clean.slice(start, end)}${suffix}`;
 }
 
-async function upsertFileIndex(filePath, stat, rootFolder, appSettings, forceRebuild = false) {
+function parseRelevanceMode(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'narrow' || normalized === 'wide') {
+    return normalized;
+  }
+
+  return 'default';
+}
+
+function relevanceProfile(mode) {
+  const profiles = {
+    narrow: {
+      relativeToBest: 0.68,
+      absoluteFloor: 0.18,
+      keywordFloor: 0.5
+    },
+    default: {
+      relativeToBest: 0.52,
+      absoluteFloor: 0.1,
+      keywordFloor: 0.25
+    },
+    wide: {
+      relativeToBest: 0.34,
+      absoluteFloor: 0.03,
+      keywordFloor: 0.12
+    }
+  };
+
+  return profiles[parseRelevanceMode(mode)];
+}
+
+async function upsertFileIndex(filePath, stat, rootFolder, appSettings, forceRebuild = false, diagnostics = null) {
   const rawText = await readNoteText(filePath);
   const hash = sha1(rawText);
   const mtimeMs = Math.floor(stat.mtimeMs);
@@ -861,10 +918,9 @@ async function upsertFileIndex(filePath, stat, rootFolder, appSettings, forceReb
     try {
       embeddings = await embedTexts(contextualChunks, appSettings);
     } catch (error) {
-      updateStatus({
-        message: 'Indexed with keyword fallback (embedding call failed).',
-        lastError: error.message
-      });
+      if (diagnostics && !diagnostics.embeddingError) {
+        diagnostics.embeddingError = error.message;
+      }
     }
   }
 
@@ -976,6 +1032,7 @@ async function runIndex(reason = 'manual', forceRebuild = false) {
     const scan = await scanNoteFiles(rootFolder);
     const files = scan.supported;
     const fileErrors = [];
+    const diagnostics = { embeddingError: null };
     const existingNotes = db
       .prepare('SELECT id, path, mtime_ms, size FROM notes')
       .all();
@@ -999,7 +1056,7 @@ async function runIndex(reason = 'manual', forceRebuild = false) {
       const shouldSkip = !forceRebuild && existing && existing.mtime_ms === mtimeMs && existing.size === stat.size;
       if (!shouldSkip) {
         try {
-          const changed = await upsertFileIndex(filePath, stat, rootFolder, settings, forceRebuild);
+          const changed = await upsertFileIndex(filePath, stat, rootFolder, settings, forceRebuild, diagnostics);
           if (changed) {
             changedFiles += 1;
           }
@@ -1030,18 +1087,26 @@ async function runIndex(reason = 'manual', forceRebuild = false) {
     const errorSummary = fileErrors.length
       ? ` ${fileErrors.length} files failed to index.`
       : '';
+    const embeddingSummary = diagnostics.embeddingError
+      ? ' Embeddings unavailable: running keyword-only fallback until proxy/auth is fixed.'
+      : '';
 
     updateStatus({
       indexing: false,
-      message: `Up to date. Indexed ${files.length} notes (${changedFiles} changed).${errorSummary}`,
+      message: `Up to date. Indexed ${files.length} notes (${changedFiles} changed).${errorSummary}${embeddingSummary}`,
       progress: 1,
       unsupportedCount: scan.unsupportedCount,
       unsupportedSummary: scan.unsupportedSummary,
       lastIndexedAt: nowIso(),
-      lastError: fileErrors[0] || null
+      lastError: fileErrors[0] || diagnostics.embeddingError || null
     });
 
-    return { indexed: files.length, changed: changedFiles, errors: fileErrors };
+    return {
+      indexed: files.length,
+      changed: changedFiles,
+      errors: fileErrors,
+      embeddingError: diagnostics.embeddingError
+    };
   } catch (error) {
     if (db) {
       db.prepare(
@@ -1066,6 +1131,17 @@ async function runIndex(reason = 'manual', forceRebuild = false) {
         runIndex('queued', false).catch(() => {});
       }, 200);
     }
+  }
+}
+
+async function waitForIndexIdle(timeoutMs = 180000) {
+  const started = Date.now();
+  while (indexing) {
+    if (Date.now() - started > timeoutMs) {
+      throw new Error('Timed out waiting for indexing to finish.');
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
   }
 }
 
@@ -1126,6 +1202,8 @@ async function runSearch(payload) {
   const clientId = payload?.clientId ? Number(payload.clientId) : null;
   const limit = Math.max(1, Math.min(Number(payload?.limit) || 30, 50));
   const tags = payload?.tags || [];
+  const relevanceMode = parseRelevanceMode(payload?.relevanceMode);
+  const relevance = relevanceProfile(relevanceMode);
 
   if (!query) {
     return [];
@@ -1180,12 +1258,34 @@ async function runSearch(payload) {
       startOffset: row.start_offset,
       endOffset: row.end_offset,
       chunkText: row.content,
+      keyword,
+      semantic,
       score
     };
   });
 
   scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, limit);
+  if (!scored.length) {
+    return [];
+  }
+
+  const topScore = scored[0].score;
+  let filtered;
+  const hasSemanticCoverage = Boolean(queryEmbedding) && scored.some((entry) => Math.abs(entry.semantic) > 0.00001);
+  if (hasSemanticCoverage) {
+    const floor = Math.max(relevance.absoluteFloor, topScore * relevance.relativeToBest);
+    filtered = scored.filter((entry) => entry.score >= floor);
+  } else {
+    filtered = scored.filter((entry) => entry.keyword >= relevance.keywordFloor);
+  }
+
+  const finalRows = (filtered.length ? filtered : [scored[0]]).slice(0, limit);
+  return finalRows.map((entry) => {
+    const { keyword, semantic, ...rest } = entry;
+    void keyword;
+    void semantic;
+    return rest;
+  });
 }
 
 async function runAsk(payload) {
@@ -1197,12 +1297,14 @@ async function runAsk(payload) {
   const scope = payload?.scope === 'client' ? 'client' : 'all';
   const clientId = payload?.clientId ? Number(payload.clientId) : null;
   const maxSources = Math.max(3, Math.min(Number(payload?.topK) || 8, 12));
+  const relevanceMode = parseRelevanceMode(payload?.relevanceMode);
 
   const results = await runSearch({
     query: question,
     scope,
     clientId,
-    limit: maxSources
+    limit: maxSources,
+    relevanceMode
   });
 
   if (!results.length) {
@@ -1210,7 +1312,15 @@ async function runAsk(payload) {
     db.prepare(
       `INSERT INTO llm_answers (created_at, question_text, scope, retrieval_params, model, answer_text, citations)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(nowIso(), question, scope, JSON.stringify({ topK: maxSources }), DEFAULT_ANSWER_MODEL, answer, JSON.stringify([]));
+    ).run(
+      nowIso(),
+      question,
+      scope,
+      JSON.stringify({ topK: maxSources, relevanceMode }),
+      DEFAULT_ANSWER_MODEL,
+      answer,
+      JSON.stringify([])
+    );
 
     return {
       model: DEFAULT_ANSWER_MODEL,
@@ -1250,7 +1360,7 @@ async function runAsk(payload) {
     nowIso(),
     question,
     scope,
-    JSON.stringify({ topK: maxSources }),
+    JSON.stringify({ topK: maxSources, relevanceMode }),
     response.model || DEFAULT_ANSWER_MODEL,
     response.answer || '',
     JSON.stringify(response.citations || [])
@@ -1280,8 +1390,15 @@ async function runSummarize(payload) {
   const scope = payload?.scope === 'client' ? 'client' : 'all';
   const clientId = payload?.clientId ? Number(payload.clientId) : null;
   const topK = Math.max(3, Math.min(Number(payload?.topK) || 8, 12));
+  const relevanceMode = parseRelevanceMode(payload?.relevanceMode);
 
-  const results = await runSearch({ query, scope, clientId, limit: topK });
+  const results = await runSearch({
+    query,
+    scope,
+    clientId,
+    limit: topK,
+    relevanceMode
+  });
   const sources = results.map((item) => ({
     chunk_id: item.chunkId,
     text: item.chunkText
@@ -1476,11 +1593,25 @@ function setupIpc() {
     startWatching(latest.rootFolder);
 
     if (payload?.runIndexAfterSave) {
+      const proxyCheck = await verifyEmbeddingProxy(latest);
+      if (!proxyCheck.ok) {
+        updateStatus({
+          message: 'Proxy check failed: indexing will continue in keyword-only mode until fixed.',
+          lastError: proxyCheck.error
+        });
+      }
+
       const forceFullReindex =
         Boolean(payload?.forceFullReindex) ||
+        latest.rootFolder !== previous.rootFolder ||
         latest.proxyBaseUrl !== previous.proxyBaseUrl ||
         latest.inviteToken !== previous.inviteToken;
-      await runIndex('settings-update', forceFullReindex);
+      const result = await runIndex('settings-update', forceFullReindex);
+      if (result?.queued) {
+        // If a prior index is in flight, guarantee one final pass with latest settings.
+        await waitForIndexIdle();
+        await runIndex('settings-update-followup', true);
+      }
     }
 
     return latest;
@@ -1496,11 +1627,7 @@ function setupIpc() {
       return null;
     }
 
-    const selected = result.filePaths[0];
-    setSetting('rootFolder', selected);
-    startWatching(selected);
-    await runIndex('folder-selected');
-    return selected;
+    return result.filePaths[0];
   });
 
   ipcMain.handle('app:reindex', async () => {

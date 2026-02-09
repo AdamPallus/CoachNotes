@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="app-shell">
+    <div id="appShell" class="app-shell">
       <header class="topbar">
         <div>
           <h1>CoachNotes</h1>
@@ -15,20 +15,35 @@
         </div>
         <div class="topbar-actions">
           <button id="newNoteBtn" class="btn btn-primary">New Note</button>
-          <button id="helpBtn" class="btn btn-ghost">Help</button>
-          <button id="checkUpdatesBtn" class="btn btn-ghost">Check Updates</button>
-          <button id="settingsBtn" class="btn btn-ghost">Settings</button>
-          <button id="reindexBtn" class="btn btn-primary">Rebuild Index</button>
+          <div id="themeModeGroup" class="theme-mode" role="radiogroup" aria-label="Theme mode">
+            <input id="themeModeLight" class="theme-mode-input" type="radio" name="themeMode" value="light" checked />
+            <label for="themeModeLight" class="theme-mode-option" title="Light mode">☀</label>
+            <input id="themeModeDark" class="theme-mode-input" type="radio" name="themeMode" value="dark" />
+            <label for="themeModeDark" class="theme-mode-option" title="Dark mode">☾</label>
+          </div>
+          <div class="menu-wrap">
+            <button id="moreMenuBtn" class="btn btn-ghost" type="button" aria-expanded="false" aria-haspopup="menu">More</button>
+            <div id="moreMenu" class="menu-popover" role="menu" hidden>
+              <button id="settingsBtn" class="menu-item" type="button" role="menuitem">Settings</button>
+              <button id="helpBtn" class="menu-item" type="button" role="menuitem">Help</button>
+              <button id="checkUpdatesBtn" class="menu-item" type="button" role="menuitem">Check Updates</button>
+            </div>
+          </div>
         </div>
       </header>
 
       <div class="content-grid">
-        <aside class="sidebar card">
-          <div class="sidebar-head">
-            <h2>Clients</h2>
-            <button id="allClientsBtn" class="btn btn-tiny">All</button>
+        <aside id="clientsSidebar" class="sidebar card">
+          <div id="clientsHeader" class="sidebar-head sidebar-head-clickable" role="button" tabindex="0" aria-expanded="true">
+            <h2 id="clientsHeaderLabel" class="collapsible-label">clients</h2>
+            <div class="row-inline">
+              <button id="allClientsBtn" class="btn btn-tiny">All</button>
+              <button id="clientsToggleBtn" class="btn btn-tiny icon-btn" type="button" aria-expanded="true" title="Hide clients">◀</button>
+            </div>
           </div>
-          <ul id="clientsList" class="list"></ul>
+          <div id="clientsPanelBody">
+            <ul id="clientsList" class="list"></ul>
+          </div>
         </aside>
 
         <section class="main-pane">
@@ -43,10 +58,42 @@
             </div>
             <div class="search-row ask-row">
               <input id="askInput" type="text" placeholder="Ask a grounded question from retrieved notes" />
-              <label for="topKInput">Sources</label>
-              <input id="topKInput" type="number" min="3" max="12" value="8" />
               <button id="askBtn" class="btn btn-primary">Answer</button>
               <button id="summarizeBtn" class="btn btn-ghost">Summarize</button>
+            </div>
+            <details class="advanced-panel">
+              <summary>Advanced</summary>
+              <div class="advanced-grid">
+                <label for="topKInput">AI source depth</label>
+                <input id="topKInput" type="number" min="3" max="12" value="8" />
+                <label for="relevanceModeSelect">Relevance</label>
+                <select id="relevanceModeSelect">
+                  <option value="narrow">Narrow</option>
+                  <option value="default" selected>Default</option>
+                  <option value="wide">Wide</option>
+                </select>
+              </div>
+              <p class="advanced-note">Relevance applies to Search, Ask, and Summarize. Source depth applies to Ask/Summarize.</p>
+            </details>
+          </div>
+
+          <div id="answerCard" class="card answer-card is-collapsed">
+            <div id="answerHeader" class="answer-head answer-head-clickable" role="button" tabindex="0" aria-expanded="false">
+              <div class="answer-title-group">
+                <h2>Answer / Summary</h2>
+                <p id="answerContext" class="answer-context" hidden></p>
+              </div>
+              <div class="row-inline answer-actions">
+                <div id="answerActionGroup" class="row-inline" hidden>
+                  <button id="answerBackBtn" class="btn btn-tiny" disabled>Back</button>
+                  <button id="answerForwardBtn" class="btn btn-tiny" disabled>Forward</button>
+                  <button id="copyAnswerBtn" class="btn btn-tiny" disabled>Copy answer</button>
+                </div>
+                <button id="answerToggleBtn" class="btn btn-tiny" type="button" aria-expanded="false">Open</button>
+              </div>
+            </div>
+            <div id="answerPanelBody" class="answer-panel-body">
+              <div id="answerText" class="answer-text">Run Ask or Summarize to generate grounded output with citations.</div>
             </div>
           </div>
 
@@ -71,12 +118,6 @@
               <div id="noteBody" class="note-body note-body-raw"></div>
             </div>
           </div>
-
-          <div class="card answer-card">
-            <h2>Answer / Summary</h2>
-            <div id="answerText" class="answer-text">Run Ask or Summarize to generate grounded output with citations.</div>
-            <div id="sourcesList" class="sources"></div>
-          </div>
         </section>
       </div>
     </div>
@@ -99,6 +140,10 @@
           Invite Token
           <input id="tokenInput" type="password" placeholder="Paste invite token" />
         </label>
+        <div class="settings-maintenance">
+          <p><strong>Maintenance:</strong> Rebuild Index only when notes look out of sync after major moves/imports.</p>
+          <button type="button" id="reindexBtn" class="btn btn-ghost">Rebuild Index</button>
+        </div>
         <div class="row-inline actions">
           <button type="button" id="cancelSettingsBtn" class="btn btn-ghost">Cancel</button>
           <button type="submit" class="btn btn-primary">Save & Reindex</button>
@@ -149,7 +194,7 @@
           <p>Unsupported file types are ignored and shown in the status line.</p>
 
           <p><strong>3. Everfit exports</strong></p>
-          <p>If your notes are exported as PDF, place them in your notes folder and click <strong>Rebuild Index</strong>.</p>
+          <p>If your notes are exported as PDF, place them in your notes folder and use <strong>Settings → Rebuild Index</strong>.</p>
           <p>For best search quality, keep one client per folder when possible.</p>
 
           <p><strong>4. Creating notes in app</strong></p>
@@ -168,6 +213,12 @@
       <div class="busy-card">
         <div class="busy-spinner" aria-hidden="true"></div>
         <p id="busyMessage">Working...</p>
+        <div id="busyProgressWrap" class="busy-progress" hidden>
+          <div class="busy-progress-track">
+            <div id="busyProgressBar" class="busy-progress-bar"></div>
+          </div>
+          <p id="busyProgressText" class="busy-progress-text">0/0 notes</p>
+        </div>
       </div>
     </div>
 

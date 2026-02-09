@@ -1,3 +1,5 @@
+const THEME_STORAGE_KEY = 'coachnotes-theme';
+
 const state = {
   settings: null,
   status: null,
@@ -13,16 +15,34 @@ const state = {
   activeQuery: '',
   noteViewMode: 'rendered',
   busyCount: 0,
-  busyMessage: 'Working...'
+  busyMessage: 'Working...',
+  lastAnswerCopyText: '',
+  answerHistory: [],
+  answerHistoryIndex: -1,
+  answerPanelOpen: false,
+  clientsPanelOpen: true,
+  themeMode: 'light',
+  theme: 'light'
 };
 
 const els = {
+  appShell: document.getElementById('appShell'),
+  themeModeGroup: document.getElementById('themeModeGroup'),
+  themeModeLight: document.getElementById('themeModeLight'),
+  themeModeDark: document.getElementById('themeModeDark'),
   statusLine: document.getElementById('statusLine'),
   newNoteBtn: document.getElementById('newNoteBtn'),
+  moreMenuBtn: document.getElementById('moreMenuBtn'),
+  moreMenu: document.getElementById('moreMenu'),
   helpBtn: document.getElementById('helpBtn'),
   checkUpdatesBtn: document.getElementById('checkUpdatesBtn'),
   settingsBtn: document.getElementById('settingsBtn'),
   reindexBtn: document.getElementById('reindexBtn'),
+  clientsSidebar: document.getElementById('clientsSidebar'),
+  clientsHeader: document.getElementById('clientsHeader'),
+  clientsHeaderLabel: document.getElementById('clientsHeaderLabel'),
+  clientsToggleBtn: document.getElementById('clientsToggleBtn'),
+  clientsPanelBody: document.getElementById('clientsPanelBody'),
   allClientsBtn: document.getElementById('allClientsBtn'),
   clientsList: document.getElementById('clientsList'),
   searchInput: document.getElementById('searchInput'),
@@ -30,6 +50,7 @@ const els = {
   searchBtn: document.getElementById('searchBtn'),
   askInput: document.getElementById('askInput'),
   topKInput: document.getElementById('topKInput'),
+  relevanceModeSelect: document.getElementById('relevanceModeSelect'),
   askBtn: document.getElementById('askBtn'),
   summarizeBtn: document.getElementById('summarizeBtn'),
   resultsTitle: document.getElementById('resultsTitle'),
@@ -40,10 +61,21 @@ const els = {
   renderedViewBtn: document.getElementById('renderedViewBtn'),
   rawViewBtn: document.getElementById('rawViewBtn'),
   revealBtn: document.getElementById('revealBtn'),
+  answerHeader: document.getElementById('answerHeader'),
+  answerCard: document.getElementById('answerCard'),
+  answerToggleBtn: document.getElementById('answerToggleBtn'),
+  answerActionGroup: document.getElementById('answerActionGroup'),
+  answerPanelBody: document.getElementById('answerPanelBody'),
+  answerBackBtn: document.getElementById('answerBackBtn'),
+  answerForwardBtn: document.getElementById('answerForwardBtn'),
+  answerContext: document.getElementById('answerContext'),
+  copyAnswerBtn: document.getElementById('copyAnswerBtn'),
   answerText: document.getElementById('answerText'),
-  sourcesList: document.getElementById('sourcesList'),
   busyOverlay: document.getElementById('busyOverlay'),
   busyMessage: document.getElementById('busyMessage'),
+  busyProgressWrap: document.getElementById('busyProgressWrap'),
+  busyProgressBar: document.getElementById('busyProgressBar'),
+  busyProgressText: document.getElementById('busyProgressText'),
   settingsDialog: document.getElementById('settingsDialog'),
   settingsForm: document.getElementById('settingsForm'),
   rootFolderInput: document.getElementById('rootFolderInput'),
@@ -73,18 +105,92 @@ function escapeHtml(input) {
     .replaceAll("'", '&#039;');
 }
 
+function getSystemTheme() {
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    return 'dark';
+  }
+
+  return 'light';
+}
+
+function syncThemeModeControls() {
+  els.themeModeLight.checked = state.themeMode === 'light';
+  els.themeModeDark.checked = state.themeMode === 'dark';
+}
+
+function applyTheme(mode, persist = true) {
+  const normalizedMode = mode === 'dark' ? 'dark' : 'light';
+  const resolvedTheme = normalizedMode;
+
+  state.themeMode = normalizedMode;
+  state.theme = resolvedTheme;
+  document.documentElement.setAttribute('data-theme', resolvedTheme);
+
+  if (persist) {
+    localStorage.setItem(THEME_STORAGE_KEY, normalizedMode);
+  }
+
+  syncThemeModeControls();
+}
+
+function initTheme() {
+  const stored = localStorage.getItem(THEME_STORAGE_KEY);
+  const initialMode = stored === 'dark' || stored === 'light' ? stored : getSystemTheme();
+  applyTheme(initialMode, false);
+}
+
+function getIndexProgress() {
+  const total = Math.max(0, Number(state.status?.totalFiles) || 0);
+  const processed = Math.max(0, Number(state.status?.filesProcessed) || 0);
+  const fallback = Math.max(0, Math.min(1, Number(state.status?.progress) || 0));
+  const ratio = total > 0 ? Math.max(0, Math.min(1, processed / total)) : fallback;
+
+  return {
+    active: Boolean(state.status?.indexing),
+    processed,
+    total,
+    ratio
+  };
+}
+
+function getBusyMessage() {
+  const progress = getIndexProgress();
+  if (!progress.active) {
+    return state.busyMessage || 'Working...';
+  }
+
+  if (progress.total > 0) {
+    return `Reindexing notes... ${progress.processed}/${progress.total}`;
+  }
+
+  return 'Reindexing notes...';
+}
+
 function updateBusyUi() {
   const busy = state.busyCount > 0;
+  const progress = getIndexProgress();
   els.searchBtn.disabled = busy;
   els.askBtn.disabled = busy;
   els.summarizeBtn.disabled = busy;
   els.reindexBtn.disabled = busy;
   els.newNoteBtn.disabled = busy;
+  els.moreMenuBtn.disabled = busy;
   els.checkUpdatesBtn.disabled = busy;
   els.helpBtn.disabled = busy;
   els.settingsBtn.disabled = busy;
-  els.busyMessage.textContent = state.busyMessage || 'Working...';
+  els.busyMessage.textContent = getBusyMessage();
+  const showProgress = busy && progress.active;
+  els.busyProgressWrap.hidden = !showProgress;
+  if (showProgress) {
+    els.busyProgressBar.style.width = `${Math.round(progress.ratio * 100)}%`;
+    els.busyProgressText.textContent = progress.total > 0
+      ? `${progress.processed}/${progress.total} notes`
+      : `${Math.round(progress.ratio * 100)}%`;
+  }
   els.busyOverlay.hidden = !busy;
+  if (busy) {
+    setMenuOpen(false);
+  }
 }
 
 function setBusy(on, message = '') {
@@ -101,6 +207,76 @@ function setBusy(on, message = '') {
   }
 
   updateBusyUi();
+}
+
+function setMenuOpen(open) {
+  const next = Boolean(open) && !els.moreMenuBtn.disabled;
+  els.moreMenu.hidden = !next;
+  els.moreMenuBtn.setAttribute('aria-expanded', next ? 'true' : 'false');
+}
+
+function isInteractiveTarget(target) {
+  return Boolean(target && target.closest('button, input, select, textarea, a, summary, details'));
+}
+
+function setAnswerPanelOpen(open) {
+  const next = Boolean(open);
+  state.answerPanelOpen = next;
+  els.answerActionGroup.hidden = !next;
+  els.answerCard.classList.toggle('is-collapsed', !next);
+  els.answerToggleBtn.textContent = next ? 'Collapse' : 'Open';
+  els.answerToggleBtn.setAttribute('aria-expanded', next ? 'true' : 'false');
+  els.answerHeader.setAttribute('aria-expanded', next ? 'true' : 'false');
+}
+
+function setClientsPanelOpen(open) {
+  const next = Boolean(open);
+  state.clientsPanelOpen = next;
+  els.clientsPanelBody.hidden = !next;
+  els.allClientsBtn.hidden = !next;
+  els.appShell.classList.toggle('clients-collapsed', !next);
+  els.clientsHeaderLabel.textContent = next ? 'clients' : '👥';
+  els.clientsHeaderLabel.title = next ? '' : 'Clients';
+  els.clientsToggleBtn.textContent = next ? '◀' : '▶';
+  els.clientsToggleBtn.title = next ? 'Hide clients' : 'Show clients';
+  els.clientsToggleBtn.setAttribute('aria-expanded', next ? 'true' : 'false');
+  els.clientsHeader.setAttribute('aria-expanded', next ? 'true' : 'false');
+}
+
+function updateAnswerHistoryControls() {
+  const hasHistory = state.answerHistory.length > 0 && state.answerHistoryIndex >= 0;
+  els.answerBackBtn.disabled = !hasHistory || state.answerHistoryIndex <= 0;
+  els.answerForwardBtn.disabled = !hasHistory || state.answerHistoryIndex >= state.answerHistory.length - 1;
+}
+
+function pushAnswerHistory(entry) {
+  let nextHistory = state.answerHistory;
+  if (state.answerHistoryIndex >= 0 && state.answerHistoryIndex < nextHistory.length - 1) {
+    nextHistory = nextHistory.slice(0, state.answerHistoryIndex + 1);
+  }
+
+  nextHistory = [...nextHistory, entry];
+  const maxEntries = 40;
+  if (nextHistory.length > maxEntries) {
+    nextHistory = nextHistory.slice(nextHistory.length - maxEntries);
+  }
+
+  state.answerHistory = nextHistory;
+  state.answerHistoryIndex = state.answerHistory.length - 1;
+  updateAnswerHistoryControls();
+}
+
+function showHistoryEntry(index) {
+  if (index < 0 || index >= state.answerHistory.length) {
+    return;
+  }
+
+  state.answerHistoryIndex = index;
+  const entry = state.answerHistory[index];
+  renderAnswer(entry.text, entry.sources || [], entry.citations || [], {
+    context: entry.context || '',
+    autoOpen: true
+  });
 }
 
 function updateStatusLine() {
@@ -314,8 +490,67 @@ function parseCitationIds(answerText, citations) {
 }
 
 function buildAnswerView(answerText, sources, citations) {
-  const sourceByChunk = new Map((sources || []).map((source) => [String(source.chunkId), source]));
-  const referencedIds = parseCitationIds(answerText, citations).filter((id) => sourceByChunk.has(id));
+  const sourceByChunk = new Map();
+  const aliasToChunkId = new Map();
+
+  function registerAlias(alias, canonicalId) {
+    const key = String(alias || '').trim().toLowerCase();
+    if (!key || aliasToChunkId.has(key)) {
+      return;
+    }
+
+    aliasToChunkId.set(key, canonicalId);
+  }
+
+  for (const source of sources || []) {
+    const canonicalId = String(source.chunkId || '').trim();
+    if (!canonicalId) {
+      continue;
+    }
+
+    sourceByChunk.set(canonicalId, source);
+    registerAlias(canonicalId, canonicalId);
+
+    const noteId = Number(source.noteId);
+    if (Number.isFinite(noteId)) {
+      const noteKey = String(noteId);
+      registerAlias(noteKey, canonicalId);
+      registerAlias(`note_${noteKey}`, canonicalId);
+      registerAlias(`${noteKey}_chunk_0`, canonicalId);
+    }
+
+    const fromChunkPattern = canonicalId.match(/^(\d+)_chunk_\d+$/);
+    if (fromChunkPattern) {
+      registerAlias(fromChunkPattern[1], canonicalId);
+      registerAlias(`note_${fromChunkPattern[1]}`, canonicalId);
+    }
+  }
+
+  function resolveCitationId(rawId) {
+    const direct = String(rawId || '').trim();
+    if (!direct) {
+      return null;
+    }
+
+    if (sourceByChunk.has(direct)) {
+      return direct;
+    }
+
+    return aliasToChunkId.get(direct.toLowerCase()) || null;
+  }
+
+  const referencedIds = [];
+  const seenReferenced = new Set();
+  for (const rawId of parseCitationIds(answerText, citations)) {
+    const resolved = resolveCitationId(rawId);
+    if (!resolved || seenReferenced.has(resolved)) {
+      continue;
+    }
+
+    seenReferenced.add(resolved);
+    referencedIds.push(resolved);
+  }
+
   const orderedSources = referencedIds.map((id, idx) => ({
     ...sourceByChunk.get(id),
     citationId: id,
@@ -339,18 +574,25 @@ function buildAnswerView(answerText, sources, citations) {
   );
 
   const html = escapeHtml(answerText || '').replace(/\[c:([^\]]+)\]/g, (_full, rawId) => {
-    const id = String(rawId || '').trim();
-    const number = numberById.get(id);
+    const id = resolveCitationId(rawId);
+    const number = id ? numberById.get(id) : null;
     if (!number) {
-      return `<span class="citation-missing">[c:${escapeHtml(id)}]</span>`;
+      return `<span class="citation-missing">[c:${escapeHtml(String(rawId || '').trim())}]</span>`;
     }
 
     return `<button class="citation-chip" data-citation-id="${escapeHtml(id)}">[${number}]</button>`;
   });
 
+  const copyText = String(answerText || '').replace(/\[c:([^\]]+)\]/g, (_full, rawId) => {
+    const id = resolveCitationId(rawId);
+    const number = id ? numberById.get(id) : null;
+    return number ? `[${number}]` : `[c:${String(rawId || '').trim()}]`;
+  });
+
   return {
     html,
-    orderedSources
+    orderedSources,
+    copyText
   };
 }
 
@@ -365,12 +607,48 @@ async function openSource(source) {
   }
 
   await openNote(source.noteId);
+  els.noteTitle.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function renderAnswer(text, sources = [], citations = []) {
+function renderAnswer(text, sources = [], citations = [], options = {}) {
+  const context = String(options?.context || '').trim();
+  const autoOpen = Boolean(options?.autoOpen);
+  if (options?.addToHistory) {
+    pushAnswerHistory({
+      text: String(text || ''),
+      sources: [...(sources || [])],
+      citations: [...(citations || [])],
+      context
+    });
+  }
+
+  els.answerContext.textContent = context;
+  els.answerContext.hidden = !context;
+
+  if (!String(text || '').trim() && !(sources || []).length) {
+    state.lastAnswerCopyText = '';
+    els.copyAnswerBtn.disabled = true;
+    els.answerText.innerHTML = `
+      <div class="empty-state">
+        <div>
+          <div class="empty-visual" aria-hidden="true"></div>
+          <h3>Ask a Question</h3>
+          <p>Ask about your notes to get a grounded answer with citations you can open directly.</p>
+        </div>
+      </div>
+    `;
+    updateAnswerHistoryControls();
+    return;
+  }
+
+  if (autoOpen) {
+    setAnswerPanelOpen(true);
+  }
+
   const view = buildAnswerView(text, sources, citations);
+  state.lastAnswerCopyText = view.copyText || '';
+  els.copyAnswerBtn.disabled = !state.lastAnswerCopyText;
   els.answerText.innerHTML = view.html;
-  els.sourcesList.innerHTML = '';
 
   for (const chip of els.answerText.querySelectorAll('.citation-chip')) {
     chip.addEventListener('click', async () => {
@@ -382,26 +660,7 @@ function renderAnswer(text, sources = [], citations = []) {
     });
   }
 
-  if (!view.orderedSources.length) {
-    return;
-  }
-
-  for (const source of view.orderedSources) {
-    const item = document.createElement('button');
-    item.className = 'source-item item-btn';
-    const label = source.citationNumber ? `[${source.citationNumber}] ` : '';
-    item.innerHTML = `
-      <div class="item-title">${label}${escapeHtml(source.title || 'Untitled')}</div>
-      <div class="item-meta">${escapeHtml((source.clientNames || []).join(', ') || 'Unknown client')} ${source.date ? '• ' + escapeHtml(source.date) : ''}</div>
-      <div class="item-snippet">${escapeHtml(source.snippet || '')}</div>
-    `;
-
-    item.addEventListener('click', async () => {
-      await openSource(source);
-    });
-
-    els.sourcesList.appendChild(item);
-  }
+  updateAnswerHistoryControls();
 }
 
 function renderResults() {
@@ -411,16 +670,16 @@ function renderResults() {
 
   const list = showingResults ? state.results : state.notes;
 
-  for (const row of list) {
+  for (let index = 0; index < list.length; index += 1) {
+    const row = list[index];
     const li = document.createElement('li');
     const button = document.createElement('button');
     button.className = 'item-btn';
-    if (state.selectedNoteId === row.noteId || state.selectedNoteId === row.id) {
-      button.classList.add('active');
-    }
+    button.style.animationDelay = `${Math.min(index * 35, 280)}ms`;
 
     const clientText = (row.clientNames || row.clients || []).join(', ') || 'Unassigned client';
     const noteId = row.noteId || row.id;
+    button.dataset.noteId = String(noteId);
 
     button.innerHTML = `
       <div class="item-title">${escapeHtml(row.title || 'Untitled')}</div>
@@ -439,6 +698,16 @@ function renderResults() {
     li.appendChild(button);
     els.resultsList.appendChild(li);
   }
+
+  updateActiveResultSelection();
+}
+
+function updateActiveResultSelection() {
+  const selected = state.selectedNoteId == null ? null : String(state.selectedNoteId);
+  for (const button of els.resultsList.querySelectorAll('.item-btn')) {
+    const isActive = selected !== null && button.dataset.noteId === selected;
+    button.classList.toggle('active', isActive);
+  }
 }
 
 function setNoteViewMode(mode) {
@@ -452,9 +721,17 @@ function renderNote(note) {
   state.currentNote = note;
 
   if (!note) {
-    els.noteTitle.textContent = 'No note selected';
-    els.noteMeta.textContent = '';
-    els.noteBody.innerHTML = '';
+    els.noteTitle.textContent = 'Ready';
+    els.noteMeta.textContent = 'Select a note or run a search to begin.';
+    els.noteBody.innerHTML = `
+      <div class="empty-state">
+        <div>
+          <div class="empty-visual" aria-hidden="true"></div>
+          <h3>Welcome to CoachNotes</h3>
+          <p>Select a client on the left, or search across all notes above. Use Ask to get grounded answers with clickable citations.</p>
+        </div>
+      </div>
+    `;
     els.revealBtn.disabled = true;
     return;
   }
@@ -547,7 +824,7 @@ async function loadNotes() {
 async function openNote(noteId) {
   const note = await window.coachNotes.getNote(noteId);
   state.selectedNoteId = noteId;
-  renderResults();
+  updateActiveResultSelection();
   renderNote(note);
 }
 
@@ -566,7 +843,8 @@ async function runSearch() {
       query,
       scope: state.scope,
       clientId: state.scope === 'client' ? state.selectedClientId : null,
-      limit: 30
+      limit: 30,
+      relevanceMode: els.relevanceModeSelect.value
     });
     state.activeQuery = query;
     renderResults();
@@ -597,12 +875,21 @@ async function runAsk() {
       question,
       scope: els.scopeSelect.value,
       clientId: els.scopeSelect.value === 'client' ? state.selectedClientId : null,
-      topK: Number(els.topKInput.value) || 8
+      topK: Number(els.topKInput.value) || 8,
+      relevanceMode: els.relevanceModeSelect.value
     });
 
-    renderAnswer(result.answer, result.sources || [], result.citations || []);
+    renderAnswer(result.answer, result.sources || [], result.citations || [], {
+      context: `Question: ${question}`,
+      addToHistory: true,
+      autoOpen: true
+    });
   } catch (error) {
-    renderAnswer(`Answer failed: ${error.message}`);
+    renderAnswer(`Answer failed: ${error.message}`, [], [], {
+      context: `Question: ${question}`,
+      addToHistory: true,
+      autoOpen: true
+    });
   } finally {
     setBusy(false);
   }
@@ -621,12 +908,21 @@ async function runSummarize() {
       query,
       scope: els.scopeSelect.value,
       clientId: els.scopeSelect.value === 'client' ? state.selectedClientId : null,
-      topK: Number(els.topKInput.value) || 8
+      topK: Number(els.topKInput.value) || 8,
+      relevanceMode: els.relevanceModeSelect.value
     });
 
-    renderAnswer(result.summary || '', result.sources || [], result.citations || []);
+    renderAnswer(result.summary || '', result.sources || [], result.citations || [], {
+      context: `Summary Query: ${query}`,
+      addToHistory: true,
+      autoOpen: true
+    });
   } catch (error) {
-    renderAnswer(`Summarize failed: ${error.message}`);
+    renderAnswer(`Summarize failed: ${error.message}`, [], [], {
+      context: `Summary Query: ${query}`,
+      addToHistory: true,
+      autoOpen: true
+    });
   } finally {
     setBusy(false);
   }
@@ -695,30 +991,79 @@ async function createNewNote(event) {
 
 async function handleCheckForUpdates() {
   setBusy(true, 'Checking for updates...');
+  let result = null;
+  let failedMessage = '';
   try {
-    const result = await window.coachNotes.checkForUpdates();
-    if (result.updateAvailable) {
-      const summary = `Update available: v${result.latestVersion} (current v${result.currentVersion}).`;
-      renderAnswer(summary);
-      const shouldOpen = window.confirm(`${summary}\n\nOpen the release page now?`);
-      if (shouldOpen) {
-        await window.coachNotes.openExternal(result.releaseUrl || result.releasesUrl);
-      }
-    } else {
-      const latest = result.latestVersion ? ` Latest release: v${result.latestVersion}.` : '';
-      renderAnswer(`${result.message}${latest}`);
-    }
+    result = await window.coachNotes.checkForUpdates();
   } catch (error) {
-    renderAnswer(`Update check failed: ${error.message}`);
+    failedMessage = error instanceof Error ? error.message : String(error);
   } finally {
     setBusy(false);
+  }
+
+  if (failedMessage) {
+    window.alert(`Update check failed.\n\n${failedMessage}`);
+    renderAnswer(`Update check failed: ${failedMessage}`);
+    return;
+  }
+
+  if (!result) {
+    return;
+  }
+
+  if (result.updateAvailable) {
+    const summary = `Update available: v${result.latestVersion} (current v${result.currentVersion}).`;
+    renderAnswer(summary);
+    const shouldOpen = window.confirm(`${summary}\n\nOpen the release page now?`);
+    if (shouldOpen) {
+      await window.coachNotes.openExternal(result.releaseUrl || result.releasesUrl);
+    }
+    return;
+  }
+
+  const summary = result.currentVersion
+    ? `You're up to date.\n\nCurrent version: v${result.currentVersion}`
+    : "You're up to date.";
+  window.alert(summary);
+}
+
+async function copyAnswerToClipboard() {
+  const text = String(state.lastAnswerCopyText || '').trim();
+  if (!text) {
+    renderAnswer('No answer available to copy.');
+    return;
+  }
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', 'true');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+    els.copyAnswerBtn.textContent = 'Copied';
+    setTimeout(() => {
+      els.copyAnswerBtn.textContent = 'Copy answer';
+    }, 1200);
+  } catch (error) {
+    renderAnswer(`Copy failed: ${error.message}`);
   }
 }
 
 async function saveSettings(event) {
   event.preventDefault();
 
-  setBusy(true, 'Saving settings and indexing...');
+  if (els.settingsDialog.open) {
+    els.settingsDialog.close();
+  }
+  setBusy(true, 'Reindexing notes...');
   try {
     state.settings = await window.coachNotes.saveSettings({
       rootFolder: els.rootFolderInput.value.trim(),
@@ -731,7 +1076,6 @@ async function saveSettings(event) {
     await loadClients();
     await loadTags();
     await loadNotes();
-    els.settingsDialog.close();
   } catch (error) {
     renderAnswer(`Saving settings failed: ${error.message}`);
   } finally {
@@ -740,6 +1084,7 @@ async function saveSettings(event) {
 }
 
 async function init() {
+  initTheme();
   state.settings = await window.coachNotes.getSettings();
   state.status = state.settings.status || {};
   updateBusyUi();
@@ -748,6 +1093,7 @@ async function init() {
   window.coachNotes.onStatus((next) => {
     state.status = next;
     updateStatusLine();
+    updateBusyUi();
   });
 
   await loadClients();
@@ -756,12 +1102,55 @@ async function init() {
   setNoteViewMode('rendered');
   renderNote(null);
   renderAnswer('Run Ask or Summarize to generate grounded output with citations.');
+  setAnswerPanelOpen(false);
+  setClientsPanelOpen(true);
 
   els.newNoteBtn.addEventListener('click', openNewNoteDialog);
-  els.helpBtn.addEventListener('click', openHelpDialog);
-  els.checkUpdatesBtn.addEventListener('click', handleCheckForUpdates);
-  els.settingsBtn.addEventListener('click', openSettings);
+  els.themeModeGroup.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!target || target.name !== 'themeMode') {
+      return;
+    }
+
+    applyTheme(target.value, true);
+  });
+  setMenuOpen(false);
+  els.moreMenuBtn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    setMenuOpen(els.moreMenu.hidden);
+  });
+  document.addEventListener('click', (event) => {
+    if (els.moreMenu.hidden) {
+      return;
+    }
+
+    if (!els.moreMenu.contains(event.target) && event.target !== els.moreMenuBtn) {
+      setMenuOpen(false);
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      setMenuOpen(false);
+    }
+  });
+
+  els.helpBtn.addEventListener('click', () => {
+    setMenuOpen(false);
+    openHelpDialog();
+  });
+  els.checkUpdatesBtn.addEventListener('click', async () => {
+    setMenuOpen(false);
+    await handleCheckForUpdates();
+  });
+  els.settingsBtn.addEventListener('click', () => {
+    setMenuOpen(false);
+    openSettings();
+  });
   els.reindexBtn.addEventListener('click', async () => {
+    setMenuOpen(false);
+    if (els.settingsDialog.open) {
+      els.settingsDialog.close();
+    }
     setBusy(true, 'Rebuilding index...');
     try {
       await window.coachNotes.reindex();
@@ -805,11 +1194,56 @@ async function init() {
   });
 
   els.summarizeBtn.addEventListener('click', runSummarize);
+  els.answerToggleBtn.addEventListener('click', () => {
+    setAnswerPanelOpen(!state.answerPanelOpen);
+  });
+  els.answerHeader.addEventListener('click', (event) => {
+    if (isInteractiveTarget(event.target)) {
+      return;
+    }
+    setAnswerPanelOpen(!state.answerPanelOpen);
+  });
+  els.answerHeader.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setAnswerPanelOpen(!state.answerPanelOpen);
+    }
+  });
+  els.answerBackBtn.addEventListener('click', () => {
+    showHistoryEntry(state.answerHistoryIndex - 1);
+  });
+  els.answerForwardBtn.addEventListener('click', () => {
+    showHistoryEntry(state.answerHistoryIndex + 1);
+  });
+  els.copyAnswerBtn.addEventListener('click', copyAnswerToClipboard);
 
   els.revealBtn.addEventListener('click', async () => {
     if (state.selectedNoteId) {
       await window.coachNotes.revealInFinder(state.selectedNoteId);
     }
+  });
+
+  els.clientsHeader.addEventListener('click', (event) => {
+    if (isInteractiveTarget(event.target)) {
+      return;
+    }
+    setClientsPanelOpen(!state.clientsPanelOpen);
+  });
+  els.clientsHeader.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setClientsPanelOpen(!state.clientsPanelOpen);
+    }
+  });
+  els.clientsToggleBtn.addEventListener('click', () => {
+    setClientsPanelOpen(!state.clientsPanelOpen);
+  });
+  els.clientsSidebar.addEventListener('click', (event) => {
+    if (state.clientsPanelOpen || isInteractiveTarget(event.target)) {
+      return;
+    }
+
+    setClientsPanelOpen(true);
   });
 
   els.renderedViewBtn.addEventListener('click', () => {
@@ -824,11 +1258,11 @@ async function init() {
     const picked = await window.coachNotes.selectRootFolder();
     if (picked) {
       els.rootFolderInput.value = picked;
-      state.settings.rootFolder = picked;
-      state.selectedClientId = null;
-      await loadClients();
-      await loadTags();
-      await loadNotes();
+      state.settings = {
+        ...(state.settings || {}),
+        rootFolder: picked
+      };
+      renderAnswer('Root folder selected. Click Save & Reindex to apply.');
     }
   });
 
