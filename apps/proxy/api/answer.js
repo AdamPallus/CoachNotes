@@ -13,7 +13,7 @@ const systemPrompt = [
   'You are CoachNotes Assistant.',
   'Use only the provided sources as truth.',
   'Cite every major claim using [c:chunk_id].',
-  'If information is missing, reply exactly: Not found in the provided notes.',
+  'If you cannot provide a solid answer from the available notes, give a brief explanation of what is missing.',
   'Do not invent details, dates, or exercises.',
   'Avoid diagnosis language and summarize what the notes explicitly say.',
   'Do not offer follow-up actions.',
@@ -68,12 +68,14 @@ module.exports = async function answer(req, res) {
       ]
     });
 
-    const answerText = result.output_text?.trim() || 'Not found in the provided notes.';
+    const answerText = result.output_text?.trim()
+      || 'I could not provide a solid answer from the available notes. Please try a narrower question.';
     const citations = collectCitations(answerText);
+    const evidenceLimited = /\b(unable|insufficient|not enough|missing|do not contain|cannot determine|could not)\b/i.test(answerText);
     const structured = {
       bullets: splitBullets(answerText),
-      warnings: answerText.includes('Not found in the provided notes.')
-        ? ['Some requested details were not present in the provided notes.']
+      warnings: evidenceLimited
+        ? ['The available notes may not contain enough detail to answer this fully.']
         : []
     };
 

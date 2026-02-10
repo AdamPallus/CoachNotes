@@ -9,10 +9,10 @@ const {
 } = require('./_shared');
 
 const summaryPrompt = [
+  'You are CoachNotes Assistant.',
   'Summarize only what appears in provided sources.',
   'Use concise coaching language.',
-  'Cite each major point with [c:chunk_id].',
-  'If there is insufficient evidence, respond: Not found in the provided notes.'
+  'Cite each major point with [c:chunk_id].'
 ].join(' ');
 
 module.exports = async function summarize(req, res) {
@@ -44,7 +44,8 @@ module.exports = async function summarize(req, res) {
       ]
     });
 
-    const summary = result.output_text?.trim() || 'Not found in the provided notes.';
+    const summary = result.output_text?.trim()
+      || 'I could not generate a summary from the provided notes. Please try again with a narrower scope.';
 
     json(res, 200, {
       model,
