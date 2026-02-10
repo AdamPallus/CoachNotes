@@ -61,7 +61,7 @@ module.exports = async function answer(req, res) {
 
     const result = await openai.responses.create({
       model,
-      max_output_tokens: 700,
+      max_output_tokens: 900,
       input: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }

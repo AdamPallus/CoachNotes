@@ -37,7 +37,7 @@ module.exports = async function summarize(req, res) {
 
     const result = await openai.responses.create({
       model,
-      max_output_tokens: 650,
+      max_output_tokens: 800,
       input: [
         { role: 'system', content: summaryPrompt },
         { role: 'user', content: `Mode: ${req.body.mode || 'search_results_summary'}\n\nSources:\n${renderedSources}` }
