@@ -390,6 +390,10 @@ function parseHashtags(text) {
   return [...new Set(matches.map((entry) => entry.replace(/[#\s]/g, '').trim()).filter(Boolean))];
 }
 
+function isClientProfilePath(filePath) {
+  return path.basename(String(filePath || '')).toLowerCase() === CLIENT_PROFILE_FILE.toLowerCase();
+}
+
 function parseMetadata(content, filePath, rootFolder) {
   let data = {};
   let body = content;
@@ -423,11 +427,15 @@ function parseMetadata(content, filePath, rootFolder) {
     }
   }
 
-  const title = sanitizeName(data.title) || extractFirstHeading(body) || path.basename(filePath, path.extname(filePath));
+  const profilePath = isClientProfilePath(filePath);
+  const title = profilePath
+    ? 'Client Profile'
+    : sanitizeName(data.title) || extractFirstHeading(body) || path.basename(filePath, path.extname(filePath));
+  const profileDate = profilePath ? parseDate(data.updated_at || data.updatedAt) : null;
 
   return {
     title,
-    date: parseDate(data.date) || extractFilenameDate(filePath),
+    date: profileDate || parseDate(data.date) || extractFilenameDate(filePath),
     inlineClients: [...new Set(inlineClients)],
     folderClient: firstSegment,
     tags: [...new Set(tags)],
@@ -543,6 +551,52 @@ function parseClientProfileContent(content) {
     futureFocus: normalizeFocusList(data.future_focus || data.futureFocus),
     updatedAt: parseDate(data.updated_at || data.updatedAt) || null
   };
+}
+
+function inferProfileClientName(rawText, metadata) {
+  const folderClient = sanitizeName(metadata?.folderClient || '');
+  if (folderClient) {
+    return folderClient;
+  }
+
+  const inlineClient = sanitizeName(metadata?.inlineClients?.[0] || '');
+  if (inlineClient) {
+    return inlineClient;
+  }
+
+  const heading = sanitizeName(extractFirstHeading(rawText));
+  if (!heading) {
+    return '';
+  }
+
+  return heading.replace(/\s+focus profile$/i, '').trim();
+}
+
+function buildClientProfileIndexText(rawText, metadata, parsedProfile) {
+  const profile = parsedProfile || parseClientProfileContent(rawText);
+  const clientName = inferProfileClientName(rawText, metadata) || 'Unknown client';
+
+  function listLine(label, values) {
+    const items = normalizeFocusList(values || []);
+    return `${label}: ${items.length ? items.join(', ') : '(none)'}`;
+  }
+
+  const lines = [
+    'Document: Client Profile',
+    `Client: ${clientName}`,
+    listLine('Tags', profile.clientTags),
+    listLine('Top Priorities', profile.topPriorities),
+    listLine('Ongoing Medical Considerations', profile.ongoingMedicalConsiderations),
+    listLine('Acute Injuries', profile.acuteInjuries),
+    listLine('Completed Focus', profile.completedFocus),
+    listLine('Future Focus', profile.futureFocus)
+  ];
+
+  if (profile.updatedAt) {
+    lines.push(`Profile Updated: ${profile.updatedAt}`);
+  }
+
+  return lines.join('\n');
 }
 
 function buildClientProfileContent({
@@ -748,10 +802,6 @@ async function scanNoteFiles(rootFolder) {
       }
 
       if (!entry.isFile()) {
-        continue;
-      }
-
-      if (entry.name.toLowerCase() === CLIENT_PROFILE_FILE.toLowerCase()) {
         continue;
       }
 
@@ -1002,6 +1052,18 @@ async function upsertFileIndex(filePath, stat, rootFolder, appSettings, forceReb
   }
 
   const metadata = parseMetadata(rawText, filePath, rootFolder);
+  if (isClientProfilePath(filePath)) {
+    const profile = parseClientProfileContent(rawText);
+    const profileClientName = inferProfileClientName(rawText, metadata);
+    if (profileClientName && !metadata.inlineClients.length) {
+      metadata.inlineClients = [profileClientName];
+    }
+    if (profileClientName) {
+      metadata.folderClient = profileClientName;
+    }
+    metadata.title = 'Client Profile';
+    metadata.bodyText = buildClientProfileIndexText(rawText, metadata, profile);
+  }
 
   if (existing) {
     db.prepare(
@@ -1444,7 +1506,7 @@ async function runSearch(payload) {
       chunkId: row.chunk_id,
       noteId: row.note_id,
       notePath: row.note_path,
-      title: row.note_title,
+      title: isClientProfilePath(row.note_path) ? 'Client Profile' : row.note_title,
       date: row.note_date,
       clientNames: row.client_names ? row.client_names.split(',').filter(Boolean) : [],
       snippet: buildSnippet(row.content, query),
@@ -2047,6 +2109,9 @@ async function saveClientProfile(payload) {
     updatedAt
   });
   await fsp.writeFile(profilePath, content, 'utf8');
+  const stat = await fsp.stat(profilePath);
+  await upsertFileIndex(profilePath, stat, rootFolder, settings, true);
+  pruneOrphans();
 
   return {
     clientId: client.id,
@@ -2208,13 +2273,21 @@ function setupIpc() {
     requireDb();
     const rows = db
       .prepare(
-        `SELECT c.id, c.name AS key_name, c.display_name AS display_name, COUNT(DISTINCT nc.note_id) AS noteCount
+        `SELECT
+          c.id,
+          c.name AS key_name,
+          c.display_name AS display_name,
+          COUNT(DISTINCT CASE
+            WHEN LOWER(REPLACE(COALESCE(n.path, ''), '\\', '/')) LIKE ? THEN NULL
+            ELSE nc.note_id
+          END) AS noteCount
          FROM clients c
          LEFT JOIN note_clients nc ON nc.client_id = c.id
+         LEFT JOIN notes n ON n.id = nc.note_id
          GROUP BY c.id
          ORDER BY LOWER(c.display_name) ASC`
       )
-      .all();
+      .all(`%/${CLIENT_PROFILE_FILE.toLowerCase()}`);
 
     const settings = getAppSettings();
     const rootFolder = settings.rootFolder;
@@ -2274,6 +2347,9 @@ function setupIpc() {
     requireDb();
     const where = [];
     const params = [];
+
+    where.push("LOWER(REPLACE(n.path, '\\', '/')) NOT LIKE ?");
+    params.push(`%/${CLIENT_PROFILE_FILE.toLowerCase()}`);
 
     if (filters.clientId) {
       where.push('EXISTS (SELECT 1 FROM note_clients x WHERE x.note_id = n.id AND x.client_id = ?)');

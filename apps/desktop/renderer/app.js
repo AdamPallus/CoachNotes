@@ -21,10 +21,13 @@ const state = {
   busyCount: 0,
   busyMessage: 'Working...',
   lastAnswerCopyText: '',
+  activeAnswer: null,
   answerHistory: [],
   answerHistoryIndex: -1,
   answerPanelOpen: false,
+  qaContextOpen: true,
   clientsPanelOpen: true,
+  pendingAnswerSave: null,
   profileClientTagsDraft: [],
   profileColorValue: '',
   profileSnapshot: '',
@@ -69,6 +72,15 @@ const els = {
   relevanceModeSelect: document.getElementById('relevanceModeSelect'),
   resultsTitle: document.getElementById('resultsTitle'),
   resultsList: document.getElementById('resultsList'),
+  qaContextCard: document.getElementById('qaContextCard'),
+  qaContextHeader: document.getElementById('qaContextHeader'),
+  qaContextToggleBtn: document.getElementById('qaContextToggleBtn'),
+  qaContextBody: document.getElementById('qaContextBody'),
+  qaContextClientName: document.getElementById('qaContextClientName'),
+  qaContextTags: document.getElementById('qaContextTags'),
+  qaContextTopPriorities: document.getElementById('qaContextTopPriorities'),
+  qaContextMedical: document.getElementById('qaContextMedical'),
+  qaContextAcute: document.getElementById('qaContextAcute'),
   profileClientName: document.getElementById('profileClientName'),
   profileUpdatedAt: document.getElementById('profileUpdatedAt'),
   profileDisabled: document.getElementById('profileDisabled'),
@@ -81,7 +93,7 @@ const els = {
   profileConfirmNewTagBtn: document.getElementById('profileConfirmNewTagBtn'),
   profileCancelNewTagBtn: document.getElementById('profileCancelNewTagBtn'),
   profileClientTagsList: document.getElementById('profileClientTagsList'),
-  profileColorInput: document.getElementById('profileColorInput'),
+  profileColorPalette: document.getElementById('profileColorPalette'),
   clearProfileColorBtn: document.getElementById('clearProfileColorBtn'),
   profileMedicalInput: document.getElementById('profileMedicalInput'),
   profileAcuteInput: document.getElementById('profileAcuteInput'),
@@ -105,7 +117,9 @@ const els = {
   answerForwardBtn: document.getElementById('answerForwardBtn'),
   answerContext: document.getElementById('answerContext'),
   copyAnswerBtn: document.getElementById('copyAnswerBtn'),
+  saveAnswerBtn: document.getElementById('saveAnswerBtn'),
   answerText: document.getElementById('answerText'),
+  toast: document.getElementById('toast'),
   busyOverlay: document.getElementById('busyOverlay'),
   busyMessage: document.getElementById('busyMessage'),
   busyProgressWrap: document.getElementById('busyProgressWrap'),
@@ -143,8 +157,15 @@ const els = {
   clientProfileForm: document.getElementById('clientProfileForm'),
   cancelProfileBtn: document.getElementById('cancelProfileBtn'),
   tagSuggestions: document.getElementById('tagSuggestions'),
+  saveAnswerDialog: document.getElementById('saveAnswerDialog'),
+  saveAnswerForm: document.getElementById('saveAnswerForm'),
+  saveAnswerClientSelect: document.getElementById('saveAnswerClientSelect'),
+  saveAnswerTitleInput: document.getElementById('saveAnswerTitleInput'),
+  cancelSaveAnswerBtn: document.getElementById('cancelSaveAnswerBtn'),
   cancelNewNoteBtn: document.getElementById('cancelNewNoteBtn')
 };
+
+let toastTimer = null;
 
 function escapeHtml(input) {
   return String(input || '')
@@ -209,6 +230,98 @@ function normalizeHexColor(value) {
   }
 
   return '';
+}
+
+const PROFILE_COLOR_PRESETS = [
+  { value: '#2aa994', label: 'Teal' },
+  { value: '#2563eb', label: 'Blue' },
+  { value: '#7c3aed', label: 'Violet' },
+  { value: '#db2777', label: 'Magenta' },
+  { value: '#ef4444', label: 'Red' },
+  { value: '#f97316', label: 'Orange' },
+  { value: '#84cc16', label: 'Lime' },
+  { value: '#14b8a6', label: 'Aqua' },
+  { value: '#0ea5e9', label: 'Sky' },
+  { value: '#64748b', label: 'Slate' }
+];
+
+const TAG_CATEGORY_KEYWORDS = {
+  medical: [
+    'injury', 'injured', 'pain', 'ache', 'rehab', 'recovery', 'medical', 'condition', 'thyroid',
+    'diabetes', 'hypertension', 'postpartum', 'surgery', 'medication', 'acute', 'chronic'
+  ],
+  training: [
+    'program', 'training', 'workout', 'strength', 'cardio', 'mobility', 'conditioning',
+    'running', 'exercise', 'lift', 'form'
+  ],
+  goal: [
+    'goal', 'milestone', 'target', 'progress', 'weight loss', 'fat loss', 'muscle', 'performance',
+    'habit', 'consistency'
+  ],
+  personal: [
+    'family', 'travel', 'sleep', 'stress', 'schedule', 'work', 'life', 'energy', 'motivation',
+    'mindset', 'nutrition'
+  ],
+  admin: [
+    'inactive', 'active', 'on hold', 'remote', 'weekly', 'biweekly', 'monthly', 'follow-up',
+    'check-in', 'billing', 'subscription', 'admin'
+  ]
+};
+
+function getTagCategory(tag) {
+  const normalized = String(tag || '').trim().toLowerCase();
+  if (!normalized) {
+    return 'default';
+  }
+
+  const categories = ['medical', 'training', 'goal', 'personal', 'admin'];
+  for (const category of categories) {
+    const keywords = TAG_CATEGORY_KEYWORDS[category] || [];
+    if (keywords.some((keyword) => normalized.includes(keyword))) {
+      return category;
+    }
+  }
+
+  return 'default';
+}
+
+function createTagPill(tag, options = {}) {
+  const {
+    button = false,
+    removable = false,
+    active = false,
+    datasetTag = true
+  } = options;
+
+  const element = document.createElement(button ? 'button' : 'span');
+  const normalized = sanitizeName(tag);
+  const category = getTagCategory(normalized);
+  element.className = `tag-pill tag-category-${category}`;
+  if (button) {
+    element.type = 'button';
+    element.classList.add('tag-chip');
+  }
+  if (active) {
+    element.classList.add('active');
+  }
+  if (removable) {
+    element.classList.add('profile-tag-chip');
+  }
+  if (datasetTag) {
+    element.dataset.tag = normalized;
+  }
+  element.textContent = removable ? `${normalized} x` : normalized;
+  return element;
+}
+
+function renderTagPillsHtml(tags, maxItems = 4) {
+  const rows = normalizeTagList(tags || [], maxItems);
+  return rows
+    .map((tag) => {
+      const category = getTagCategory(tag);
+      return `<span class="tag-pill tag-category-${escapeHtml(category)}">${escapeHtml(tag)}</span>`;
+    })
+    .join('');
 }
 
 function getSystemTheme() {
@@ -414,12 +527,13 @@ function updateBusyUi() {
   els.profileNewTagInput.disabled = busy || !state.selectedClientId;
   els.profileConfirmNewTagBtn.disabled = busy || !state.selectedClientId;
   els.profileCancelNewTagBtn.disabled = busy || !state.selectedClientId;
-  els.profileColorInput.disabled = busy || !state.selectedClientId;
   els.clearProfileColorBtn.disabled = busy || !state.selectedClientId;
   els.profileMedicalInput.disabled = busy || !state.selectedClientId;
   els.profileAcuteInput.disabled = busy || !state.selectedClientId;
   els.profileCompletedInput.disabled = busy || !state.selectedClientId;
   els.profileFutureInput.disabled = busy || !state.selectedClientId;
+  els.copyAnswerBtn.disabled = busy || !state.lastAnswerCopyText;
+  els.saveAnswerBtn.disabled = busy || !isSavableAnswerEntry(state.activeAnswer);
   if (busy) {
     els.editNoteBtn.disabled = true;
     els.deleteNoteBtn.disabled = true;
@@ -440,6 +554,37 @@ function updateBusyUi() {
   if (busy) {
     setMenuOpen(false);
   }
+
+  const paletteDisabled = busy || !state.selectedClientId;
+  for (const button of els.profileColorPalette.querySelectorAll('button')) {
+    button.disabled = paletteDisabled;
+  }
+}
+
+function showToast(message, kind = 'info') {
+  const text = String(message || '').trim();
+  if (!text || !els.toast) {
+    return;
+  }
+
+  if (toastTimer) {
+    clearTimeout(toastTimer);
+    toastTimer = null;
+  }
+
+  els.toast.textContent = text;
+  els.toast.classList.remove('error');
+  if (kind === 'error') {
+    els.toast.classList.add('error');
+  }
+  els.toast.hidden = false;
+  els.toast.classList.add('is-visible');
+
+  toastTimer = setTimeout(() => {
+    els.toast.classList.remove('is-visible');
+    els.toast.hidden = true;
+    toastTimer = null;
+  }, 2600);
 }
 
 function setBusy(on, message = '') {
@@ -492,10 +637,93 @@ function setClientsPanelOpen(open) {
   els.clientsHeader.setAttribute('aria-expanded', next ? 'true' : 'false');
 }
 
+function setQaContextOpen(open) {
+  const next = Boolean(open);
+  state.qaContextOpen = next;
+  els.qaContextCard.classList.toggle('is-collapsed', !next);
+  els.qaContextToggleBtn.textContent = next ? 'Collapse' : 'Open';
+  els.qaContextToggleBtn.setAttribute('aria-expanded', next ? 'true' : 'false');
+  els.qaContextHeader.setAttribute('aria-expanded', next ? 'true' : 'false');
+}
+
+function renderContextList(listEl, values, emptyLabel) {
+  listEl.innerHTML = '';
+  const rows = normalizeTagList(values || [], 12);
+  if (!rows.length) {
+    const li = document.createElement('li');
+    li.className = 'qa-context-empty';
+    li.textContent = emptyLabel;
+    listEl.appendChild(li);
+    return;
+  }
+
+  for (const value of rows) {
+    const li = document.createElement('li');
+    li.textContent = value;
+    listEl.appendChild(li);
+  }
+}
+
+function renderClientContextStrip() {
+  const scope = els.scopeSelect.value;
+  const shouldShow = scope === 'client' && Boolean(state.selectedClientId);
+  els.qaContextCard.hidden = !shouldShow;
+  if (!shouldShow) {
+    return;
+  }
+
+  const client = state.clients.find((row) => row.id === state.selectedClientId) || null;
+  const profile = state.clientProfileClientId === state.selectedClientId ? state.clientProfile : null;
+  const profileTags = profile?.clientTags || client?.profileTags || [];
+  const color = normalizeHexColor(profile?.clientColor || client?.color || '');
+  const colorDot = color ? `<span class="client-color-dot" style="background:${escapeHtml(color)};border-color:${escapeHtml(color)};"></span>` : '';
+  els.qaContextClientName.innerHTML = `${colorDot}${escapeHtml(client?.name || 'Selected client')}`;
+
+  els.qaContextTags.innerHTML = '';
+  if (profileTags.length) {
+    for (const tag of profileTags) {
+      els.qaContextTags.appendChild(createTagPill(tag, { datasetTag: false }));
+    }
+  } else {
+    const empty = document.createElement('span');
+    empty.className = 'qa-context-empty';
+    empty.textContent = 'No tags yet.';
+    els.qaContextTags.appendChild(empty);
+  }
+
+  renderContextList(els.qaContextTopPriorities, profile?.topPriorities || [], 'No priorities set.');
+  renderContextList(els.qaContextMedical, profile?.ongoingMedicalConsiderations || [], 'No ongoing medical notes.');
+  renderContextList(els.qaContextAcute, profile?.acuteInjuries || [], 'No acute injuries listed.');
+  setQaContextOpen(state.qaContextOpen);
+}
+
 function updateAnswerHistoryControls() {
   const hasHistory = state.answerHistory.length > 0 && state.answerHistoryIndex >= 0;
   els.answerBackBtn.disabled = !hasHistory || state.answerHistoryIndex <= 0;
   els.answerForwardBtn.disabled = !hasHistory || state.answerHistoryIndex >= state.answerHistory.length - 1;
+}
+
+function isSavableAnswerEntry(entry) {
+  if (!entry) {
+    return false;
+  }
+
+  if (entry.meta?.error) {
+    return false;
+  }
+
+  const mode = String(entry.meta?.mode || '');
+  if (mode !== 'ask' && mode !== 'summarize') {
+    return false;
+  }
+
+  return Boolean(String(entry.text || '').trim());
+}
+
+function updateAnswerActionButtons() {
+  const busy = state.busyCount > 0;
+  els.copyAnswerBtn.disabled = busy || !state.lastAnswerCopyText;
+  els.saveAnswerBtn.disabled = busy || !isSavableAnswerEntry(state.activeAnswer);
 }
 
 function pushAnswerHistory(entry) {
@@ -524,6 +752,7 @@ function showHistoryEntry(index) {
   const entry = state.answerHistory[index];
   renderAnswer(entry.text, entry.sources || [], entry.citations || [], {
     context: entry.context || '',
+    meta: entry.meta || null,
     autoOpen: true
   });
 }
@@ -586,13 +815,14 @@ function renderClients() {
     }
 
     const color = normalizeHexColor(client.color);
-    const tagSummary = (client.profileTags || []).slice(0, 3).join(', ');
+    const tagPills = renderTagPillsHtml(client.profileTags || [], 3);
     button.innerHTML = `
       <div class="client-title-row">
         <span class="client-color-dot" style="${color ? `background:${escapeHtml(color)};border-color:${escapeHtml(color)};` : ''}"></span>
         <span class="item-title">${escapeHtml(client.name)}</span>
       </div>
-      <div class="item-meta">${client.noteCount} notes${tagSummary ? ` • ${escapeHtml(tagSummary)}` : ''}</div>
+      <div class="item-meta">${client.noteCount} notes</div>
+      ${tagPills ? `<div class="client-tag-row">${tagPills}</div>` : ''}
     `;
 
     button.addEventListener('click', async () => {
@@ -639,13 +869,10 @@ function renderClientTagFilters() {
   els.clientTagFilters.innerHTML = '';
 
   for (const tag of allTags) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'btn btn-tiny tag-chip';
-    if (active.has(tag.toLowerCase())) {
-      button.classList.add('active');
-    }
-    button.textContent = tag;
+    const button = createTagPill(tag, {
+      button: true,
+      active: active.has(tag.toLowerCase())
+    });
     button.addEventListener('click', () => {
       const key = tag.toLowerCase();
       if (active.has(key)) {
@@ -691,13 +918,27 @@ function renderProfileClientTagsList() {
   }
 
   for (const tag of tags) {
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'profile-tag-chip';
-    chip.dataset.tag = tag;
+    const chip = createTagPill(tag, { button: true, removable: true });
     chip.title = `Remove tag: ${tag}`;
-    chip.textContent = `${tag} ×`;
     els.profileClientTagsList.appendChild(chip);
+  }
+}
+
+function renderProfileColorPalette() {
+  els.profileColorPalette.innerHTML = '';
+  const selectedColor = normalizeHexColor(state.profileColorValue);
+  for (const preset of PROFILE_COLOR_PRESETS) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'profile-color-swatch';
+    button.dataset.color = preset.value;
+    button.title = preset.label;
+    button.style.background = preset.value;
+    button.setAttribute('aria-label', `${preset.label} color`);
+    if (selectedColor && selectedColor === preset.value) {
+      button.classList.add('active');
+    }
+    els.profileColorPalette.appendChild(button);
   }
 }
 
@@ -912,11 +1153,18 @@ function renderMarkdown(text) {
 function parseCitationIds(answerText, citations) {
   const ids = [];
   const seen = new Set();
-  const pattern = /\[c:([^\]]+)\]/g;
+  const pattern = /\[(?:c:)?([^\]]+)\]/gi;
   let match = pattern.exec(answerText || '');
   while (match) {
     const id = String(match[1] || '').trim();
-    if (id && !seen.has(id)) {
+    if (!id) {
+      match = pattern.exec(answerText || '');
+      continue;
+    }
+
+    const isChunkStyle = /^(?:note_)?\d+(?:_chunk_\d+)?$/i.test(id);
+    const hasExplicitPrefix = String(match[0] || '').toLowerCase().startsWith('[c:');
+    if ((isChunkStyle || hasExplicitPrefix) && !seen.has(id)) {
       seen.add(id);
       ids.push(id);
     }
@@ -1018,20 +1266,28 @@ function buildAnswerView(answerText, sources, citations) {
       .map((source) => [String(source.citationId), source.citationNumber])
   );
 
-  const html = escapeHtml(answerText || '').replace(/\[c:([^\]]+)\]/g, (_full, rawId) => {
+  const html = escapeHtml(answerText || '').replace(/\[(c:)?([^\]]+)\]/gi, (full, prefix, rawId) => {
     const id = resolveCitationId(rawId);
     const number = id ? numberById.get(id) : null;
     if (!number) {
-      return `<span class="citation-missing">[c:${escapeHtml(String(rawId || '').trim())}]</span>`;
+      const raw = String(rawId || '').trim();
+      const looksCitationLike = /^(?:note_)?\d+(?:_chunk_\d+)?$/i.test(raw) || Boolean(prefix);
+      if (!looksCitationLike) {
+        return full;
+      }
+      return `<span class="citation-missing">[${escapeHtml(raw)}]</span>`;
     }
 
     return `<button class="citation-chip" data-citation-id="${escapeHtml(id)}">[${number}]</button>`;
   });
 
-  const copyText = String(answerText || '').replace(/\[c:([^\]]+)\]/g, (_full, rawId) => {
+  const copyText = String(answerText || '').replace(/\[(c:)?([^\]]+)\]/gi, (full, _prefix, rawId) => {
     const id = resolveCitationId(rawId);
     const number = id ? numberById.get(id) : null;
-    return number ? `[${number}]` : `[c:${String(rawId || '').trim()}]`;
+    if (!number) {
+      return full;
+    }
+    return `[${number}]`;
   });
 
   return {
@@ -1057,21 +1313,23 @@ async function openSource(source) {
 function renderAnswer(text, sources = [], citations = [], options = {}) {
   const context = String(options?.context || '').trim();
   const autoOpen = Boolean(options?.autoOpen);
+  const meta = options?.meta ? { ...options.meta } : null;
   if (options?.addToHistory) {
     pushAnswerHistory({
       text: String(text || ''),
       sources: [...(sources || [])],
       citations: [...(citations || [])],
-      context
+      context,
+      meta
     });
   }
 
   els.answerContext.textContent = context;
   els.answerContext.hidden = !context;
+  state.activeAnswer = null;
 
   if (!String(text || '').trim() && !(sources || []).length) {
     state.lastAnswerCopyText = '';
-    els.copyAnswerBtn.disabled = true;
     els.answerText.innerHTML = `
       <div class="empty-state">
         <div>
@@ -1081,6 +1339,7 @@ function renderAnswer(text, sources = [], citations = [], options = {}) {
         </div>
       </div>
     `;
+    updateAnswerActionButtons();
     updateAnswerHistoryControls();
     return;
   }
@@ -1091,7 +1350,14 @@ function renderAnswer(text, sources = [], citations = [], options = {}) {
 
   const view = buildAnswerView(text, sources, citations);
   state.lastAnswerCopyText = view.copyText || '';
-  els.copyAnswerBtn.disabled = !state.lastAnswerCopyText;
+  state.activeAnswer = {
+    text: String(text || ''),
+    sources: [...(sources || [])],
+    citations: [...(citations || [])],
+    context,
+    meta
+  };
+  updateAnswerActionButtons();
   els.answerText.innerHTML = view.html;
 
   for (const chip of els.answerText.querySelectorAll('.citation-chip')) {
@@ -1231,6 +1497,7 @@ async function loadClients() {
   renderClientTagFilters();
   renderProfileTagPickerOptions();
   renderClients();
+  renderClientContextStrip();
 }
 
 function parseTagInput(value) {
@@ -1317,12 +1584,13 @@ function renderClientProfile(profile) {
     els.profileTopInput.value = '';
     setProfileClientTagsDraft([]);
     state.profileColorValue = '';
-    els.profileColorInput.value = '#2aa994';
     els.profileMedicalInput.value = '';
     els.profileAcuteInput.value = '';
     els.profileCompletedInput.value = '';
     els.profileFutureInput.value = '';
     captureProfileSnapshot();
+    renderProfileColorPalette();
+    renderClientContextStrip();
     updateBusyUi();
     return;
   }
@@ -1337,12 +1605,13 @@ function renderClientProfile(profile) {
   els.profileTopInput.value = (profile?.topPriorities || []).join('\n');
   setProfileClientTagsDraft(profile?.clientTags || []);
   state.profileColorValue = normalizeHexColor(profile?.clientColor || '');
-  els.profileColorInput.value = state.profileColorValue || '#2aa994';
   els.profileMedicalInput.value = (profile?.ongoingMedicalConsiderations || []).join('\n');
   els.profileAcuteInput.value = (profile?.acuteInjuries || []).join('\n');
   els.profileCompletedInput.value = (profile?.completedFocus || []).join('\n');
   els.profileFutureInput.value = (profile?.futureFocus || []).join('\n');
   captureProfileSnapshot();
+  renderProfileColorPalette();
+  renderClientContextStrip();
   updateBusyUi();
 }
 
@@ -1611,12 +1880,26 @@ async function runAsk() {
 
     renderAnswer(result.answer, result.sources || [], result.citations || [], {
       context: `Question: ${question}${fallbackSuffix}`,
+      meta: {
+        mode: 'ask',
+        prompt: question,
+        scope: els.scopeSelect.value,
+        clientId: els.scopeSelect.value === 'client' ? state.selectedClientId : null,
+        error: false
+      },
       addToHistory: true,
       autoOpen: true
     });
   } catch (error) {
     renderAnswer(`Answer failed: ${error.message}`, [], [], {
       context: `Question: ${question}`,
+      meta: {
+        mode: 'ask',
+        prompt: question,
+        scope: els.scopeSelect.value,
+        clientId: els.scopeSelect.value === 'client' ? state.selectedClientId : null,
+        error: true
+      },
       addToHistory: true,
       autoOpen: true
     });
@@ -1670,6 +1953,13 @@ async function runSummarize() {
 
     renderAnswer(result.summary || '', result.sources || [], result.citations || [], {
       context,
+      meta: {
+        mode: 'summarize',
+        prompt: query,
+        scope: els.scopeSelect.value,
+        clientId: els.scopeSelect.value === 'client' ? state.selectedClientId : null,
+        error: false
+      },
       addToHistory: true,
       autoOpen: true
     });
@@ -1681,6 +1971,13 @@ async function runSummarize() {
       : `Summary for "${query}"`;
     renderAnswer(`Summarize failed: ${error.message}`, [], [], {
       context,
+      meta: {
+        mode: 'summarize',
+        prompt: query,
+        scope: els.scopeSelect.value,
+        clientId: els.scopeSelect.value === 'client' ? state.selectedClientId : null,
+        error: true
+      },
       addToHistory: true,
       autoOpen: true
     });
@@ -1896,6 +2193,204 @@ async function createNewNote(event) {
   }
 }
 
+function getClientNameById(clientId) {
+  const id = Number(clientId);
+  if (!Number.isFinite(id)) {
+    return '';
+  }
+
+  return state.clients.find((client) => client.id === id)?.name || '';
+}
+
+function truncateTitle(value, maxLength = 88) {
+  const raw = sanitizeName(value);
+  if (!raw) {
+    return '';
+  }
+
+  if (raw.length <= maxLength) {
+    return raw;
+  }
+
+  return `${raw.slice(0, maxLength - 3).trim()}...`;
+}
+
+function buildAiAnswerNoteTitle(entry) {
+  const mode = String(entry?.meta?.mode || '');
+  const prompt = sanitizeName(entry?.meta?.prompt || '');
+  const prefix = mode === 'summarize' ? 'Summary' : 'Q&A';
+  if (!prompt) {
+    return `${prefix}: AI Notes`;
+  }
+
+  return truncateTitle(`${prefix}: ${prompt}`);
+}
+
+function buildAiAnswerNoteBody(entry) {
+  const mode = String(entry?.meta?.mode || '');
+  const prompt = sanitizeName(entry?.meta?.prompt || '');
+  const view = buildAnswerView(entry?.text || '', entry?.sources || [], entry?.citations || []);
+  const citedSources = (view.orderedSources || []).filter((source) => Number.isInteger(source.citationNumber));
+  const sourceLines = citedSources.map((source) => {
+    const client = (source.clientNames || []).join(', ') || 'Unassigned client';
+    const title = sanitizeName(source.title || 'Untitled note');
+    const date = sanitizeName(source.date || 'Unknown date');
+    const snippet = String(source.snippet || source.chunkText || '').replace(/\s+/g, ' ').trim();
+    if (snippet) {
+      return `- [${source.citationNumber}] ${client} | ${title} | ${date} | ${snippet}`;
+    }
+
+    return `- [${source.citationNumber}] ${client} | ${title} | ${date}`;
+  });
+  const generatedAt = new Date().toISOString();
+  const lines = [
+    '## AI Metadata',
+    `- Generated: ${generatedAt}`,
+    `- Type: ${mode === 'summarize' ? 'Summary' : 'Q&A answer'}`,
+    prompt ? `- Prompt: ${prompt}` : '',
+    `- Sources considered: ${Array.isArray(entry?.sources) ? entry.sources.length : 0}`,
+    `- Sources cited: ${citedSources.length}`,
+    '',
+    '## Content',
+    String(view.copyText || entry?.text || '').trim()
+  ].filter(Boolean);
+
+  if (sourceLines.length) {
+    lines.push('', '## Sources', ...sourceLines);
+  }
+
+  return lines.join('\n');
+}
+
+function populateSaveAnswerClientSelect(selectedClientName = '') {
+  const selected = sanitizeName(selectedClientName);
+  els.saveAnswerClientSelect.innerHTML = '';
+
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Select client...';
+  els.saveAnswerClientSelect.appendChild(placeholder);
+
+  for (const client of state.clients) {
+    const option = document.createElement('option');
+    option.value = client.name;
+    option.textContent = client.name;
+    els.saveAnswerClientSelect.appendChild(option);
+  }
+
+  if (selected && state.clients.some((client) => client.name === selected)) {
+    els.saveAnswerClientSelect.value = selected;
+  } else {
+    els.saveAnswerClientSelect.value = '';
+  }
+}
+
+function openSaveAnswerDialog(defaults = {}) {
+  populateSaveAnswerClientSelect(defaults.clientName || getClientNameById(state.selectedClientId));
+  els.saveAnswerTitleInput.value = defaults.title || '';
+  els.saveAnswerDialog.showModal();
+  if (!els.saveAnswerClientSelect.value) {
+    els.saveAnswerClientSelect.focus();
+  } else {
+    els.saveAnswerTitleInput.focus();
+    els.saveAnswerTitleInput.select();
+  }
+}
+
+async function persistAnswerAsNote(entry, clientName, title) {
+  const payload = {
+    title: truncateTitle(title || buildAiAnswerNoteTitle(entry)),
+    date: new Date().toISOString().slice(0, 10),
+    clientName: sanitizeName(clientName),
+    tags: [
+      'ai-generated',
+      entry?.meta?.mode === 'summarize' ? 'summary' : 'qa'
+    ],
+    body: buildAiAnswerNoteBody(entry)
+  };
+
+  if (!payload.clientName) {
+    throw new Error('Client selection is required.');
+  }
+
+  const created = await window.coachNotes.createNote(payload);
+  await loadClients();
+  await loadTags();
+  if (!state.activeQuery) {
+    await loadNotes();
+  }
+  showToast(`Saved note: ${created.title}`);
+  return created;
+}
+
+async function handleSaveAnswerAsNote() {
+  const entry = state.activeAnswer;
+  if (!isSavableAnswerEntry(entry)) {
+    showToast('Run Ask or Summarize first, then save the result as a note.', 'error');
+    return;
+  }
+
+  if (!state.clients.length) {
+    showToast('Create a client before saving AI answers as notes.', 'error');
+    return;
+  }
+
+  const defaultTitle = buildAiAnswerNoteTitle(entry);
+  const scopedClientName = entry.meta?.scope === 'client'
+    ? getClientNameById(entry.meta?.clientId)
+    : '';
+
+  state.pendingAnswerSave = {
+    entry,
+    title: defaultTitle
+  };
+
+  if (scopedClientName) {
+    setBusy(true, 'Saving AI note...');
+    try {
+      await persistAnswerAsNote(entry, scopedClientName, defaultTitle);
+    } catch (error) {
+      showToast(`Save failed: ${error.message}`, 'error');
+    } finally {
+      state.pendingAnswerSave = null;
+      setBusy(false);
+    }
+    return;
+  }
+
+  openSaveAnswerDialog({
+    clientName: getClientNameById(state.selectedClientId),
+    title: defaultTitle
+  });
+}
+
+async function submitSaveAnswerAsNote(event) {
+  event.preventDefault();
+  const draft = state.pendingAnswerSave;
+  if (!draft?.entry) {
+    els.saveAnswerDialog.close();
+    return;
+  }
+
+  const clientName = sanitizeName(els.saveAnswerClientSelect.value);
+  if (!clientName) {
+    showToast('Choose a client before saving.', 'error');
+    return;
+  }
+
+  const title = sanitizeName(els.saveAnswerTitleInput.value) || draft.title;
+  setBusy(true, 'Saving AI note...');
+  try {
+    await persistAnswerAsNote(draft.entry, clientName, title);
+    els.saveAnswerDialog.close();
+    state.pendingAnswerSave = null;
+  } catch (error) {
+    showToast(`Save failed: ${error.message}`, 'error');
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function handleCheckForUpdates() {
   setBusy(true, 'Checking for updates...');
   let result = null;
@@ -2014,7 +2509,9 @@ async function init() {
   setQueryMode('search');
   syncDepthPresetFromTopK();
   setAnswerPanelOpen(false);
+  setQaContextOpen(true);
   setClientsPanelOpen(true);
+  renderClientContextStrip();
 
   els.newNoteBtn.addEventListener('click', openNewNoteDialog);
   els.newClientBtn.addEventListener('click', openNewClientDialog);
@@ -2092,6 +2589,7 @@ async function init() {
 
   els.scopeSelect.addEventListener('change', async () => {
     state.scope = els.scopeSelect.value;
+    renderClientContextStrip();
     if (state.activeQuery) {
       await runSearch(state.activeQuery);
     }
@@ -2143,7 +2641,25 @@ async function init() {
   els.answerForwardBtn.addEventListener('click', () => {
     showHistoryEntry(state.answerHistoryIndex + 1);
   });
+  els.qaContextToggleBtn.addEventListener('click', () => {
+    setQaContextOpen(!state.qaContextOpen);
+  });
+  els.qaContextHeader.addEventListener('click', (event) => {
+    if (isInteractiveTarget(event.target)) {
+      return;
+    }
+    setQaContextOpen(!state.qaContextOpen);
+  });
+  els.qaContextHeader.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setQaContextOpen(!state.qaContextOpen);
+    }
+  });
   els.copyAnswerBtn.addEventListener('click', copyAnswerToClipboard);
+  els.saveAnswerBtn.addEventListener('click', async () => {
+    await handleSaveAnswerAsNote();
+  });
   els.saveProfileBtn.addEventListener('click', async () => {
     await saveClientProfile({ closeDialog: true });
   });
@@ -2159,13 +2675,24 @@ async function init() {
       refreshProfileDirtyState();
     });
   }
-  els.profileColorInput.addEventListener('input', () => {
-    state.profileColorValue = normalizeHexColor(els.profileColorInput.value);
+  els.profileColorPalette.addEventListener('click', (event) => {
+    const swatch = event.target.closest('.profile-color-swatch');
+    if (!swatch) {
+      return;
+    }
+
+    const color = normalizeHexColor(swatch.dataset.color || '');
+    if (!color) {
+      return;
+    }
+
+    state.profileColorValue = color;
+    renderProfileColorPalette();
     refreshProfileDirtyState();
   });
   els.clearProfileColorBtn.addEventListener('click', () => {
     state.profileColorValue = '';
-    els.profileColorInput.value = '#2aa994';
+    renderProfileColorPalette();
     refreshProfileDirtyState();
   });
   els.profileTagPicker.addEventListener('change', () => {
@@ -2275,6 +2802,11 @@ async function init() {
     els.helpDialog.close();
   });
   els.newNoteForm.addEventListener('submit', createNewNote);
+  els.saveAnswerForm.addEventListener('submit', submitSaveAnswerAsNote);
+  els.cancelSaveAnswerBtn.addEventListener('click', () => {
+    state.pendingAnswerSave = null;
+    els.saveAnswerDialog.close();
+  });
   els.cancelNewNoteBtn.addEventListener('click', () => {
     els.newNoteDialog.close();
   });
@@ -2297,6 +2829,12 @@ async function init() {
     if (event.target === els.clientProfileDialog) {
       requestCloseClientProfileDialog();
     }
+  });
+  els.saveAnswerDialog.addEventListener('cancel', () => {
+    state.pendingAnswerSave = null;
+  });
+  els.saveAnswerDialog.addEventListener('close', () => {
+    state.pendingAnswerSave = null;
   });
 }
 
