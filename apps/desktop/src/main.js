@@ -354,6 +354,7 @@ function slugifyFileStem(value) {
 function yamlQuote(value) {
   return `"${String(value || '')
     .replace(/\\/g, '\\\\')
+    .replace(/\n/g, '\\n')
     .replace(/"/g, '\\"')}"`;
 }
 
@@ -605,6 +606,24 @@ function normalizeFocusList(values, maxItems = 80) {
     .slice(0, maxItems);
 }
 
+function normalizeMultilineText(value, maxChars = 4000) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+      .join('\n')
+      .slice(0, maxChars)
+      .trim();
+  }
+
+  return String(value || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, maxChars);
+}
+
 function parseClientProfileContent(content) {
   let data = {};
   try {
@@ -618,6 +637,8 @@ function parseClientProfileContent(content) {
     topPriorities: normalizeFocusList(data.top_priorities || data.topPriorities || data.current_focus || data.currentFocus, 3),
     clientTags: normalizeFocusList(data.client_tags || data.clientTags || data.profile_tags || data.profileTags, 40),
     clientColor: normalizeHexColor(data.client_color || data.clientColor || data.color),
+    coachNotes: normalizeMultilineText(data.coach_notes || data.coachNotes || data.notes || data.profile_notes || data.profileNotes),
+    exerciseAtAGlance: normalizeFocusList(data.exercise_at_a_glance || data.exerciseAtAGlance || data.exercise_notes || data.exerciseNotes),
     ongoingMedicalConsiderations: normalizeFocusList(
       data.ongoing_medical_considerations
       || data.ongoingMedicalConsiderations
@@ -664,6 +685,8 @@ function buildClientProfileIndexText(rawText, metadata, parsedProfile) {
     `Client: ${clientName}`,
     listLine('Tags', profile.clientTags),
     listLine('Top Priorities', profile.topPriorities),
+    `Coach Notes: ${profile.coachNotes ? profile.coachNotes.replace(/\n/g, ' ') : '(none)'}`,
+    listLine('Exercise At-a-Glance', profile.exerciseAtAGlance),
     listLine('Ongoing Medical Considerations', profile.ongoingMedicalConsiderations),
     listLine('Acute Injuries', profile.acuteInjuries),
     listLine('Completed Focus', profile.completedFocus),
@@ -682,6 +705,8 @@ function buildClientProfileContent({
   topPriorities,
   clientTags,
   clientColor,
+  coachNotes,
+  exerciseAtAGlance,
   ongoingMedicalConsiderations,
   acuteInjuries,
   completedFocus,
@@ -705,6 +730,8 @@ function buildClientProfileContent({
   appendList('top_priorities', topPriorities);
   appendList('client_tags', clientTags);
   lines.push(`client_color: ${yamlQuote(clientColor)}`);
+  lines.push(`coach_notes: ${yamlQuote(coachNotes)}`);
+  appendList('exercise_at_a_glance', exerciseAtAGlance);
   appendList('ongoing_medical_considerations', ongoingMedicalConsiderations);
   appendList('acute_injuries', acuteInjuries);
   appendList('completed_focus', completedFocus);
@@ -957,6 +984,116 @@ async function callProxy(endpoint, payload, settings) {
   }
 
   return data;
+}
+
+async function callProxyStream(endpoint, payload, settings, onEvent) {
+  const baseUrl = (settings.proxyBaseUrl || '').trim().replace(/\/$/, '');
+  const token = (settings.inviteToken || '').trim();
+  if (!baseUrl || !token) {
+    throw new Error('Proxy URL or invite token is missing in Settings.');
+  }
+
+  const response = await fetch(`${baseUrl}${endpoint}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    let data;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { error: text || 'Invalid JSON from proxy.' };
+    }
+    throw new Error(data.error || `Proxy request failed (${response.status}).`);
+  }
+
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  if (!contentType.includes('application/x-ndjson')) {
+    const text = await response.text();
+    let data;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { error: text || 'Invalid JSON from proxy.' };
+    }
+    return data;
+  }
+
+  if (!response.body) {
+    throw new Error('Proxy stream did not include a response body.');
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let completed = null;
+  for await (const chunk of response.body) {
+    buffer += decoder.decode(chunk, { stream: true });
+    while (true) {
+      const newline = buffer.indexOf('\n');
+      if (newline < 0) {
+        break;
+      }
+
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (!line) {
+        continue;
+      }
+
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch {
+        continue;
+      }
+
+      if (typeof onEvent === 'function') {
+        onEvent(event);
+      }
+
+      if (event?.type === 'error') {
+        throw new Error(event.error || 'Proxy stream failed.');
+      }
+      if (event?.type === 'done' && event.data && typeof event.data === 'object') {
+        completed = event.data;
+      }
+    }
+  }
+
+  buffer += decoder.decode();
+  const tail = buffer.trim();
+  if (tail) {
+    let event = null;
+    try {
+      event = JSON.parse(tail);
+    } catch {
+      event = null;
+    }
+
+    if (event) {
+      if (typeof onEvent === 'function') {
+        onEvent(event);
+      }
+      if (event?.type === 'error') {
+        throw new Error(event.error || 'Proxy stream failed.');
+      }
+      if (event?.type === 'done' && event.data && typeof event.data === 'object') {
+        completed = event.data;
+      }
+    }
+  }
+
+  if (completed && typeof completed === 'object') {
+    return completed;
+  }
+
+  throw new Error('Proxy stream ended without a completion payload.');
 }
 
 async function embedTexts(inputs, settings) {
@@ -1621,7 +1758,7 @@ async function runSearch(payload) {
   });
 }
 
-async function runAsk(payload) {
+async function runAsk(payload, options = {}) {
   const question = String(payload?.question || '').trim();
   if (!question) {
     throw new Error('Question is required.');
@@ -1631,6 +1768,13 @@ async function runAsk(payload) {
   const clientId = payload?.clientId ? Number(payload.clientId) : null;
   const maxSources = Math.max(3, Math.min(Number(payload?.topK) || 8, 12));
   const relevanceMode = parseRelevanceMode(payload?.relevanceMode);
+  const wantsStream = Boolean(payload?.stream);
+  const emitStream = (event) => {
+    if (!wantsStream || typeof options.onStreamEvent !== 'function' || !event || typeof event !== 'object') {
+      return;
+    }
+    options.onStreamEvent(event);
+  };
 
   const results = await runSearch({
     query: question,
@@ -1677,17 +1821,33 @@ async function runAsk(payload) {
   let response;
   let fallbackUsed = false;
   try {
-    response = await callProxy(
-      '/answer',
-      {
-        model: DEFAULT_ANSWER_MODEL,
-        question,
-        instructions: payload?.instructions || '',
-        sources,
-        response_format: 'coachnotes.v1'
-      },
-      settings
-    );
+    if (wantsStream) {
+      response = await callProxyStream(
+        '/answer',
+        {
+          model: DEFAULT_ANSWER_MODEL,
+          question,
+          instructions: payload?.instructions || '',
+          sources,
+          response_format: 'coachnotes.v1',
+          stream: true
+        },
+        settings,
+        emitStream
+      );
+    } else {
+      response = await callProxy(
+        '/answer',
+        {
+          model: DEFAULT_ANSWER_MODEL,
+          question,
+          instructions: payload?.instructions || '',
+          sources,
+          response_format: 'coachnotes.v1'
+        },
+        settings
+      );
+    }
   } catch (error) {
     if (!isTimeoutLikeError(error)) {
       throw error;
@@ -1702,17 +1862,33 @@ async function runAsk(payload) {
       }));
 
     try {
-      response = await callProxy(
-        '/answer',
-        {
-          model: DEFAULT_ANSWER_MODEL,
-          question,
-          instructions: 'Answer concisely from the provided sources only.',
-          sources: reducedSources,
-          response_format: 'coachnotes.v1'
-        },
-        settings
-      );
+      if (wantsStream) {
+        response = await callProxyStream(
+          '/answer',
+          {
+            model: DEFAULT_ANSWER_MODEL,
+            question,
+            instructions: 'Answer concisely from the provided sources only.',
+            sources: reducedSources,
+            response_format: 'coachnotes.v1',
+            stream: true
+          },
+          settings,
+          emitStream
+        );
+      } else {
+        response = await callProxy(
+          '/answer',
+          {
+            model: DEFAULT_ANSWER_MODEL,
+            question,
+            instructions: 'Answer concisely from the provided sources only.',
+            sources: reducedSources,
+            response_format: 'coachnotes.v1'
+          },
+          settings
+        );
+      }
     } catch (retryError) {
       if (!isTimeoutLikeError(retryError)) {
         throw retryError;
@@ -1728,6 +1904,7 @@ async function runAsk(payload) {
           warnings: ['Request timed out in proxy function.']
         }
       };
+      emitStream({ type: 'delta', delta: `${timeoutAnswer}\n` });
     }
   }
 
@@ -1760,7 +1937,7 @@ async function runAsk(payload) {
   };
 }
 
-async function runSummarize(payload) {
+async function runSummarize(payload, options = {}) {
   const query = String(payload?.query || '').trim();
   if (!query) {
     throw new Error('Summary query is required.');
@@ -1770,6 +1947,13 @@ async function runSummarize(payload) {
   const clientId = payload?.clientId ? Number(payload.clientId) : null;
   const topK = Math.max(3, Math.min(Number(payload?.topK) || 8, 12));
   const relevanceMode = parseRelevanceMode(payload?.relevanceMode);
+  const wantsStream = Boolean(payload?.stream);
+  const emitStream = (event) => {
+    if (!wantsStream || typeof options.onStreamEvent !== 'function' || !event || typeof event !== 'object') {
+      return;
+    }
+    options.onStreamEvent(event);
+  };
   const providedResults = Array.isArray(payload?.retrieved)
     ? payload.retrieved
       .map((row) => ({
@@ -1823,15 +2007,29 @@ async function runSummarize(payload) {
   let response;
   let fallbackUsed = false;
   try {
-    response = await callProxy(
-      '/summarize',
-      {
-        model: DEFAULT_ANSWER_MODEL,
-        mode: 'search_results_summary',
-        sources: summarizeSources
-      },
-      settings
-    );
+    if (wantsStream) {
+      response = await callProxyStream(
+        '/summarize',
+        {
+          model: DEFAULT_ANSWER_MODEL,
+          mode: 'search_results_summary',
+          sources: summarizeSources,
+          stream: true
+        },
+        settings,
+        emitStream
+      );
+    } else {
+      response = await callProxy(
+        '/summarize',
+        {
+          model: DEFAULT_ANSWER_MODEL,
+          mode: 'search_results_summary',
+          sources: summarizeSources
+        },
+        settings
+      );
+    }
   } catch (error) {
     const message = String(error?.message || error || '');
     const isTimeout = /FUNCTION_INVOCATION_TIMEOUT|timeout|timed out/i.test(message);
@@ -1840,17 +2038,34 @@ async function runSummarize(payload) {
     }
 
     fallbackUsed = true;
-    const fallback = await callProxy(
-      '/answer',
-      {
-        model: DEFAULT_ANSWER_MODEL,
-        question: `Summarize these notes for query: ${query}`,
-        instructions: 'Provide a concise summary with citations for each major point.',
-        sources: answerSources,
-        response_format: 'coachnotes.v1'
-      },
-      settings
-    );
+    let fallback;
+    if (wantsStream) {
+      fallback = await callProxyStream(
+        '/answer',
+        {
+          model: DEFAULT_ANSWER_MODEL,
+          question: `Summarize these notes for query: ${query}`,
+          instructions: 'Provide a concise summary with citations for each major point.',
+          sources: answerSources,
+          response_format: 'coachnotes.v1',
+          stream: true
+        },
+        settings,
+        emitStream
+      );
+    } else {
+      fallback = await callProxy(
+        '/answer',
+        {
+          model: DEFAULT_ANSWER_MODEL,
+          question: `Summarize these notes for query: ${query}`,
+          instructions: 'Provide a concise summary with citations for each major point.',
+          sources: answerSources,
+          response_format: 'coachnotes.v1'
+        },
+        settings
+      );
+    }
 
     response = {
       model: fallback.model || DEFAULT_ANSWER_MODEL,
@@ -2110,6 +2325,8 @@ async function getClientProfile(payload) {
     topPriorities: [],
     clientTags: [],
     clientColor: '',
+    coachNotes: '',
+    exerciseAtAGlance: [],
     ongoingMedicalConsiderations: [],
     acuteInjuries: [],
     completedFocus: [],
@@ -2132,6 +2349,8 @@ async function getClientProfile(payload) {
     topPriorities: parsed.topPriorities,
     clientTags: parsed.clientTags,
     clientColor: parsed.clientColor,
+    coachNotes: parsed.coachNotes,
+    exerciseAtAGlance: parsed.exerciseAtAGlance,
     ongoingMedicalConsiderations: parsed.ongoingMedicalConsiderations,
     acuteInjuries: parsed.acuteInjuries,
     completedFocus: parsed.completedFocus,
@@ -2167,6 +2386,8 @@ async function saveClientProfile(payload) {
 
   const clientTags = normalizeFocusList(payload?.clientTags, 40);
   const clientColor = normalizeHexColor(payload?.clientColor);
+  const coachNotes = normalizeMultilineText(payload?.coachNotes, 4000);
+  const exerciseAtAGlance = normalizeFocusList(payload?.exerciseAtAGlance);
   const completedFocus = normalizeFocusList(payload?.completedFocus);
   const futureFocus = normalizeFocusList(payload?.futureFocus);
   const ongoingMedicalConsiderations = normalizeFocusList(payload?.ongoingMedicalConsiderations);
@@ -2180,6 +2401,8 @@ async function saveClientProfile(payload) {
     topPriorities,
     clientTags,
     clientColor,
+    coachNotes,
+    exerciseAtAGlance,
     ongoingMedicalConsiderations,
     acuteInjuries,
     completedFocus,
@@ -2197,6 +2420,8 @@ async function saveClientProfile(payload) {
     topPriorities,
     clientTags,
     clientColor,
+    coachNotes,
+    exerciseAtAGlance,
     ongoingMedicalConsiderations,
     acuteInjuries,
     completedFocus,
@@ -2240,6 +2465,8 @@ async function removeProfileTag(payload) {
       topPriorities: profile.topPriorities || [],
       clientTags: nextTags,
       clientColor: profile.clientColor || '',
+      coachNotes: profile.coachNotes || '',
+      exerciseAtAGlance: profile.exerciseAtAGlance || [],
       ongoingMedicalConsiderations: profile.ongoingMedicalConsiderations || [],
       acuteInjuries: profile.acuteInjuries || [],
       completedFocus: profile.completedFocus || [],
@@ -2598,14 +2825,39 @@ function setupIpc() {
     return true;
   });
 
-  ipcMain.handle('app:ask', async (_event, payload) => {
-    requireDb();
-    return runAsk(payload);
+  ipcMain.handle('app:set-zoom', async (event, payload) => {
+    const requested = Number(payload?.factor);
+    const factor = Number.isFinite(requested)
+      ? Math.max(0.8, Math.min(1.4, requested))
+      : 1;
+    event.sender.setZoomFactor(factor);
+    return { factor };
   });
 
-  ipcMain.handle('app:summarize', async (_event, payload) => {
+  ipcMain.handle('app:ask', async (event, payload) => {
     requireDb();
-    return runSummarize(payload);
+    const requestId = String(payload?.requestId || '').trim();
+    return runAsk(payload, {
+      onStreamEvent: (streamEvent) => {
+        if (!requestId || event.sender.isDestroyed()) {
+          return;
+        }
+        event.sender.send('app:llm-stream', { requestId, ...streamEvent });
+      }
+    });
+  });
+
+  ipcMain.handle('app:summarize', async (event, payload) => {
+    requireDb();
+    const requestId = String(payload?.requestId || '').trim();
+    return runSummarize(payload, {
+      onStreamEvent: (streamEvent) => {
+        if (!requestId || event.sender.isDestroyed()) {
+          return;
+        }
+        event.sender.send('app:llm-stream', { requestId, ...streamEvent });
+      }
+    });
   });
 
   ipcMain.handle('app:reveal-in-finder', async (_event, noteId) => {

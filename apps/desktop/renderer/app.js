@@ -1,4 +1,5 @@
 const THEME_STORAGE_KEY = 'coachnotes-theme';
+const TEXT_SIZE_STORAGE_KEY = 'coachnotes-text-size';
 
 const state = {
   settings: null,
@@ -21,21 +22,28 @@ const state = {
   queryMode: 'search',
   noteViewMode: 'rendered',
   busyCount: 0,
+  busyStack: [],
   busyMessage: 'Working...',
   lastAnswerCopyText: '',
   activeAnswer: null,
   answerHistory: [],
   answerHistoryIndex: -1,
   answerPanelOpen: false,
+  streamingRequestId: null,
+  streamingMode: '',
+  streamingText: '',
   qaContextOpen: true,
   clientsPanelOpen: true,
   pendingAnswerSave: null,
   profileClientTagsDraft: [],
   profileColorValue: '',
+  profileColorPopoverOpen: false,
+  profileTagEditorOpen: false,
   profileSnapshot: '',
   profileDirty: false,
   themeMode: 'light',
-  theme: 'light'
+  theme: 'light',
+  textSizeMode: 'medium'
 };
 
 const els = {
@@ -43,6 +51,10 @@ const els = {
   themeModeGroup: document.getElementById('themeModeGroup'),
   themeModeLight: document.getElementById('themeModeLight'),
   themeModeDark: document.getElementById('themeModeDark'),
+  textSizeGroup: document.getElementById('textSizeGroup'),
+  textSizeSmall: document.getElementById('textSizeSmall'),
+  textSizeMedium: document.getElementById('textSizeMedium'),
+  textSizeLarge: document.getElementById('textSizeLarge'),
   statusLine: document.getElementById('statusLine'),
   newNoteBtn: document.getElementById('newNoteBtn'),
   newClientBtn: document.getElementById('newClientBtn'),
@@ -81,14 +93,18 @@ const els = {
   qaContextBody: document.getElementById('qaContextBody'),
   qaContextClientName: document.getElementById('qaContextClientName'),
   qaContextTags: document.getElementById('qaContextTags'),
+  qaContextCoachNotes: document.getElementById('qaContextCoachNotes'),
   qaContextTopPriorities: document.getElementById('qaContextTopPriorities'),
+  qaContextExercise: document.getElementById('qaContextExercise'),
   qaContextMedical: document.getElementById('qaContextMedical'),
   qaContextAcute: document.getElementById('qaContextAcute'),
+  profileDialogTitle: document.getElementById('profileDialogTitle'),
   profileClientName: document.getElementById('profileClientName'),
   profileUpdatedAt: document.getElementById('profileUpdatedAt'),
   profileDisabled: document.getElementById('profileDisabled'),
   profileFormWrap: document.getElementById('profileFormWrap'),
   profileTopInput: document.getElementById('profileTopInput'),
+  profileCoachNotesInput: document.getElementById('profileCoachNotesInput'),
   profileTagPicker: document.getElementById('profileTagPicker'),
   profileOpenNewTagBtn: document.getElementById('profileOpenNewTagBtn'),
   profileNewTagRow: document.getElementById('profileNewTagRow'),
@@ -100,10 +116,15 @@ const els = {
   profileConfirmNewTagBtn: document.getElementById('profileConfirmNewTagBtn'),
   profileCancelNewTagBtn: document.getElementById('profileCancelNewTagBtn'),
   profileClientTagsList: document.getElementById('profileClientTagsList'),
+  profileTagEditor: document.getElementById('profileTagEditor'),
+  profileTagsToggleBtn: document.getElementById('profileTagsToggleBtn'),
+  profileColorToggleBtn: document.getElementById('profileColorToggleBtn'),
+  profileColorPopover: document.getElementById('profileColorPopover'),
   profileColorPalette: document.getElementById('profileColorPalette'),
   clearProfileColorBtn: document.getElementById('clearProfileColorBtn'),
   profileMedicalInput: document.getElementById('profileMedicalInput'),
   profileAcuteInput: document.getElementById('profileAcuteInput'),
+  profileExerciseInput: document.getElementById('profileExerciseInput'),
   profileCompletedInput: document.getElementById('profileCompletedInput'),
   profileFutureInput: document.getElementById('profileFutureInput'),
   saveProfileBtn: document.getElementById('saveProfileBtn'),
@@ -485,6 +506,55 @@ function initTheme() {
   applyTheme(initialMode, false);
 }
 
+function normalizeTextSizeMode(mode) {
+  const normalized = String(mode || '').trim().toLowerCase();
+  if (normalized === 'small' || normalized === 'large') {
+    return normalized;
+  }
+  return 'medium';
+}
+
+function zoomFactorForMode(mode) {
+  const normalized = normalizeTextSizeMode(mode);
+  if (normalized === 'small') {
+    return 1.0;
+  }
+  if (normalized === 'large') {
+    return 1.14;
+  }
+  return 1.06;
+}
+
+function syncTextSizeControls() {
+  const mode = normalizeTextSizeMode(state.textSizeMode);
+  els.textSizeSmall.checked = mode === 'small';
+  els.textSizeMedium.checked = mode === 'medium';
+  els.textSizeLarge.checked = mode === 'large';
+}
+
+async function applyTextSizeMode(mode, persist = true) {
+  const normalized = normalizeTextSizeMode(mode);
+  state.textSizeMode = normalized;
+  syncTextSizeControls();
+  if (persist) {
+    localStorage.setItem(TEXT_SIZE_STORAGE_KEY, normalized);
+  }
+
+  try {
+    await window.coachNotes.setZoom({
+      factor: zoomFactorForMode(normalized)
+    });
+  } catch {
+    // Ignore zoom updates when renderer is not ready.
+  }
+}
+
+async function initTextSizeMode() {
+  const stored = localStorage.getItem(TEXT_SIZE_STORAGE_KEY);
+  const initialMode = normalizeTextSizeMode(stored || 'medium');
+  await applyTextSizeMode(initialMode, false);
+}
+
 function getQueryModeConfig(mode) {
   if (mode === 'ask') {
     return {
@@ -638,6 +708,7 @@ function getBusyMessage() {
 
 function updateBusyUi() {
   const busy = state.busyCount > 0;
+  const blockingBusy = state.busyStack.some((entry) => entry?.blocking);
   const progress = getIndexProgress();
   els.goBtn.disabled = busy;
   els.reindexBtn.disabled = busy;
@@ -650,8 +721,11 @@ function updateBusyUi() {
   els.settingsBtn.disabled = busy;
   els.saveProfileBtn.disabled = busy || !state.selectedClientId;
   els.profileTopInput.disabled = busy || !state.selectedClientId;
+  els.profileCoachNotesInput.disabled = busy || !state.selectedClientId;
   els.profileTagPicker.disabled = busy || !state.selectedClientId;
   els.profileOpenNewTagBtn.disabled = busy || !state.selectedClientId;
+  els.profileTagsToggleBtn.disabled = busy || !state.selectedClientId;
+  els.profileColorToggleBtn.disabled = busy || !state.selectedClientId;
   els.profileNewTagInput.disabled = busy || !state.selectedClientId;
   els.profileNewTagCategorySelect.disabled = busy || !state.selectedClientId;
   els.profileNewCategoryNameInput.disabled = busy || !state.selectedClientId;
@@ -661,6 +735,7 @@ function updateBusyUi() {
   els.clearProfileColorBtn.disabled = busy || !state.selectedClientId;
   els.profileMedicalInput.disabled = busy || !state.selectedClientId;
   els.profileAcuteInput.disabled = busy || !state.selectedClientId;
+  els.profileExerciseInput.disabled = busy || !state.selectedClientId;
   els.profileCompletedInput.disabled = busy || !state.selectedClientId;
   els.profileFutureInput.disabled = busy || !state.selectedClientId;
   els.copyAnswerBtn.disabled = busy || !state.lastAnswerCopyText;
@@ -686,9 +761,16 @@ function updateBusyUi() {
       ? `${progress.processed}/${progress.total} notes`
       : `${Math.round(progress.ratio * 100)}%`;
   }
-  els.busyOverlay.hidden = !busy;
-  if (busy) {
+  els.busyOverlay.hidden = !(busy && blockingBusy);
+  if (busy && blockingBusy) {
     setMenuOpen(false);
+  }
+
+  if (state.streamingRequestId) {
+    const streamingMeta = els.answerText.querySelector('.streaming-answer-meta');
+    if (streamingMeta) {
+      streamingMeta.textContent = getBusyMessage();
+    }
   }
 
   const paletteDisabled = busy || !state.selectedClientId;
@@ -729,14 +811,20 @@ function showToast(message, kind = 'info') {
   }, 2600);
 }
 
-function setBusy(on, message = '') {
+function setBusy(on, message = '', options = {}) {
   if (on) {
-    state.busyCount += 1;
+    state.busyStack.push({
+      blocking: options.blocking !== false
+    });
+    state.busyCount = state.busyStack.length;
     if (message) {
       state.busyMessage = message;
     }
   } else {
-    state.busyCount = Math.max(0, state.busyCount - 1);
+    if (state.busyStack.length > 0) {
+      state.busyStack.pop();
+    }
+    state.busyCount = state.busyStack.length;
     if (state.busyCount === 0) {
       state.busyMessage = 'Working...';
     }
@@ -759,8 +847,8 @@ function setBusyMessage(message) {
   updateBusyUi();
 }
 
-function startBusyStages(initialMessage, stages = []) {
-  setBusy(true, initialMessage);
+function startBusyStages(initialMessage, stages = [], options = {}) {
+  setBusy(true, initialMessage, options);
   const timerIds = [];
 
   for (const stage of stages) {
@@ -784,6 +872,57 @@ function startBusyStages(initialMessage, stages = []) {
     }
     setBusy(false);
   };
+}
+
+function generateRequestId(prefix) {
+  const base = String(prefix || 'req').replace(/[^a-z0-9_-]/gi, '').toLowerCase() || 'req';
+  const random = Math.random().toString(36).slice(2, 10);
+  return `${base}_${Date.now()}_${random}`;
+}
+
+function resetStreamingState() {
+  state.streamingRequestId = null;
+  state.streamingMode = '';
+  state.streamingText = '';
+}
+
+function beginStreamingAnswer(requestId, mode, context) {
+  state.streamingRequestId = String(requestId || '');
+  state.streamingMode = String(mode || '');
+  state.streamingText = '';
+  setAnswerPanelOpen(true);
+
+  const contextText = String(context || '').trim();
+  els.answerContext.textContent = contextText;
+  els.answerContext.hidden = !contextText;
+  state.lastAnswerCopyText = '';
+  state.activeAnswer = null;
+  updateAnswerActionButtons();
+
+  els.answerText.innerHTML = `
+    <div class="streaming-answer">
+      <div class="streaming-answer-meta">Streaming response...</div>
+      <div class="streaming-answer-text"></div>
+    </div>
+  `;
+}
+
+function appendStreamingAnswer(requestId, delta) {
+  if (!state.streamingRequestId || String(requestId || '') !== state.streamingRequestId) {
+    return;
+  }
+
+  const text = String(delta || '');
+  if (!text) {
+    return;
+  }
+
+  state.streamingText += text;
+  const streamBody = els.answerText.querySelector('.streaming-answer-text');
+  if (streamBody) {
+    streamBody.textContent = state.streamingText;
+    streamBody.scrollTop = streamBody.scrollHeight;
+  }
 }
 
 function setMenuOpen(open) {
@@ -827,6 +966,24 @@ function setQaContextOpen(open) {
   els.qaContextToggleBtn.textContent = next ? 'Collapse' : 'Open';
   els.qaContextToggleBtn.setAttribute('aria-expanded', next ? 'true' : 'false');
   els.qaContextHeader.setAttribute('aria-expanded', next ? 'true' : 'false');
+}
+
+function setProfileColorPopoverOpen(open) {
+  const next = Boolean(open) && Boolean(state.selectedClientId);
+  state.profileColorPopoverOpen = next;
+  els.profileColorPopover.hidden = !next;
+  els.profileColorToggleBtn.setAttribute('aria-expanded', next ? 'true' : 'false');
+}
+
+function setProfileTagEditorOpen(open) {
+  const next = Boolean(open) && Boolean(state.selectedClientId);
+  state.profileTagEditorOpen = next;
+  els.profileTagEditor.hidden = !next;
+  els.profileTagsToggleBtn.textContent = next ? 'Done' : 'Manage';
+  els.profileTagsToggleBtn.setAttribute('aria-expanded', next ? 'true' : 'false');
+  if (!next) {
+    hideProfileNewTagRow();
+  }
 }
 
 function renderContextList(listEl, values, emptyLabel) {
@@ -874,7 +1031,19 @@ function renderClientContextStrip() {
     els.qaContextTags.appendChild(empty);
   }
 
+  const coachNotes = String(profile?.coachNotes || '').trim();
+  if (coachNotes) {
+    els.qaContextCoachNotes.textContent = coachNotes;
+  } else {
+    els.qaContextCoachNotes.textContent = 'No coach notes yet.';
+    els.qaContextCoachNotes.classList.add('qa-context-empty');
+  }
+  if (coachNotes) {
+    els.qaContextCoachNotes.classList.remove('qa-context-empty');
+  }
+
   renderContextList(els.qaContextTopPriorities, profile?.topPriorities || [], 'No priorities set.');
+  renderContextList(els.qaContextExercise, profile?.exerciseAtAGlance || [], 'No exercise notes.');
   renderContextList(els.qaContextMedical, profile?.ongoingMedicalConsiderations || [], 'No ongoing medical notes.');
   renderContextList(els.qaContextAcute, profile?.acuteInjuries || [], 'No acute injuries listed.');
   setQaContextOpen(state.qaContextOpen);
@@ -1117,6 +1286,10 @@ function renderProfileClientTagsList() {
 function renderProfileColorPalette() {
   els.profileColorPalette.innerHTML = '';
   const selectedColor = normalizeHexColor(state.profileColorValue);
+  const previewColor = selectedColor || DEFAULT_TAG_COLOR;
+  els.profileColorToggleBtn.style.background = previewColor;
+  els.profileColorToggleBtn.style.borderColor = previewColor;
+  els.profileColorToggleBtn.title = selectedColor ? `Client color: ${selectedColor}` : 'Client color: default';
   for (const preset of PROFILE_COLOR_PRESETS) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -1166,6 +1339,7 @@ function hideProfileNewTagRow() {
 }
 
 function showProfileNewTagRow() {
+  setProfileTagEditorOpen(true);
   els.profileNewTagRow.hidden = false;
   renderProfileNewTagCategoryOptions();
   if (!(state.tagCategories || []).length) {
@@ -1951,6 +2125,7 @@ async function openSource(source) {
 }
 
 function renderAnswer(text, sources = [], citations = [], options = {}) {
+  resetStreamingState();
   const context = String(options?.context || '').trim();
   const autoOpen = Boolean(options?.autoOpen);
   const meta = options?.meta ? { ...options.meta } : null;
@@ -2185,6 +2360,8 @@ function getProfileDraftFromInputs() {
     topPriorities: parseMultilineList(els.profileTopInput.value, 12),
     clientTags: [...(state.profileClientTagsDraft || [])],
     clientColor: state.profileColorValue || '',
+    coachNotes: String(els.profileCoachNotesInput.value || '').trim(),
+    exerciseAtAGlance: parseMultilineList(els.profileExerciseInput.value),
     ongoingMedicalConsiderations: parseMultilineList(els.profileMedicalInput.value),
     acuteInjuries: parseMultilineList(els.profileAcuteInput.value),
     completedFocus: parseMultilineList(els.profileCompletedInput.value),
@@ -2197,6 +2374,8 @@ function serializeProfileDraft(draft) {
     topPriorities: draft.topPriorities || [],
     clientTags: draft.clientTags || [],
     clientColor: draft.clientColor || '',
+    coachNotes: draft.coachNotes || '',
+    exerciseAtAGlance: draft.exerciseAtAGlance || [],
     ongoingMedicalConsiderations: draft.ongoingMedicalConsiderations || [],
     acuteInjuries: draft.acuteInjuries || [],
     completedFocus: draft.completedFocus || [],
@@ -2217,13 +2396,18 @@ function renderClientProfile(profile) {
   state.clientProfile = profile || null;
   state.clientProfileClientId = state.selectedClientId || null;
   if (!state.selectedClientId) {
+    els.profileDialogTitle.textContent = 'Client Profile';
     els.profileClientName.textContent = 'Select a client to edit profile details.';
     els.profileUpdatedAt.textContent = '';
     els.profileDisabled.hidden = false;
     els.profileFormWrap.hidden = true;
+    setProfileColorPopoverOpen(false);
+    setProfileTagEditorOpen(false);
     els.profileTopInput.value = '';
     setProfileClientTagsDraft([]);
     state.profileColorValue = '';
+    els.profileCoachNotesInput.value = '';
+    els.profileExerciseInput.value = '';
     els.profileMedicalInput.value = '';
     els.profileAcuteInput.value = '';
     els.profileCompletedInput.value = '';
@@ -2236,15 +2420,20 @@ function renderClientProfile(profile) {
   }
 
   const clientName = profile?.clientName || 'Selected client';
+  els.profileDialogTitle.textContent = `${clientName} - Profile`;
   els.profileClientName.textContent = clientName;
   els.profileUpdatedAt.textContent = profile?.updatedAt
     ? `Last updated: ${formatIsoDate(profile.updatedAt)}`
     : 'No saved profile yet.';
   els.profileDisabled.hidden = true;
   els.profileFormWrap.hidden = false;
+  setProfileColorPopoverOpen(false);
+  setProfileTagEditorOpen(true);
   els.profileTopInput.value = (profile?.topPriorities || []).join('\n');
   setProfileClientTagsDraft(profile?.clientTags || []);
   state.profileColorValue = normalizeHexColor(profile?.clientColor || '');
+  els.profileCoachNotesInput.value = profile?.coachNotes || '';
+  els.profileExerciseInput.value = (profile?.exerciseAtAGlance || []).join('\n');
   els.profileMedicalInput.value = (profile?.ongoingMedicalConsiderations || []).join('\n');
   els.profileAcuteInput.value = (profile?.acuteInjuries || []).join('\n');
   els.profileCompletedInput.value = (profile?.completedFocus || []).join('\n');
@@ -2270,6 +2459,8 @@ async function loadClientProfile() {
       topPriorities: [],
       clientTags: [],
       clientColor: '',
+      coachNotes: '',
+      exerciseAtAGlance: [],
       ongoingMedicalConsiderations: [],
       acuteInjuries: [],
       completedFocus: [],
@@ -2297,6 +2488,8 @@ async function saveClientProfile(options = {}) {
     topPriorities: topPrioritiesRaw,
     clientTags: [...(state.profileClientTagsDraft || [])],
     clientColor: state.profileColorValue || '',
+    coachNotes: String(els.profileCoachNotesInput.value || '').trim(),
+    exerciseAtAGlance: parseMultilineList(els.profileExerciseInput.value),
     ongoingMedicalConsiderations: parseMultilineList(els.profileMedicalInput.value),
     acuteInjuries: parseMultilineList(els.profileAcuteInput.value),
     completedFocus: parseMultilineList(els.profileCompletedInput.value),
@@ -2459,7 +2652,9 @@ async function runSearch(inputQuery = null, options = {}) {
   }
 
   const busyMessage = String(options?.busyMessage || '').trim() || 'Searching notes...';
-  setBusy(true, busyMessage);
+  setBusy(true, busyMessage, {
+    blocking: options?.blocking !== false
+  });
   try {
     state.results = await window.coachNotes.search({
       query,
@@ -2505,16 +2700,24 @@ async function runAsk() {
     return;
   }
 
-  const finishBusy = startBusyStages('Finding relevant notes...', [
-    { delayMs: 600, message: 'Reviewing relevant excerpts...' },
-    { delayMs: 1800, message: 'Drafting answer...' },
-    { delayMs: 3600, message: 'Finalizing answer...' }
-  ]);
+  const requestId = generateRequestId('ask');
+  const finishBusy = startBusyStages(
+    'Finding relevant notes...',
+    [
+      { delayMs: 600, message: 'Reviewing relevant excerpts...' },
+      { delayMs: 1800, message: 'Drafting answer...' },
+      { delayMs: 3600, message: 'Finalizing answer...' }
+    ],
+    { blocking: false }
+  );
   try {
     const topK = normalizeTopK(els.topKInput.value);
     els.topKInput.value = String(topK);
     syncDepthPresetFromTopK();
+    beginStreamingAnswer(requestId, 'ask', `Question: ${question}`);
     const result = await window.coachNotes.ask({
+      requestId,
+      stream: true,
       question,
       scope: els.scopeSelect.value,
       clientId: els.scopeSelect.value === 'client' ? state.selectedClientId : null,
@@ -2560,16 +2763,24 @@ async function runSummarize() {
     return;
   }
 
-  const searchResult = await runSearch(query, { busyMessage: 'Finding relevant notes...' });
+  const searchResult = await runSearch(query, {
+    busyMessage: 'Finding relevant notes...',
+    blocking: false
+  });
   if (!searchResult?.ok) {
     return;
   }
 
-  const finishBusy = startBusyStages('Preparing summary...', [
-    { delayMs: 600, message: 'Collecting top matches...' },
-    { delayMs: 1700, message: 'Writing summary...' },
-    { delayMs: 3400, message: 'Finalizing summary...' }
-  ]);
+  const requestId = generateRequestId('summarize');
+  const finishBusy = startBusyStages(
+    'Preparing summary...',
+    [
+      { delayMs: 600, message: 'Collecting top matches...' },
+      { delayMs: 1700, message: 'Writing summary...' },
+      { delayMs: 3400, message: 'Finalizing summary...' }
+    ],
+    { blocking: false }
+  );
   try {
     const topK = normalizeTopK(els.topKInput.value);
     const matchCount = Number(searchResult.count) || 0;
@@ -2586,7 +2797,10 @@ async function runSummarize() {
       endOffset: item.endOffset,
       chunkText: item.chunkText
     }));
+    beginStreamingAnswer(requestId, 'summarize', `Summary for "${query}"`);
     const result = await window.coachNotes.summarize({
+      requestId,
+      stream: true,
       query,
       scope: els.scopeSelect.value,
       clientId: els.scopeSelect.value === 'client' ? state.selectedClientId : null,
@@ -3137,6 +3351,7 @@ async function saveSettings(event) {
 
 async function init() {
   initTheme();
+  await initTextSizeMode();
   state.settings = await window.coachNotes.getSettings();
   state.status = state.settings.status || {};
   updateBusyUi();
@@ -3146,6 +3361,32 @@ async function init() {
     state.status = next;
     updateStatusLine();
     updateBusyUi();
+  });
+
+  window.coachNotes.onLlmStream((event) => {
+    const requestId = String(event?.requestId || '').trim();
+    if (!requestId || requestId !== state.streamingRequestId) {
+      return;
+    }
+
+    const type = String(event?.type || '').trim().toLowerCase();
+    if (type === 'start') {
+      const mode = String(event?.mode || state.streamingMode || '').toLowerCase();
+      setBusyMessage(mode === 'summarize' ? 'Streaming summary...' : 'Streaming answer...');
+      return;
+    }
+
+    if (type === 'delta') {
+      appendStreamingAnswer(requestId, event?.delta || '');
+      return;
+    }
+
+    if (type === 'error') {
+      const message = String(event?.error || '').trim();
+      if (message) {
+        appendStreamingAnswer(requestId, `\n\n${message}`);
+      }
+    }
   });
 
   await loadTagCategories();
@@ -3173,6 +3414,14 @@ async function init() {
 
     applyTheme(target.value, true);
   });
+  els.textSizeGroup.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!target || target.name !== 'textSize') {
+      return;
+    }
+
+    applyTextSizeMode(target.value, true);
+  });
   setMenuOpen(false);
   els.moreMenuBtn.addEventListener('click', (event) => {
     event.stopPropagation();
@@ -3180,11 +3429,17 @@ async function init() {
   });
   document.addEventListener('click', (event) => {
     if (els.moreMenu.hidden) {
+      if (state.profileColorPopoverOpen && !els.profileColorPopover.contains(event.target) && event.target !== els.profileColorToggleBtn) {
+        setProfileColorPopoverOpen(false);
+      }
       return;
     }
 
     if (!els.moreMenu.contains(event.target) && event.target !== els.moreMenuBtn) {
       setMenuOpen(false);
+    }
+    if (state.profileColorPopoverOpen && !els.profileColorPopover.contains(event.target) && event.target !== els.profileColorToggleBtn) {
+      setProfileColorPopoverOpen(false);
     }
   });
   document.addEventListener('keydown', (event) => {
@@ -3319,6 +3574,8 @@ async function init() {
   });
   const profileInputs = [
     els.profileTopInput,
+    els.profileCoachNotesInput,
+    els.profileExerciseInput,
     els.profileMedicalInput,
     els.profileAcuteInput,
     els.profileCompletedInput,
@@ -3344,10 +3601,18 @@ async function init() {
     renderProfileColorPalette();
     refreshProfileDirtyState();
   });
+  els.profileColorToggleBtn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    setProfileColorPopoverOpen(!state.profileColorPopoverOpen);
+  });
   els.clearProfileColorBtn.addEventListener('click', () => {
     state.profileColorValue = '';
     renderProfileColorPalette();
     refreshProfileDirtyState();
+    setProfileColorPopoverOpen(false);
+  });
+  els.profileTagsToggleBtn.addEventListener('click', () => {
+    setProfileTagEditorOpen(!state.profileTagEditorOpen);
   });
   els.profileTagPicker.addEventListener('change', () => {
     const picked = String(els.profileTagPicker.value || '').trim();

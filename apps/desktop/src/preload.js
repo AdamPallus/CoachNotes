@@ -20,10 +20,16 @@ contextBridge.exposeInMainWorld('coachNotes', {
   deleteNote: (payload) => ipcRenderer.invoke('app:delete-note', payload),
   checkForUpdates: () => ipcRenderer.invoke('app:check-for-updates'),
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
+  setZoom: (payload) => ipcRenderer.invoke('app:set-zoom', payload),
   search: (payload) => ipcRenderer.invoke('app:search', payload),
   ask: (payload) => ipcRenderer.invoke('app:ask', payload),
   summarize: (payload) => ipcRenderer.invoke('app:summarize', payload),
   revealInFinder: (noteId) => ipcRenderer.invoke('app:reveal-in-finder', noteId),
+  onLlmStream: (handler) => {
+    const wrapped = (_event, value) => handler(value);
+    ipcRenderer.on('app:llm-stream', wrapped);
+    return () => ipcRenderer.off('app:llm-stream', wrapped);
+  },
   onStatus: (handler) => {
     const wrapped = (_event, value) => handler(value);
     ipcRenderer.on('app:status', wrapped);

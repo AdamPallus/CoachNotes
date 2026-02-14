@@ -16,6 +16,14 @@
         <div class="topbar-actions">
           <button id="newNoteBtn" class="btn btn-primary">New Note</button>
           <button id="newClientBtn" class="btn btn-ghost">New Client</button>
+          <div id="textSizeGroup" class="text-size" role="radiogroup" aria-label="Text size">
+            <input id="textSizeSmall" class="text-size-input" type="radio" name="textSize" value="small" />
+            <label for="textSizeSmall" class="text-size-option" title="Small text">A-</label>
+            <input id="textSizeMedium" class="text-size-input" type="radio" name="textSize" value="medium" checked />
+            <label for="textSizeMedium" class="text-size-option" title="Medium text">A</label>
+            <input id="textSizeLarge" class="text-size-input" type="radio" name="textSize" value="large" />
+            <label for="textSizeLarge" class="text-size-option" title="Large text">A+</label>
+          </div>
           <div id="themeModeGroup" class="theme-mode" role="radiogroup" aria-label="Theme mode">
             <input id="themeModeLight" class="theme-mode-input" type="radio" name="themeMode" value="light" checked />
             <label for="themeModeLight" class="theme-mode-option" title="Light mode">☀</label>
@@ -108,10 +116,18 @@
                 <span class="qa-context-label">Tags</span>
                 <div id="qaContextTags" class="qa-context-tags"></div>
               </div>
+              <div class="qa-context-row">
+                <span class="qa-context-label">Coach Notes</span>
+                <div id="qaContextCoachNotes" class="qa-context-notes"></div>
+              </div>
               <div class="qa-context-grid">
                 <div>
                   <p class="qa-context-label">Top Priorities</p>
                   <ul id="qaContextTopPriorities" class="qa-context-list"></ul>
+                </div>
+                <div>
+                  <p class="qa-context-label">Exercise At-a-Glance</p>
+                  <ul id="qaContextExercise" class="qa-context-list"></ul>
                 </div>
                 <div>
                   <p class="qa-context-label">Ongoing Medical</p>
@@ -147,7 +163,7 @@
           </div>
 
           <div class="split-grid">
-            <div class="card">
+            <div class="card results-card">
               <h2 id="resultsTitle">Notes</h2>
               <ul id="resultsList" class="list results"></ul>
             </div>
@@ -237,13 +253,15 @@
 
     <dialog id="clientProfileDialog">
       <form method="dialog" id="clientProfileForm" class="settings-form">
-        <h2>Client Profile</h2>
+        <h2 id="profileDialogTitle">Client Profile</h2>
         <div class="profile-head-row">
           <p id="profileClientName" class="profile-client-name">Select a client in the left sidebar, then open Profile.</p>
-          <div class="profile-color-inline">
-            <span>Color</span>
-            <div id="profileColorPalette" class="profile-color-palette"></div>
-            <button id="clearProfileColorBtn" class="btn btn-tiny" type="button">Default</button>
+          <div class="profile-color-control">
+            <button id="profileColorToggleBtn" class="profile-color-toggle" type="button" aria-expanded="false" title="Change client color"></button>
+            <div id="profileColorPopover" class="profile-popover" hidden>
+              <div id="profileColorPalette" class="profile-color-palette"></div>
+              <button id="clearProfileColorBtn" class="btn btn-tiny" type="button">Default</button>
+            </div>
           </div>
         </div>
         <p id="profileUpdatedAt" class="profile-updated"></p>
@@ -253,29 +271,38 @@
             Top Priorities (max 3)
             <textarea id="profileTopInput" rows="4" placeholder="One item per line"></textarea>
           </label>
-          <label>
-            Client Tags
-            <div class="profile-tag-picker-row">
-              <select id="profileTagPicker">
-                <option value="" selected>Select tag...</option>
-                <option value="__new__">Add tag...</option>
-              </select>
-              <button id="profileOpenNewTagBtn" class="btn btn-tiny" type="button">New</button>
-            </div>
-            <div id="profileNewTagRow" class="profile-new-tag-row" hidden>
-              <input id="profileNewTagInput" type="text" placeholder="New tag name" />
-              <select id="profileNewTagCategorySelect">
-                <option value="">Choose category...</option>
-                <option value="__new__">Create category...</option>
-              </select>
-              <button id="profileConfirmNewTagBtn" class="btn btn-tiny" type="button">Add</button>
-              <button id="profileCancelNewTagBtn" class="btn btn-tiny" type="button">Cancel</button>
-            </div>
-            <div id="profileNewCategoryRow" class="profile-new-category-row" hidden>
-              <input id="profileNewCategoryNameInput" type="text" placeholder="Category name" />
-              <input id="profileNewCategoryColorInput" type="color" value="#64748b" aria-label="Category color" />
+          <div class="profile-tag-section">
+            <div class="profile-tag-section-head">
+              <span>Client Tags</span>
+              <button id="profileTagsToggleBtn" class="btn btn-tiny" type="button" aria-expanded="false">Manage</button>
             </div>
             <div id="profileClientTagsList" class="profile-tags-list"></div>
+            <div id="profileTagEditor" class="profile-tag-editor" hidden>
+              <div class="profile-tag-picker-row">
+                <select id="profileTagPicker">
+                  <option value="" selected>Select tag...</option>
+                  <option value="__new__">Add tag...</option>
+                </select>
+                <button id="profileOpenNewTagBtn" class="btn btn-tiny" type="button">New</button>
+              </div>
+              <div id="profileNewTagRow" class="profile-new-tag-row" hidden>
+                <input id="profileNewTagInput" type="text" placeholder="New tag name" />
+                <select id="profileNewTagCategorySelect">
+                  <option value="">Choose category...</option>
+                  <option value="__new__">Create category...</option>
+                </select>
+                <button id="profileConfirmNewTagBtn" class="btn btn-tiny" type="button">Add</button>
+                <button id="profileCancelNewTagBtn" class="btn btn-tiny" type="button">Cancel</button>
+              </div>
+              <div id="profileNewCategoryRow" class="profile-new-category-row" hidden>
+                <input id="profileNewCategoryNameInput" type="text" placeholder="Category name" />
+                <input id="profileNewCategoryColorInput" type="color" value="#64748b" aria-label="Category color" />
+              </div>
+            </div>
+          </div>
+          <label class="profile-span-2">
+            Coach Notes (shown on main page)
+            <textarea id="profileCoachNotesInput" rows="4" placeholder="Communication preferences, reminders, and client-specific context"></textarea>
           </label>
           <label>
             Ongoing Medical Considerations
@@ -284,6 +311,10 @@
           <label>
             Acute Injuries
             <textarea id="profileAcuteInput" rows="4" placeholder="One item per line"></textarea>
+          </label>
+          <label>
+            Exercise At-a-Glance Notes
+            <textarea id="profileExerciseInput" rows="4" placeholder="One item per line"></textarea>
           </label>
           <label>
             Completed Focus Areas

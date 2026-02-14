@@ -94,6 +94,10 @@ html[data-theme="dark"] {
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -175,6 +179,40 @@ body {
 }
 
 .theme-mode-input:checked + .theme-mode-option {
+  color: var(--text);
+  background: var(--surface-btn);
+  border: 1px solid var(--line);
+}
+
+.text-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-ghost);
+}
+
+.text-size-input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.text-size-option {
+  min-width: 28px;
+  height: 24px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 0 6px;
+}
+
+.text-size-input:checked + .text-size-option {
   color: var(--text);
   background: var(--surface-btn);
   border: 1px solid var(--line);
@@ -423,6 +461,10 @@ body {
   overflow: auto;
 }
 
+.results-card {
+  padding: 12px;
+}
+
 .detail-card {
   display: flex;
   flex-direction: column;
@@ -635,7 +677,7 @@ body {
 
 .qa-context-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -662,6 +704,17 @@ body {
 .qa-context-empty {
   color: var(--muted);
   font-size: 12px;
+}
+
+.qa-context-notes {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 9px;
+  background: var(--surface-soft);
+  white-space: pre-wrap;
+  line-height: 1.4;
+  font-size: 12px;
+  color: var(--text);
 }
 
 .answer-card.is-collapsed {
@@ -708,7 +761,7 @@ body {
 
 .profile-client-name {
   margin: 0;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -720,19 +773,39 @@ body {
 
 .profile-head-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
 }
 
-.profile-color-inline {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--muted);
-  flex-wrap: wrap;
+.profile-color-control {
+  position: relative;
+}
+
+.profile-color-toggle {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  box-shadow: 0 0 0 1px var(--line);
+  cursor: pointer;
+  padding: 0;
+}
+
+.profile-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  min-width: 220px;
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card-strong);
+  box-shadow: 0 8px 20px rgba(10, 18, 30, 0.14);
 }
 
 .profile-color-palette {
@@ -761,12 +834,6 @@ body {
   box-shadow: 0 0 0 2px var(--brand), 0 0 0 3px var(--card-strong);
 }
 
-.profile-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
 .profile-grid label {
   display: grid;
   gap: 6px;
@@ -774,8 +841,21 @@ body {
   color: var(--muted);
 }
 
+.profile-span-2 {
+  grid-column: 1 / -1;
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .profile-grid textarea {
-  min-height: 120px;
+  min-height: 56px;
+  height: 112px;
+  resize: vertical !important;
+  overflow: auto;
 }
 
 .profile-tags-list {
@@ -784,6 +864,29 @@ body {
   gap: 6px;
   min-height: 30px;
   align-items: center;
+}
+
+.profile-tag-section {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.profile-tag-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.profile-tag-editor {
+  display: grid;
+  gap: 6px;
 }
 
 .profile-tag-picker-row {
@@ -815,6 +918,12 @@ body {
 .profile-tag-chip {
   font-size: 12px;
   padding-right: 10px;
+}
+
+#clientProfileDialog textarea {
+  resize: vertical !important;
+  overflow: auto;
+  min-height: 56px;
 }
 
 .profile-tags-empty {
@@ -934,6 +1043,24 @@ body {
   white-space: pre-wrap;
   font-size: 14.5px;
   line-height: 1.5;
+}
+
+.streaming-answer {
+  display: grid;
+  gap: 8px;
+}
+
+.streaming-answer-meta {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.streaming-answer-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 40px;
 }
 
 .citation-chip {
