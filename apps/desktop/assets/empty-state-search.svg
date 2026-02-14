@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="140" viewBox="0 0 160 140" fill="none">
+  <g stroke="#A89E94" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Scattered documents -->
+    <!-- Doc 1 (back, tilted left) -->
+    <g transform="rotate(-8 45 80)">
+      <rect x="25" y="58" width="40" height="50" rx="3"/>
+      <line x1="32" y1="70" x2="55" y2="70" opacity="0.4"/>
+      <line x1="32" y1="77" x2="50" y2="77" opacity="0.4"/>
+      <line x1="32" y1="84" x2="53" y2="84" opacity="0.4"/>
+    </g>
+    <!-- Doc 2 (middle, straight) -->
+    <g transform="rotate(3 80 78)">
+      <rect x="60" y="55" width="40" height="50" rx="3"/>
+      <line x1="67" y1="67" x2="90" y2="67" opacity="0.4"/>
+      <line x1="67" y1="74" x2="85" y2="74" opacity="0.4"/>
+      <line x1="67" y1="81" x2="88" y2="81" opacity="0.4"/>
+    </g>
+    <!-- Doc 3 (right, tilted right) -->
+    <g transform="rotate(6 115 82)">
+      <rect x="95" y="62" width="40" height="50" rx="3"/>
+      <line x1="102" y1="74" x2="125" y2="74" opacity="0.4"/>
+      <line x1="102" y1="81" x2="120" y2="81" opacity="0.4"/>
+    </g>
+    <!-- Magnifying glass -->
+    <circle cx="100" cy="40" r="18" stroke-width="1.8"/>
+    <line x1="113" y1="53" x2="125" y2="65" stroke-width="2.5"/>
+    <!-- Question mark inside magnifying glass -->
+    <path d="M95 34 Q95 28 100 28 Q105 28 105 33 Q105 37 100 38 L100 41" stroke-width="1.5"/>
+    <circle cx="100" cy="45" r="1" fill="#A89E94" stroke="none"/>
+  </g>
+</svg>

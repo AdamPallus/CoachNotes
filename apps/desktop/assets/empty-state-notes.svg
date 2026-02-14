@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="140" viewBox="0 0 200 140" fill="none">
+  <!-- Open notebook -->
+  <g stroke="#A89E94" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Left page -->
+    <path d="M100 25 L30 32 L30 118 L100 112 Z"/>
+    <!-- Right page -->
+    <path d="M100 25 L170 32 L170 118 L100 112 Z"/>
+    <!-- Spine -->
+    <line x1="100" y1="25" x2="100" y2="112"/>
+    <!-- Lines on left page -->
+    <line x1="42" y1="48" x2="88" y2="44" opacity="0.5"/>
+    <line x1="42" y1="58" x2="82" y2="55" opacity="0.5"/>
+    <line x1="42" y1="68" x2="86" y2="65" opacity="0.5"/>
+    <line x1="42" y1="78" x2="75" y2="76" opacity="0.5"/>
+    <!-- Lines on right page -->
+    <line x1="112" y1="44" x2="158" y2="48" opacity="0.5"/>
+    <line x1="112" y1="55" x2="155" y2="58" opacity="0.5"/>
+    <line x1="112" y1="65" x2="152" y2="68" opacity="0.5"/>
+    <!-- Pen resting diagonally on left page -->
+    <line x1="50" y1="95" x2="90" y2="50" stroke-width="2"/>
+    <line x1="90" y1="50" x2="92" y2="46" stroke-width="1"/>
+    <!-- Coffee mug (right side) -->
+    <ellipse cx="155" cy="95" rx="14" ry="4" opacity="0.4"/>
+    <path d="M141 92 L141 108 Q141 116 155 116 Q169 116 169 108 L169 92"/>
+    <path d="M169 96 Q177 96 177 102 Q177 108 169 108"/>
+    <!-- Steam wisps -->
+    <path d="M150 86 Q148 80 152 76" opacity="0.35" fill="none"/>
+    <path d="M157 84 Q155 77 159 73" opacity="0.35" fill="none"/>
+  </g>
+</svg>

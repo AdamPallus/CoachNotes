@@ -1149,9 +1149,12 @@ function renderClients() {
   if (!filteredClients.length) {
     const li = document.createElement('li');
     li.className = 'clients-empty';
-    li.textContent = selectedTagFilters.size
-      ? 'No clients match selected tags.'
-      : 'No clients yet.';
+    li.innerHTML = `
+      <div class="empty-visual" style="width: auto; height: auto; border: none; background: transparent; margin-bottom: 8px;">
+        <img src="../assets/empty-state-client.svg" alt="" style="max-width: 120px; opacity: 0.7;" />
+      </div>
+      <p style="margin:0;">${selectedTagFilters.size ? 'No clients match selected tags.' : 'No clients yet.'}</p>
+    `;
     els.clientsList.appendChild(li);
     return;
   }
@@ -2148,7 +2151,7 @@ function renderAnswer(text, sources = [], citations = [], options = {}) {
     els.answerText.innerHTML = `
       <div class="empty-state">
         <div>
-          <div class="empty-visual" aria-hidden="true"></div>
+          <img class="empty-visual-img" src="../assets/empty-state-search.svg" alt="" aria-hidden="true" />
           <h3>Ask a Question</h3>
           <p>Ask about your notes to get a grounded answer with citations you can open directly.</p>
         </div>
@@ -2251,7 +2254,7 @@ function renderNote(note) {
     els.noteBody.innerHTML = `
       <div class="empty-state">
         <div>
-          <div class="empty-visual" aria-hidden="true"></div>
+          <img class="empty-visual-img" src="../assets/empty-state-notes.svg" alt="" aria-hidden="true" />
           <h3>Welcome to CoachNotes</h3>
           <p>Select a client on the left, or search across all notes above. Use Ask to get grounded answers with clickable citations.</p>
         </div>

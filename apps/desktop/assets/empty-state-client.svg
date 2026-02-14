@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="140" viewBox="0 0 160 140" fill="none">
+  <g stroke="#A89E94" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Person silhouette -->
+    <!-- Head -->
+    <circle cx="60" cy="40" r="16"/>
+    <!-- Shoulders -->
+    <path d="M30 95 Q30 70 60 66 Q90 70 90 95"/>
+    <!-- Clipboard -->
+    <rect x="100" y="42" width="36" height="48" rx="4"/>
+    <!-- Clipboard clip -->
+    <rect x="112" y="38" width="12" height="8" rx="2"/>
+    <!-- Lines on clipboard -->
+    <line x1="108" y1="58" x2="128" y2="58" opacity="0.5"/>
+    <line x1="108" y1="66" x2="125" y2="66" opacity="0.5"/>
+    <line x1="108" y1="74" x2="127" y2="74" opacity="0.5"/>
+    <line x1="108" y1="82" x2="120" y2="82" opacity="0.5"/>
+    <!-- Small plus sign (add client hint) -->
+    <line x1="60" y1="108" x2="60" y2="120" opacity="0.4" stroke-width="1.8"/>
+    <line x1="54" y1="114" x2="66" y2="114" opacity="0.4" stroke-width="1.8"/>
+  </g>
+</svg>
