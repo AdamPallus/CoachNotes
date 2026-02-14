@@ -26,6 +26,7 @@
             <button id="moreMenuBtn" class="btn btn-ghost" type="button" aria-expanded="false" aria-haspopup="menu">More</button>
             <div id="moreMenu" class="menu-popover" role="menu" hidden>
               <button id="settingsBtn" class="menu-item" type="button" role="menuitem">Settings</button>
+              <button id="editTagsBtn" class="menu-item" type="button" role="menuitem">Edit Tags</button>
               <button id="helpBtn" class="menu-item" type="button" role="menuitem">Help</button>
               <button id="checkUpdatesBtn" class="menu-item" type="button" role="menuitem">Check Updates</button>
             </div>
@@ -263,8 +264,16 @@
             </div>
             <div id="profileNewTagRow" class="profile-new-tag-row" hidden>
               <input id="profileNewTagInput" type="text" placeholder="New tag name" />
+              <select id="profileNewTagCategorySelect">
+                <option value="">Choose category...</option>
+                <option value="__new__">Create category...</option>
+              </select>
               <button id="profileConfirmNewTagBtn" class="btn btn-tiny" type="button">Add</button>
               <button id="profileCancelNewTagBtn" class="btn btn-tiny" type="button">Cancel</button>
+            </div>
+            <div id="profileNewCategoryRow" class="profile-new-category-row" hidden>
+              <input id="profileNewCategoryNameInput" type="text" placeholder="Category name" />
+              <input id="profileNewCategoryColorInput" type="color" value="#64748b" aria-label="Category color" />
             </div>
             <div id="profileClientTagsList" class="profile-tags-list"></div>
           </label>
@@ -322,6 +331,30 @@
         <div class="row-inline actions">
           <button type="button" id="cancelSaveAnswerBtn" class="btn btn-ghost">Cancel</button>
           <button type="submit" class="btn btn-primary">Save Note</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="editTagsDialog">
+      <form method="dialog" id="editTagsForm" class="settings-form">
+        <h2>Edit Tags</h2>
+        <p class="advanced-note">Assign tags to categories with colors. Deleting a tag removes it from all client profiles.</p>
+        <div class="edit-tags-section">
+          <h3>Categories</h3>
+          <div id="tagCategoriesEditorList" class="tag-categories-editor-list"></div>
+          <div class="tag-category-new-row">
+            <input id="newTagCategoryNameInput" type="text" placeholder="New category name" />
+            <input id="newTagCategoryColorInput" type="color" value="#64748b" aria-label="New category color" />
+            <button id="addTagCategoryBtn" class="btn btn-tiny" type="button">Add Category</button>
+          </div>
+        </div>
+        <div class="edit-tags-section">
+          <h3>Tag Assignments</h3>
+          <div id="tagAssignmentsList" class="tag-assignments-list"></div>
+        </div>
+        <div class="row-inline actions">
+          <button type="button" id="cancelEditTagsBtn" class="btn btn-ghost">Cancel</button>
+          <button type="submit" id="saveTagCategoriesBtn" class="btn btn-primary">Save Changes</button>
         </div>
       </form>
     </dialog>

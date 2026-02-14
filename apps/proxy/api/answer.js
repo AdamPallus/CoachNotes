@@ -4,8 +4,10 @@ const {
   authAndRateLimit,
   collectCitations,
   getOpenAIClient,
+  getOpenAITimeoutMs,
   json,
   splitBullets,
+  withTimeout,
   validateAnswerLikeSources
 } = require('./_shared');
 
@@ -20,6 +22,14 @@ const systemPrompt = [
   'Do not ask follow-up questions.',
   'End after the direct answer.'
 ].join(' ');
+
+function getAnswerMaxOutputTokens() {
+  const parsed = Number.parseInt(process.env.ANSWER_MAX_OUTPUT_TOKENS || '1300', 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 1300;
+  }
+  return Math.max(500, Math.min(parsed, 4000));
+}
 
 module.exports = async function answer(req, res) {
   const auth = authAndRateLimit(req, res);
@@ -42,6 +52,8 @@ module.exports = async function answer(req, res) {
   try {
     const model = allowModel(req.body.model, DEFAULT_LLM_MODEL, 'LLM_MODEL_ALLOWLIST');
     const openai = getOpenAIClient();
+    const requestTimeoutMs = getOpenAITimeoutMs();
+    const maxOutputTokens = getAnswerMaxOutputTokens();
 
     const renderedSources = req.body.sources
       .map((source) => {
@@ -59,14 +71,18 @@ module.exports = async function answer(req, res) {
 
     const userPrompt = `${instructions}Question:\n${question}\n\nSources:\n${renderedSources}`;
 
-    const result = await openai.responses.create({
-      model,
-      max_output_tokens: 900,
-      input: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ]
-    });
+    const result = await withTimeout(
+      openai.responses.create({
+        model,
+        max_output_tokens: maxOutputTokens,
+        input: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ]
+      }),
+      requestTimeoutMs,
+      'Model response timed out. Please retry or reduce search depth.'
+    );
 
     const answerText = result.output_text?.trim()
       || 'I could not provide a solid answer from the available notes. Please try a narrower question.';
@@ -81,6 +97,7 @@ module.exports = async function answer(req, res) {
 
     json(res, 200, {
       model,
+      maxOutputTokens,
       answer: answerText,
       citations,
       structured

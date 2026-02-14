@@ -10,6 +10,20 @@ const MAX_EMBED_ITEMS = 32;
 const MAX_EMBED_TOTAL_CHARS = 120000;
 const MAX_SOURCES = 12;
 const MAX_SOURCES_TOTAL_CHARS = 90000;
+const DEFAULT_OPENAI_TIMEOUT_MS = 95 * 1000;
+const MAX_OPENAI_TIMEOUT_MS = 115 * 1000;
+
+function parsePositiveInt(rawValue, fallback) {
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
 
 function parseTokensFromEnv() {
   const list = [process.env.INVITE_TOKEN, process.env.INVITE_TOKENS]
@@ -170,6 +184,27 @@ function allowModel(requested, defaultModel, envKey) {
   return model;
 }
 
+function getOpenAITimeoutMs() {
+  const configured = parsePositiveInt(process.env.OPENAI_TIMEOUT_MS, DEFAULT_OPENAI_TIMEOUT_MS);
+  return clamp(configured, 5 * 1000, MAX_OPENAI_TIMEOUT_MS);
+}
+
+async function withTimeout(promise, timeoutMs, timeoutMessage) {
+  let timer = null;
+  try {
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(timeoutMessage));
+      }, timeoutMs);
+    });
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
 let cachedClient;
 function getOpenAIClient() {
   if (cachedClient) {
@@ -211,8 +246,10 @@ module.exports = {
   allowModel,
   collectCitations,
   getOpenAIClient,
+  getOpenAITimeoutMs,
   json,
   splitBullets,
+  withTimeout,
   validateAnswerLikeSources,
   validateEmbeddingRequest
 };

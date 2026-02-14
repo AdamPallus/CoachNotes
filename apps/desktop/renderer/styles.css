@@ -794,8 +794,22 @@ body {
 
 .profile-new-tag-row {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 180px) auto auto;
   gap: 6px;
+}
+
+.profile-new-category-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.profile-new-category-row input[type="color"] {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 999px;
 }
 
 .profile-tag-chip {
@@ -820,6 +834,92 @@ body {
 #clientProfileDialog .settings-form {
   max-height: 86vh;
   overflow: auto;
+}
+
+#editTagsDialog {
+  width: min(920px, 96vw);
+  max-width: 96vw;
+}
+
+#editTagsDialog .settings-form {
+  max-height: 86vh;
+  overflow: auto;
+}
+
+.edit-tags-section {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--surface-soft);
+  display: grid;
+  gap: 8px;
+}
+
+.edit-tags-section h3 {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.tag-categories-editor-list,
+.tag-assignments-list {
+  display: grid;
+  gap: 7px;
+}
+
+.tag-category-editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.tag-category-editor-row input[type="color"] {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  padding: 0;
+}
+
+.tag-category-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.tag-category-new-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.tag-category-new-row input[type="color"] {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  padding: 0;
+}
+
+.tag-assignment-row {
+  display: grid;
+  grid-template-columns: minmax(110px, auto) minmax(150px, 240px) 1fr auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-btn);
+  padding: 6px 8px;
+}
+
+.tag-assignment-select {
+  min-width: 150px;
+}
+
+.tag-assignment-meta {
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .answer-text {
@@ -1009,42 +1109,6 @@ body {
 .tag-pill.tag-chip.active {
   outline: 1px solid var(--brand);
   outline-offset: 1px;
-}
-
-.tag-category-medical {
-  border-color: var(--tag-medical-border);
-  background: var(--tag-medical-bg);
-  color: var(--tag-medical-text);
-}
-
-.tag-category-training {
-  border-color: var(--tag-training-border);
-  background: var(--tag-training-bg);
-  color: var(--tag-training-text);
-}
-
-.tag-category-goal {
-  border-color: var(--tag-goal-border);
-  background: var(--tag-goal-bg);
-  color: var(--tag-goal-text);
-}
-
-.tag-category-personal {
-  border-color: var(--tag-personal-border);
-  background: var(--tag-personal-bg);
-  color: var(--tag-personal-text);
-}
-
-.tag-category-admin {
-  border-color: var(--tag-admin-border);
-  background: var(--tag-admin-bg);
-  color: var(--tag-admin-text);
-}
-
-.tag-category-default {
-  border-color: var(--tag-default-border);
-  background: var(--tag-default-bg);
-  color: var(--tag-default-text);
 }
 
 input,
@@ -1367,6 +1431,17 @@ dialog::backdrop {
   }
 
   .qa-context-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-new-tag-row,
+  .profile-new-category-row {
+    grid-template-columns: 1fr;
+  }
+
+  .tag-category-editor-row,
+  .tag-category-new-row,
+  .tag-assignment-row {
     grid-template-columns: 1fr;
   }
 }

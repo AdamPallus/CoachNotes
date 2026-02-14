@@ -14,6 +14,7 @@ const KEYCHAIN_SERVICE = 'coachnotes-invite-token';
 const KEYCHAIN_ACCOUNT = 'coachnotes';
 const DELETED_NOTES_DIRNAME = 'Deleted Notes';
 const CLIENT_PROFILE_FILE = '_client-profile.md';
+const TAG_CATEGORY_SETTINGS_KEY = 'tagCategoriesConfig';
 const DEFAULT_PROXY_URL = 'https://coach-notes-five.vercel.app';
 const DEFAULT_EMBED_MODEL = 'text-embedding-3-small';
 const DEFAULT_ANSWER_MODEL = 'gpt-5-mini';
@@ -231,6 +232,83 @@ function getAppSettings() {
     proxyBaseUrl: getSetting('proxyBaseUrl', DEFAULT_PROXY_URL),
     inviteToken: getInviteToken()
   };
+}
+
+function slugifyCategoryId(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function normalizeTagCategoriesConfig(payload) {
+  const source = Array.isArray(payload?.categories) ? payload.categories : [];
+  const categories = [];
+  const usedIds = new Set();
+  const assignedTags = new Set();
+
+  for (let i = 0; i < source.length; i += 1) {
+    const row = source[i] || {};
+    const name = sanitizeName(row.name || '');
+    if (!name) {
+      continue;
+    }
+
+    const idBase = slugifyCategoryId(row.id || name) || `category-${i + 1}`;
+    let id = idBase;
+    let suffix = 2;
+    while (usedIds.has(id)) {
+      id = `${idBase}-${suffix}`;
+      suffix += 1;
+    }
+    usedIds.add(id);
+
+    const color = normalizeHexColor(row.color) || '#64748b';
+    const rawTags = normalizeArray(row.tags || row.tagNames || []);
+    const tags = [];
+    for (const tag of rawTags) {
+      const key = tag.toLowerCase();
+      if (assignedTags.has(key)) {
+        continue;
+      }
+
+      assignedTags.add(key);
+      tags.push(tag);
+    }
+
+    categories.push({
+      id,
+      name,
+      color,
+      tags
+    });
+  }
+
+  return { categories };
+}
+
+function getTagCategoriesConfig() {
+  if (!ensureDbSafe()) {
+    return { categories: [] };
+  }
+
+  const raw = getSetting(TAG_CATEGORY_SETTINGS_KEY, '');
+  if (!raw) {
+    return { categories: [] };
+  }
+
+  try {
+    return normalizeTagCategoriesConfig(JSON.parse(raw));
+  } catch {
+    return { categories: [] };
+  }
+}
+
+function saveTagCategoriesConfig(payload) {
+  const normalized = normalizeTagCategoriesConfig(payload);
+  setSetting(TAG_CATEGORY_SETTINGS_KEY, JSON.stringify(normalized));
+  return normalized;
 }
 
 function updateStatus(patch) {
@@ -2128,6 +2206,51 @@ async function saveClientProfile(payload) {
   };
 }
 
+async function removeProfileTag(payload) {
+  requireDb();
+
+  const tagName = sanitizeName(payload?.tagName || '');
+  if (!tagName) {
+    throw new Error('tagName is required.');
+  }
+
+  const allClients = db.prepare('SELECT id FROM clients ORDER BY id ASC').all();
+  if (!allClients.length) {
+    return { removedFromClients: 0 };
+  }
+
+  const target = tagName.toLowerCase();
+  let removedFromClients = 0;
+
+  for (const row of allClients) {
+    const clientId = Number(row.id);
+    if (!Number.isFinite(clientId)) {
+      continue;
+    }
+
+    const profile = await getClientProfile({ clientId });
+    const currentTags = normalizeFocusList(profile.clientTags || [], 40);
+    if (!currentTags.some((tag) => String(tag).toLowerCase() === target)) {
+      continue;
+    }
+
+    const nextTags = currentTags.filter((tag) => String(tag).toLowerCase() !== target);
+    await saveClientProfile({
+      clientId,
+      topPriorities: profile.topPriorities || [],
+      clientTags: nextTags,
+      clientColor: profile.clientColor || '',
+      ongoingMedicalConsiderations: profile.ongoingMedicalConsiderations || [],
+      acuteInjuries: profile.acuteInjuries || [],
+      completedFocus: profile.completedFocus || [],
+      futureFocus: profile.futureFocus || []
+    });
+    removedFromClients += 1;
+  }
+
+  return { removedFromClients };
+}
+
 async function checkForUpdates() {
   const currentVersion = app.getVersion();
 
@@ -2327,6 +2450,20 @@ function setupIpc() {
 
   ipcMain.handle('app:save-client-profile', async (_event, payload) => {
     return saveClientProfile(payload || {});
+  });
+
+  ipcMain.handle('app:remove-profile-tag', async (_event, payload) => {
+    return removeProfileTag(payload || {});
+  });
+
+  ipcMain.handle('app:get-tag-categories', async () => {
+    requireDb();
+    return getTagCategoriesConfig();
+  });
+
+  ipcMain.handle('app:save-tag-categories', async (_event, payload) => {
+    requireDb();
+    return saveTagCategoriesConfig(payload || {});
   });
 
   ipcMain.handle('app:get-tags', async () => {

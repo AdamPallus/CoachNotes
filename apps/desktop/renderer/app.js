@@ -5,6 +5,8 @@ const state = {
   status: null,
   clients: [],
   clientTagFilters: [],
+  tagCategories: [],
+  tagEditorDraftCategories: [],
   tags: [],
   notes: [],
   results: [],
@@ -48,6 +50,7 @@ const els = {
   moreMenu: document.getElementById('moreMenu'),
   helpBtn: document.getElementById('helpBtn'),
   checkUpdatesBtn: document.getElementById('checkUpdatesBtn'),
+  editTagsBtn: document.getElementById('editTagsBtn'),
   settingsBtn: document.getElementById('settingsBtn'),
   reindexBtn: document.getElementById('reindexBtn'),
   clientsSidebar: document.getElementById('clientsSidebar'),
@@ -90,6 +93,10 @@ const els = {
   profileOpenNewTagBtn: document.getElementById('profileOpenNewTagBtn'),
   profileNewTagRow: document.getElementById('profileNewTagRow'),
   profileNewTagInput: document.getElementById('profileNewTagInput'),
+  profileNewTagCategorySelect: document.getElementById('profileNewTagCategorySelect'),
+  profileNewCategoryRow: document.getElementById('profileNewCategoryRow'),
+  profileNewCategoryNameInput: document.getElementById('profileNewCategoryNameInput'),
+  profileNewCategoryColorInput: document.getElementById('profileNewCategoryColorInput'),
   profileConfirmNewTagBtn: document.getElementById('profileConfirmNewTagBtn'),
   profileCancelNewTagBtn: document.getElementById('profileCancelNewTagBtn'),
   profileClientTagsList: document.getElementById('profileClientTagsList'),
@@ -162,6 +169,15 @@ const els = {
   saveAnswerClientSelect: document.getElementById('saveAnswerClientSelect'),
   saveAnswerTitleInput: document.getElementById('saveAnswerTitleInput'),
   cancelSaveAnswerBtn: document.getElementById('cancelSaveAnswerBtn'),
+  editTagsDialog: document.getElementById('editTagsDialog'),
+  editTagsForm: document.getElementById('editTagsForm'),
+  tagCategoriesEditorList: document.getElementById('tagCategoriesEditorList'),
+  newTagCategoryNameInput: document.getElementById('newTagCategoryNameInput'),
+  newTagCategoryColorInput: document.getElementById('newTagCategoryColorInput'),
+  addTagCategoryBtn: document.getElementById('addTagCategoryBtn'),
+  tagAssignmentsList: document.getElementById('tagAssignmentsList'),
+  cancelEditTagsBtn: document.getElementById('cancelEditTagsBtn'),
+  saveTagCategoriesBtn: document.getElementById('saveTagCategoriesBtn'),
   cancelNewNoteBtn: document.getElementById('cancelNewNoteBtn')
 };
 
@@ -245,44 +261,154 @@ const PROFILE_COLOR_PRESETS = [
   { value: '#64748b', label: 'Slate' }
 ];
 
-const TAG_CATEGORY_KEYWORDS = {
-  medical: [
-    'injury', 'injured', 'pain', 'ache', 'rehab', 'recovery', 'medical', 'condition', 'thyroid',
-    'diabetes', 'hypertension', 'postpartum', 'surgery', 'medication', 'acute', 'chronic'
-  ],
-  training: [
-    'program', 'training', 'workout', 'strength', 'cardio', 'mobility', 'conditioning',
-    'running', 'exercise', 'lift', 'form'
-  ],
-  goal: [
-    'goal', 'milestone', 'target', 'progress', 'weight loss', 'fat loss', 'muscle', 'performance',
-    'habit', 'consistency'
-  ],
-  personal: [
-    'family', 'travel', 'sleep', 'stress', 'schedule', 'work', 'life', 'energy', 'motivation',
-    'mindset', 'nutrition'
-  ],
-  admin: [
-    'inactive', 'active', 'on hold', 'remote', 'weekly', 'biweekly', 'monthly', 'follow-up',
-    'check-in', 'billing', 'subscription', 'admin'
-  ]
-};
+const DEFAULT_TAG_COLOR = '#64748b';
 
-function getTagCategory(tag) {
-  const normalized = String(tag || '').trim().toLowerCase();
-  if (!normalized) {
-    return 'default';
+function normalizeTagCategoryId(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function normalizeTagCategoriesConfig(input) {
+  const source = Array.isArray(input?.categories) ? input.categories : [];
+  const categories = [];
+  const usedIds = new Set();
+  const usedTags = new Set();
+
+  for (let index = 0; index < source.length; index += 1) {
+    const row = source[index] || {};
+    const name = sanitizeName(row.name || '');
+    if (!name) {
+      continue;
+    }
+
+    const baseId = normalizeTagCategoryId(row.id || name) || `category-${index + 1}`;
+    let id = baseId;
+    let suffix = 2;
+    while (usedIds.has(id)) {
+      id = `${baseId}-${suffix}`;
+      suffix += 1;
+    }
+    usedIds.add(id);
+
+    const color = normalizeHexColor(row.color) || DEFAULT_TAG_COLOR;
+    const tags = [];
+    for (const tag of normalizeTagList(row.tags || row.tagNames || [], 400)) {
+      const key = tag.toLowerCase();
+      if (usedTags.has(key)) {
+        continue;
+      }
+
+      usedTags.add(key);
+      tags.push(tag);
+    }
+
+    categories.push({
+      id,
+      name,
+      color,
+      tags
+    });
   }
 
-  const categories = ['medical', 'training', 'goal', 'personal', 'admin'];
-  for (const category of categories) {
-    const keywords = TAG_CATEGORY_KEYWORDS[category] || [];
-    if (keywords.some((keyword) => normalized.includes(keyword))) {
-      return category;
+  return { categories };
+}
+
+function getTagCategoryLookup() {
+  const lookup = new Map();
+  for (const category of state.tagCategories || []) {
+    for (const tag of category.tags || []) {
+      const key = String(tag || '').trim().toLowerCase();
+      if (!key || lookup.has(key)) {
+        continue;
+      }
+
+      lookup.set(key, category);
     }
   }
+  return lookup;
+}
 
-  return 'default';
+function findTagCategory(tag) {
+  const normalized = String(tag || '').trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  return getTagCategoryLookup().get(normalized) || null;
+}
+
+function hexToRgb(hexColor) {
+  const hex = normalizeHexColor(hexColor).replace('#', '');
+  if (!hex || hex.length !== 6) {
+    return null;
+  }
+
+  return {
+    r: Number.parseInt(hex.slice(0, 2), 16),
+    g: Number.parseInt(hex.slice(2, 4), 16),
+    b: Number.parseInt(hex.slice(4, 6), 16)
+  };
+}
+
+function rgbaFromHex(hexColor, alpha) {
+  const rgb = hexToRgb(hexColor);
+  if (!rgb) {
+    return '';
+  }
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+}
+
+function isLightColor(hexColor) {
+  const rgb = hexToRgb(hexColor);
+  if (!rgb) {
+    return false;
+  }
+
+  const luminance = (0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b) / 255;
+  return luminance > 0.62;
+}
+
+function blendColors(hexColorA, hexColorB, ratio) {
+  const a = hexToRgb(hexColorA);
+  const b = hexToRgb(hexColorB);
+  if (!a || !b) {
+    return normalizeHexColor(hexColorA) || '#334155';
+  }
+
+  const weight = Math.max(0, Math.min(1, Number(ratio) || 0));
+  const r = Math.round(a.r * (1 - weight) + b.r * weight);
+  const g = Math.round(a.g * (1 - weight) + b.g * weight);
+  const bValue = Math.round(a.b * (1 - weight) + b.b * weight);
+  const hex = [r, g, bValue]
+    .map((value) => value.toString(16).padStart(2, '0'))
+    .join('');
+
+  return `#${hex}`;
+}
+
+function applyTagColorStyle(element, hexColor) {
+  const color = normalizeHexColor(hexColor);
+  if (!color) {
+    return;
+  }
+
+  const isDark = state.theme === 'dark';
+  const borderAlpha = isDark ? 0.65 : 0.56;
+  const backgroundAlpha = isDark ? 0.26 : 0.14;
+  const textColor = isDark
+    ? blendColors(color, '#ffffff', 0.34)
+    : blendColors(color, '#0f172a', 0.44);
+
+  element.style.borderColor = rgbaFromHex(color, borderAlpha);
+  element.style.background = rgbaFromHex(color, backgroundAlpha);
+  element.style.color = textColor;
+}
+
+function getTagCategoryColor(tag) {
+  return findTagCategory(tag)?.color || DEFAULT_TAG_COLOR;
 }
 
 function createTagPill(tag, options = {}) {
@@ -295,8 +421,7 @@ function createTagPill(tag, options = {}) {
 
   const element = document.createElement(button ? 'button' : 'span');
   const normalized = sanitizeName(tag);
-  const category = getTagCategory(normalized);
-  element.className = `tag-pill tag-category-${category}`;
+  element.className = 'tag-pill';
   if (button) {
     element.type = 'button';
     element.classList.add('tag-chip');
@@ -310,18 +435,13 @@ function createTagPill(tag, options = {}) {
   if (datasetTag) {
     element.dataset.tag = normalized;
   }
+  const category = findTagCategory(normalized);
+  if (category) {
+    element.title = `Category: ${category.name}`;
+  }
+  applyTagColorStyle(element, getTagCategoryColor(normalized));
   element.textContent = removable ? `${normalized} x` : normalized;
   return element;
-}
-
-function renderTagPillsHtml(tags, maxItems = 4) {
-  const rows = normalizeTagList(tags || [], maxItems);
-  return rows
-    .map((tag) => {
-      const category = getTagCategory(tag);
-      return `<span class="tag-pill tag-category-${escapeHtml(category)}">${escapeHtml(tag)}</span>`;
-    })
-    .join('');
 }
 
 function getSystemTheme() {
@@ -350,6 +470,13 @@ function applyTheme(mode, persist = true) {
   }
 
   syncThemeModeControls();
+  renderClients();
+  renderClientTagFilters();
+  renderProfileClientTagsList();
+  renderClientContextStrip();
+  if (els.editTagsDialog.open) {
+    renderEditTagsDialog();
+  }
 }
 
 function initTheme() {
@@ -518,6 +645,7 @@ function updateBusyUi() {
   els.newClientBtn.disabled = busy;
   els.moreMenuBtn.disabled = busy;
   els.checkUpdatesBtn.disabled = busy;
+  els.editTagsBtn.disabled = busy;
   els.helpBtn.disabled = busy;
   els.settingsBtn.disabled = busy;
   els.saveProfileBtn.disabled = busy || !state.selectedClientId;
@@ -525,6 +653,9 @@ function updateBusyUi() {
   els.profileTagPicker.disabled = busy || !state.selectedClientId;
   els.profileOpenNewTagBtn.disabled = busy || !state.selectedClientId;
   els.profileNewTagInput.disabled = busy || !state.selectedClientId;
+  els.profileNewTagCategorySelect.disabled = busy || !state.selectedClientId;
+  els.profileNewCategoryNameInput.disabled = busy || !state.selectedClientId;
+  els.profileNewCategoryColorInput.disabled = busy || !state.selectedClientId;
   els.profileConfirmNewTagBtn.disabled = busy || !state.selectedClientId;
   els.profileCancelNewTagBtn.disabled = busy || !state.selectedClientId;
   els.clearProfileColorBtn.disabled = busy || !state.selectedClientId;
@@ -534,6 +665,11 @@ function updateBusyUi() {
   els.profileFutureInput.disabled = busy || !state.selectedClientId;
   els.copyAnswerBtn.disabled = busy || !state.lastAnswerCopyText;
   els.saveAnswerBtn.disabled = busy || !isSavableAnswerEntry(state.activeAnswer);
+  els.addTagCategoryBtn.disabled = busy;
+  els.saveTagCategoriesBtn.disabled = busy;
+  els.cancelEditTagsBtn.disabled = busy;
+  els.newTagCategoryNameInput.disabled = busy;
+  els.newTagCategoryColorInput.disabled = busy;
   if (busy) {
     els.editNoteBtn.disabled = true;
     els.deleteNoteBtn.disabled = true;
@@ -558,6 +694,12 @@ function updateBusyUi() {
   const paletteDisabled = busy || !state.selectedClientId;
   for (const button of els.profileColorPalette.querySelectorAll('button')) {
     button.disabled = paletteDisabled;
+  }
+  for (const input of els.tagCategoriesEditorList.querySelectorAll('input, button')) {
+    input.disabled = busy;
+  }
+  for (const control of els.tagAssignmentsList.querySelectorAll('select, button')) {
+    control.disabled = busy;
   }
 }
 
@@ -601,6 +743,47 @@ function setBusy(on, message = '') {
   }
 
   updateBusyUi();
+}
+
+function setBusyMessage(message) {
+  if (state.busyCount <= 0) {
+    return;
+  }
+
+  const next = String(message || '').trim();
+  if (!next) {
+    return;
+  }
+
+  state.busyMessage = next;
+  updateBusyUi();
+}
+
+function startBusyStages(initialMessage, stages = []) {
+  setBusy(true, initialMessage);
+  const timerIds = [];
+
+  for (const stage of stages) {
+    const message = String(stage?.message || '').trim();
+    if (!message) {
+      continue;
+    }
+
+    const delayMs = Math.max(0, Number(stage?.delayMs) || 0);
+    const timerId = setTimeout(() => {
+      if (state.busyCount > 0) {
+        setBusyMessage(message);
+      }
+    }, delayMs);
+    timerIds.push(timerId);
+  }
+
+  return () => {
+    for (const timerId of timerIds) {
+      clearTimeout(timerId);
+    }
+    setBusy(false);
+  };
 }
 
 function setMenuOpen(open) {
@@ -815,15 +998,22 @@ function renderClients() {
     }
 
     const color = normalizeHexColor(client.color);
-    const tagPills = renderTagPillsHtml(client.profileTags || [], 3);
     button.innerHTML = `
       <div class="client-title-row">
         <span class="client-color-dot" style="${color ? `background:${escapeHtml(color)};border-color:${escapeHtml(color)};` : ''}"></span>
         <span class="item-title">${escapeHtml(client.name)}</span>
       </div>
       <div class="item-meta">${client.noteCount} notes</div>
-      ${tagPills ? `<div class="client-tag-row">${tagPills}</div>` : ''}
     `;
+    const clientTags = normalizeTagList(client.profileTags || [], 3);
+    if (clientTags.length) {
+      const tagRow = document.createElement('div');
+      tagRow.className = 'client-tag-row';
+      for (const tag of clientTags) {
+        tagRow.appendChild(createTagPill(tag, { datasetTag: false }));
+      }
+      button.appendChild(tagRow);
+    }
 
     button.addEventListener('click', async () => {
       await selectClient(client.id);
@@ -942,23 +1132,473 @@ function renderProfileColorPalette() {
   }
 }
 
+function renderProfileNewTagCategoryOptions(selectedValue = '') {
+  const selected = String(selectedValue || '').trim();
+  const categories = [...(state.tagCategories || [])].sort((a, b) => a.name.localeCompare(b.name));
+  const options = ['<option value="">Choose category...</option>'];
+  for (const category of categories) {
+    options.push(`<option value="${escapeHtml(category.id)}">${escapeHtml(category.name)}</option>`);
+  }
+  options.push('<option value="__new__">Create category...</option>');
+  els.profileNewTagCategorySelect.innerHTML = options.join('');
+  els.profileNewTagCategorySelect.value = selected && (categories.some((row) => row.id === selected) || selected === '__new__')
+    ? selected
+    : '';
+}
+
+function hideProfileNewCategoryRow() {
+  els.profileNewCategoryRow.hidden = true;
+  els.profileNewCategoryNameInput.value = '';
+  els.profileNewCategoryColorInput.value = DEFAULT_TAG_COLOR;
+}
+
+function showProfileNewCategoryRow() {
+  els.profileNewCategoryRow.hidden = false;
+  els.profileNewCategoryNameInput.focus();
+  els.profileNewCategoryNameInput.select();
+}
+
 function hideProfileNewTagRow() {
   els.profileNewTagRow.hidden = true;
   els.profileNewTagInput.value = '';
+  els.profileNewTagCategorySelect.value = '';
+  hideProfileNewCategoryRow();
 }
 
 function showProfileNewTagRow() {
   els.profileNewTagRow.hidden = false;
+  renderProfileNewTagCategoryOptions();
+  if (!(state.tagCategories || []).length) {
+    els.profileNewTagCategorySelect.value = '__new__';
+    showProfileNewCategoryRow();
+  } else {
+    hideProfileNewCategoryRow();
+  }
   els.profileNewTagInput.focus();
   els.profileNewTagInput.select();
 }
 
-function submitProfileNewTagFromInput() {
-  const created = String(els.profileNewTagInput.value || '').trim();
-  const added = addProfileTag(created);
-  if (added) {
-    hideProfileNewTagRow();
+function getUniqueTagCategoryId(baseId, categories) {
+  const taken = new Set((categories || []).map((row) => row.id));
+  let candidate = normalizeTagCategoryId(baseId) || 'category';
+  let suffix = 2;
+  while (taken.has(candidate)) {
+    candidate = `${normalizeTagCategoryId(baseId) || 'category'}-${suffix}`;
+    suffix += 1;
   }
+  return candidate;
+}
+
+function assignTagToCategory(tagName, categoryId, categories) {
+  const normalizedTag = sanitizeName(tagName);
+  if (!normalizedTag) {
+    return categories || [];
+  }
+
+  const tagKey = normalizedTag.toLowerCase();
+  const rows = (categories || []).map((row) => ({
+    ...row,
+    tags: normalizeTagList(row.tags || [], 400).filter((tag) => String(tag).toLowerCase() !== tagKey)
+  }));
+
+  const target = rows.find((row) => row.id === categoryId);
+  if (!target) {
+    return rows;
+  }
+
+  target.tags = [...target.tags, normalizedTag];
+  return rows;
+}
+
+async function persistTagCategories(categories) {
+  const payload = normalizeTagCategoriesConfig({ categories });
+  const saved = await window.coachNotes.saveTagCategories(payload);
+  state.tagCategories = normalizeTagCategoriesConfig(saved).categories;
+  renderProfileNewTagCategoryOptions(els.profileNewTagCategorySelect.value);
+  renderClientTagFilters();
+  renderClients();
+  renderClientContextStrip();
+}
+
+async function loadTagCategories() {
+  const loaded = await window.coachNotes.getTagCategories();
+  state.tagCategories = normalizeTagCategoriesConfig(loaded).categories;
+  renderProfileNewTagCategoryOptions();
+}
+
+function cloneCategories(categories) {
+  return normalizeTagCategoriesConfig({ categories }).categories;
+}
+
+function getProfileTagUsageMap() {
+  const map = new Map();
+  for (const client of state.clients || []) {
+    for (const tag of client.profileTags || []) {
+      const normalized = sanitizeName(tag);
+      if (!normalized) {
+        continue;
+      }
+      const key = normalized.toLowerCase();
+      const row = map.get(key) || { name: normalized, count: 0 };
+      row.count += 1;
+      map.set(key, row);
+    }
+  }
+  return map;
+}
+
+function getCategoryForTagFrom(categories, tag) {
+  const key = String(tag || '').trim().toLowerCase();
+  if (!key) {
+    return null;
+  }
+
+  for (const category of categories || []) {
+    if ((category.tags || []).some((entry) => String(entry || '').toLowerCase() === key)) {
+      return category;
+    }
+  }
+
+  return null;
+}
+
+function getAllKnownProfileTagsForEditor(categories) {
+  const usage = getProfileTagUsageMap();
+  const seen = new Set();
+  const tags = [];
+  for (const row of usage.values()) {
+    const key = row.name.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    tags.push(row.name);
+  }
+
+  for (const category of categories || []) {
+    for (const tag of category.tags || []) {
+      const normalized = sanitizeName(tag);
+      const key = normalized.toLowerCase();
+      if (!normalized || seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      tags.push(normalized);
+    }
+  }
+
+  return tags.sort((a, b) => a.localeCompare(b));
+}
+
+function renderTagEditorCategories() {
+  const list = cloneCategories(state.tagEditorDraftCategories || []);
+  state.tagEditorDraftCategories = list;
+  els.tagCategoriesEditorList.innerHTML = '';
+
+  if (!list.length) {
+    const empty = document.createElement('p');
+    empty.className = 'advanced-note';
+    empty.textContent = 'No categories yet. Create one below.';
+    els.tagCategoriesEditorList.appendChild(empty);
+    return;
+  }
+
+  for (const category of list) {
+    const row = document.createElement('div');
+    row.className = 'tag-category-editor-row';
+    row.dataset.categoryId = category.id;
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'tag-category-name-input';
+    nameInput.value = category.name;
+    nameInput.placeholder = 'Category name';
+    nameInput.dataset.categoryId = category.id;
+
+    const colorInput = document.createElement('input');
+    colorInput.type = 'color';
+    colorInput.className = 'tag-category-color-input';
+    colorInput.value = normalizeHexColor(category.color) || DEFAULT_TAG_COLOR;
+    colorInput.dataset.categoryId = category.id;
+
+    const meta = document.createElement('span');
+    meta.className = 'tag-category-meta';
+    meta.textContent = `${(category.tags || []).length} tags`;
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'btn btn-tiny btn-danger tag-category-delete-btn';
+    deleteBtn.dataset.categoryId = category.id;
+    deleteBtn.textContent = 'Delete';
+
+    row.append(nameInput, colorInput, meta, deleteBtn);
+    els.tagCategoriesEditorList.appendChild(row);
+  }
+}
+
+function renderTagEditorAssignments() {
+  const categories = state.tagEditorDraftCategories || [];
+  const allTags = getAllKnownProfileTagsForEditor(categories);
+  const usage = getProfileTagUsageMap();
+  els.tagAssignmentsList.innerHTML = '';
+
+  if (!allTags.length) {
+    const empty = document.createElement('p');
+    empty.className = 'advanced-note';
+    empty.textContent = 'No profile tags found yet.';
+    els.tagAssignmentsList.appendChild(empty);
+    return;
+  }
+
+  const categoryOptions = categories
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((row) => `<option value="${escapeHtml(row.id)}">${escapeHtml(row.name)}</option>`)
+    .join('');
+
+  for (const tag of allTags) {
+    const category = getCategoryForTagFrom(categories, tag);
+    const usageCount = usage.get(String(tag).toLowerCase())?.count || 0;
+    const row = document.createElement('div');
+    row.className = 'tag-assignment-row';
+
+    const preview = document.createElement('span');
+    preview.className = 'tag-pill';
+    preview.textContent = tag;
+    applyTagColorStyle(preview, category?.color || DEFAULT_TAG_COLOR);
+
+    const select = document.createElement('select');
+    select.className = 'tag-assignment-select';
+    select.dataset.tag = tag;
+    select.innerHTML = `
+      <option value="">Uncategorized</option>
+      ${categoryOptions}
+    `;
+    select.value = category?.id || '';
+
+    const usageMeta = document.createElement('span');
+    usageMeta.className = 'tag-assignment-meta';
+    usageMeta.textContent = usageCount > 0 ? `Used in ${usageCount} profiles` : 'Not used in profiles';
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'btn btn-tiny btn-danger tag-delete-btn';
+    deleteBtn.dataset.tag = tag;
+    deleteBtn.textContent = 'Delete Tag';
+
+    row.append(preview, select, usageMeta, deleteBtn);
+    els.tagAssignmentsList.appendChild(row);
+  }
+}
+
+function renderEditTagsDialog() {
+  renderTagEditorCategories();
+  renderTagEditorAssignments();
+}
+
+function openEditTagsDialog() {
+  state.tagEditorDraftCategories = cloneCategories(state.tagCategories || []);
+  renderEditTagsDialog();
+  els.editTagsDialog.showModal();
+}
+
+function updateDraftCategoryName(categoryId, nextName) {
+  const categories = cloneCategories(state.tagEditorDraftCategories || []);
+  const row = categories.find((entry) => entry.id === categoryId);
+  if (!row) {
+    return;
+  }
+
+  const normalized = sanitizeName(nextName || '');
+  if (!normalized) {
+    return;
+  }
+
+  row.name = normalized;
+  state.tagEditorDraftCategories = categories;
+}
+
+function updateDraftCategoryColor(categoryId, nextColor) {
+  const categories = cloneCategories(state.tagEditorDraftCategories || []);
+  const row = categories.find((entry) => entry.id === categoryId);
+  if (!row) {
+    return;
+  }
+
+  row.color = normalizeHexColor(nextColor) || DEFAULT_TAG_COLOR;
+  state.tagEditorDraftCategories = categories;
+}
+
+function deleteDraftCategory(categoryId) {
+  const categories = cloneCategories(state.tagEditorDraftCategories || []);
+  const target = categories.find((entry) => entry.id === categoryId);
+  if (!target) {
+    return;
+  }
+
+  if ((target.tags || []).length > 0) {
+    const confirmDelete = window.confirm(
+      `Delete category "${target.name}"?\n\n${target.tags.length} tags will become uncategorized.`
+    );
+    if (!confirmDelete) {
+      return;
+    }
+  }
+
+  state.tagEditorDraftCategories = categories.filter((entry) => entry.id !== categoryId);
+  renderEditTagsDialog();
+}
+
+function addDraftCategoryFromInputs() {
+  const name = sanitizeName(els.newTagCategoryNameInput.value || '');
+  if (!name) {
+    showToast('Category name is required.', 'error');
+    return;
+  }
+
+  const categories = cloneCategories(state.tagEditorDraftCategories || []);
+  const duplicate = categories.find((row) => String(row.name).toLowerCase() === name.toLowerCase());
+  if (duplicate) {
+    showToast('Category name already exists.', 'error');
+    return;
+  }
+
+  const color = normalizeHexColor(els.newTagCategoryColorInput.value) || DEFAULT_TAG_COLOR;
+  const id = getUniqueTagCategoryId(name, categories);
+  categories.push({
+    id,
+    name,
+    color,
+    tags: []
+  });
+
+  state.tagEditorDraftCategories = categories;
+  els.newTagCategoryNameInput.value = '';
+  els.newTagCategoryColorInput.value = DEFAULT_TAG_COLOR;
+  renderEditTagsDialog();
+}
+
+function setDraftTagCategory(tag, categoryId) {
+  const normalizedTag = sanitizeName(tag);
+  const categories = cloneCategories(state.tagEditorDraftCategories || []);
+  for (const category of categories) {
+    category.tags = (category.tags || []).filter((entry) => String(entry).toLowerCase() !== normalizedTag.toLowerCase());
+  }
+
+  if (categoryId) {
+    const target = categories.find((row) => row.id === categoryId);
+    if (target) {
+      target.tags = [...normalizeTagList(target.tags || [], 400), normalizedTag];
+    }
+  }
+
+  state.tagEditorDraftCategories = categories;
+  renderEditTagsDialog();
+}
+
+async function deleteTagEverywhere(tag) {
+  const normalizedTag = sanitizeName(tag);
+  const usageCount = getProfileTagUsageMap().get(normalizedTag.toLowerCase())?.count || 0;
+  const confirmText = usageCount > 0
+    ? `Delete tag "${normalizedTag}"?\n\nIt is currently used in ${usageCount} client profiles and will be removed from those profiles.`
+    : `Delete tag "${normalizedTag}"?`;
+  if (!window.confirm(confirmText)) {
+    return;
+  }
+
+  setBusy(true, 'Deleting tag...');
+  try {
+    await window.coachNotes.removeProfileTag({ tagName: normalizedTag });
+    const categories = cloneCategories(state.tagEditorDraftCategories || []);
+    for (const category of categories) {
+      category.tags = (category.tags || []).filter((entry) => String(entry).toLowerCase() !== normalizedTag.toLowerCase());
+    }
+    state.tagEditorDraftCategories = categories;
+    await persistTagCategories(categories);
+    await loadClients();
+    await loadClientProfile();
+    renderEditTagsDialog();
+    showToast(`Deleted tag: ${normalizedTag}`);
+  } catch (error) {
+    showToast(`Delete failed: ${error.message}`, 'error');
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function saveEditTagsDialog(event) {
+  event.preventDefault();
+  const categories = cloneCategories(state.tagEditorDraftCategories || []);
+  setBusy(true, 'Saving tag categories...');
+  try {
+    await persistTagCategories(categories);
+    els.editTagsDialog.close();
+    showToast('Saved tag categories.');
+  } catch (error) {
+    showToast(`Save failed: ${error.message}`, 'error');
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function submitProfileNewTagFromInput() {
+  const created = String(els.profileNewTagInput.value || '').trim();
+  const normalizedTag = sanitizeName(created);
+  if (!normalizedTag) {
+    renderAnswer('Enter a tag name first.');
+    return;
+  }
+
+  const selectedCategory = String(els.profileNewTagCategorySelect.value || '').trim();
+  if (!selectedCategory) {
+    renderAnswer('Choose a category or create a new category for this tag.');
+    return;
+  }
+
+  let workingCategories = (state.tagCategories || []).map((row) => ({
+    ...row,
+    tags: normalizeTagList(row.tags || [], 400)
+  }));
+  let categoryId = selectedCategory;
+
+  if (selectedCategory === '__new__') {
+    const categoryName = sanitizeName(els.profileNewCategoryNameInput.value || '');
+    if (!categoryName) {
+      renderAnswer('Enter a category name.');
+      return;
+    }
+
+    const chosenColor = normalizeHexColor(els.profileNewCategoryColorInput.value) || DEFAULT_TAG_COLOR;
+    const existingByName = workingCategories.find(
+      (row) => String(row.name).toLowerCase() === categoryName.toLowerCase()
+    );
+    if (existingByName) {
+      categoryId = existingByName.id;
+      existingByName.color = chosenColor;
+    } else {
+      categoryId = getUniqueTagCategoryId(categoryName, workingCategories);
+      workingCategories = [
+        ...workingCategories,
+        {
+          id: categoryId,
+          name: categoryName,
+          color: chosenColor,
+          tags: []
+        }
+      ];
+    }
+  }
+
+  workingCategories = assignTagToCategory(normalizedTag, categoryId, workingCategories);
+  try {
+    await persistTagCategories(workingCategories);
+  } catch (error) {
+    renderAnswer(`Saving tag categories failed: ${error.message}`);
+    return;
+  }
+
+  addProfileTag(created);
+  hideProfileNewTagRow();
 }
 
 function setProfileClientTagsDraft(values) {
@@ -1806,7 +2446,7 @@ async function openNote(noteId) {
   renderNote(note);
 }
 
-async function runSearch(inputQuery = null) {
+async function runSearch(inputQuery = null, options = {}) {
   const query = String(inputQuery ?? els.queryInput.value).trim();
   if (inputQuery !== null) {
     els.queryInput.value = query;
@@ -1818,7 +2458,8 @@ async function runSearch(inputQuery = null) {
     return;
   }
 
-  setBusy(true, 'Searching notes...');
+  const busyMessage = String(options?.busyMessage || '').trim() || 'Searching notes...';
+  setBusy(true, busyMessage);
   try {
     state.results = await window.coachNotes.search({
       query,
@@ -1864,7 +2505,11 @@ async function runAsk() {
     return;
   }
 
-  setBusy(true, 'Thinking...');
+  const finishBusy = startBusyStages('Finding relevant notes...', [
+    { delayMs: 600, message: 'Reviewing relevant excerpts...' },
+    { delayMs: 1800, message: 'Drafting answer...' },
+    { delayMs: 3600, message: 'Finalizing answer...' }
+  ]);
   try {
     const topK = normalizeTopK(els.topKInput.value);
     els.topKInput.value = String(topK);
@@ -1904,7 +2549,7 @@ async function runAsk() {
       autoOpen: true
     });
   } finally {
-    setBusy(false);
+    finishBusy();
   }
 }
 
@@ -1915,12 +2560,16 @@ async function runSummarize() {
     return;
   }
 
-  const searchResult = await runSearch(query);
+  const searchResult = await runSearch(query, { busyMessage: 'Finding relevant notes...' });
   if (!searchResult?.ok) {
     return;
   }
 
-  setBusy(true, 'Summarizing sources...');
+  const finishBusy = startBusyStages('Preparing summary...', [
+    { delayMs: 600, message: 'Collecting top matches...' },
+    { delayMs: 1700, message: 'Writing summary...' },
+    { delayMs: 3400, message: 'Finalizing summary...' }
+  ]);
   try {
     const topK = normalizeTopK(els.topKInput.value);
     const matchCount = Number(searchResult.count) || 0;
@@ -1982,7 +2631,7 @@ async function runSummarize() {
       autoOpen: true
     });
   } finally {
-    setBusy(false);
+    finishBusy();
   }
 }
 
@@ -2499,6 +3148,7 @@ async function init() {
     updateBusyUi();
   });
 
+  await loadTagCategories();
   await loadClients();
   await loadTags();
   await loadNotes();
@@ -2546,6 +3196,10 @@ async function init() {
   els.helpBtn.addEventListener('click', () => {
     setMenuOpen(false);
     openHelpDialog();
+  });
+  els.editTagsBtn.addEventListener('click', () => {
+    setMenuOpen(false);
+    openEditTagsDialog();
   });
   els.checkUpdatesBtn.addEventListener('click', async () => {
     setMenuOpen(false);
@@ -2713,13 +3367,32 @@ async function init() {
   els.profileOpenNewTagBtn.addEventListener('click', () => {
     showProfileNewTagRow();
   });
-  els.profileConfirmNewTagBtn.addEventListener('click', () => {
-    submitProfileNewTagFromInput();
+  els.profileConfirmNewTagBtn.addEventListener('click', async () => {
+    await submitProfileNewTagFromInput();
   });
   els.profileCancelNewTagBtn.addEventListener('click', () => {
     hideProfileNewTagRow();
   });
+  els.profileNewTagCategorySelect.addEventListener('change', () => {
+    const picked = String(els.profileNewTagCategorySelect.value || '').trim();
+    if (picked === '__new__') {
+      showProfileNewCategoryRow();
+      return;
+    }
+
+    hideProfileNewCategoryRow();
+  });
   els.profileNewTagInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      submitProfileNewTagFromInput();
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      hideProfileNewTagRow();
+    }
+  });
+  els.profileNewCategoryNameInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
       event.preventDefault();
       submitProfileNewTagFromInput();
@@ -2736,6 +3409,52 @@ async function init() {
     }
 
     removeProfileTag(button.dataset.tag || '');
+  });
+  els.tagCategoriesEditorList.addEventListener('change', (event) => {
+    const target = event.target;
+    if (target.classList.contains('tag-category-name-input')) {
+      updateDraftCategoryName(target.dataset.categoryId || '', target.value);
+      renderEditTagsDialog();
+      return;
+    }
+
+    if (target.classList.contains('tag-category-color-input')) {
+      updateDraftCategoryColor(target.dataset.categoryId || '', target.value);
+      renderEditTagsDialog();
+    }
+  });
+  els.tagCategoriesEditorList.addEventListener('click', (event) => {
+    const button = event.target.closest('.tag-category-delete-btn');
+    if (!button) {
+      return;
+    }
+
+    deleteDraftCategory(button.dataset.categoryId || '');
+  });
+  els.tagAssignmentsList.addEventListener('change', (event) => {
+    const select = event.target.closest('.tag-assignment-select');
+    if (!select) {
+      return;
+    }
+
+    setDraftTagCategory(select.dataset.tag || '', String(select.value || ''));
+  });
+  els.tagAssignmentsList.addEventListener('click', async (event) => {
+    const button = event.target.closest('.tag-delete-btn');
+    if (!button) {
+      return;
+    }
+
+    await deleteTagEverywhere(button.dataset.tag || '');
+  });
+  els.addTagCategoryBtn.addEventListener('click', () => {
+    addDraftCategoryFromInputs();
+  });
+  els.newTagCategoryNameInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      addDraftCategoryFromInputs();
+    }
   });
   els.clearClientTagFiltersBtn.addEventListener('click', () => {
     state.clientTagFilters = [];
@@ -2835,6 +3554,13 @@ async function init() {
   });
   els.saveAnswerDialog.addEventListener('close', () => {
     state.pendingAnswerSave = null;
+  });
+  els.editTagsForm.addEventListener('submit', saveEditTagsDialog);
+  els.cancelEditTagsBtn.addEventListener('click', () => {
+    els.editTagsDialog.close();
+  });
+  els.editTagsDialog.addEventListener('close', () => {
+    state.tagEditorDraftCategories = [];
   });
 }
 
