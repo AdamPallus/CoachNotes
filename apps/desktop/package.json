@@ -24,6 +24,7 @@
     "files": [
       "src/**/*",
       "renderer/**/*",
+      "assets/**/*",
       "package.json"
     ],
     "npmRebuild": true,
