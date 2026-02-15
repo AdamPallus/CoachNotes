@@ -1722,13 +1722,13 @@ async function submitProfileNewTagFromInput() {
   const created = String(els.profileNewTagInput.value || '').trim();
   const normalizedTag = sanitizeName(created);
   if (!normalizedTag) {
-    renderAnswer('Enter a tag name first.');
+    showToast('Enter a tag name first.', 'error');
     return;
   }
 
   const selectedCategory = String(els.profileNewTagCategorySelect.value || '').trim();
   if (!selectedCategory) {
-    renderAnswer('Choose a category or create a new category for this tag.');
+    showToast('Choose a category or create a new category for this tag.', 'error');
     return;
   }
 
@@ -1741,7 +1741,7 @@ async function submitProfileNewTagFromInput() {
   if (selectedCategory === '__new__') {
     const categoryName = sanitizeName(els.profileNewCategoryNameInput.value || '');
     if (!categoryName) {
-      renderAnswer('Enter a category name.');
+      showToast('Enter a category name.', 'error');
       return;
     }
 
@@ -1770,7 +1770,7 @@ async function submitProfileNewTagFromInput() {
   try {
     await persistTagCategories(workingCategories);
   } catch (error) {
-    renderAnswer(`Saving tag categories failed: ${error.message}`);
+    showToast(`Saving tag categories failed: ${error.message}`, 'error');
     return;
   }
 
@@ -2470,19 +2470,19 @@ async function loadClientProfile() {
       futureFocus: [],
       updatedAt: null
     });
-    renderAnswer(`Load client profile failed: ${error.message}`);
+    showToast(`Load client profile failed: ${error.message}`, 'error');
   }
 }
 
 async function saveClientProfile(options = {}) {
   if (!state.selectedClientId) {
-    renderAnswer('Select a client before saving profile.');
+    showToast('Select a client before saving profile.', 'error');
     return false;
   }
 
   const topPrioritiesRaw = parseMultilineList(els.profileTopInput.value, 12);
   if (topPrioritiesRaw.length > 3) {
-    renderAnswer('Top Priorities is limited to 3 items.');
+    showToast('Top Priorities is limited to 3 items.', 'error');
     return false;
   }
 
@@ -2504,13 +2504,13 @@ async function saveClientProfile(options = {}) {
     const saved = await window.coachNotes.saveClientProfile(payload);
     renderClientProfile(saved);
     await loadClients();
-    renderAnswer(`Saved profile for ${saved.clientName}.`);
+    showToast(`Saved profile for ${saved.clientName}.`);
     if (options?.closeDialog && els.clientProfileDialog.open) {
       els.clientProfileDialog.close();
     }
     return true;
   } catch (error) {
-    renderAnswer(`Save client profile failed: ${error.message}`);
+    showToast(`Save client profile failed: ${error.message}`, 'error');
     return false;
   } finally {
     setBusy(false);
@@ -2677,7 +2677,7 @@ async function runSearch(inputQuery = null, options = {}) {
     }
     return { ok: true, count: state.results.length };
   } catch (error) {
-    renderAnswer(`Search failed: ${error.message}`);
+    showToast(`Search failed: ${error.message}`, 'error');
     return { ok: false, count: 0, error: error.message };
   } finally {
     setBusy(false);
@@ -2902,7 +2902,7 @@ async function createNewClient(event) {
   event.preventDefault();
   const name = String(els.newClientNameInput.value || '').trim();
   if (!name) {
-    renderAnswer('Client name is required.');
+    showToast('Client name is required.', 'error');
     return;
   }
 
@@ -2917,9 +2917,9 @@ async function createNewClient(event) {
     renderClients();
     renderNewNoteClientOptions();
     els.newClientDialog.close();
-    renderAnswer(`Created client: ${created.name}`);
+    showToast(`Created client: ${created.name}`);
   } catch (error) {
-    renderAnswer(`Create client failed: ${error.message}`);
+    showToast(`Create client failed: ${error.message}`, 'error');
   } finally {
     setBusy(false);
   }
@@ -2927,7 +2927,7 @@ async function createNewClient(event) {
 
 function openEditNoteDialog() {
   if (!state.currentNote || !state.selectedNoteId) {
-    renderAnswer('Select a note before editing.');
+    showToast('Select a note before editing.', 'error');
     return;
   }
 
@@ -2946,13 +2946,13 @@ function openEditNoteDialog() {
 async function saveEditedNote(event) {
   event.preventDefault();
   if (!state.selectedNoteId) {
-    renderAnswer('Select a note before editing.');
+    showToast('Select a note before editing.', 'error');
     return;
   }
 
   const title = String(els.editNoteTitleInput.value || '').trim();
   if (!title) {
-    renderAnswer('Title is required to save note changes.');
+    showToast('Title is required to save note changes.', 'error');
     return;
   }
 
@@ -2978,9 +2978,9 @@ async function saveEditedNote(event) {
       state.selectedHighlight = null;
       await openNote(updated.noteId);
     }
-    renderAnswer(`Updated note: ${updated.title}`);
+    showToast(`Updated note: ${updated.title}`);
   } catch (error) {
-    renderAnswer(`Update note failed: ${error.message}`);
+    showToast(`Update note failed: ${error.message}`, 'error');
   } finally {
     setBusy(false);
   }
@@ -2988,7 +2988,7 @@ async function saveEditedNote(event) {
 
 async function deleteCurrentNote() {
   if (!state.selectedNoteId || !state.currentNote) {
-    renderAnswer('Select a note before deleting.');
+    showToast('Select a note before deleting.', 'error');
     return;
   }
 
@@ -3016,9 +3016,9 @@ async function deleteCurrentNote() {
       await loadNotes();
     }
     renderNote(null);
-    renderAnswer(`Moved note to Deleted Notes: ${result.title}`);
+    showToast(`Moved note to Deleted Notes: ${result.title}`);
   } catch (error) {
-    renderAnswer(`Delete note failed: ${error.message}`);
+    showToast(`Delete note failed: ${error.message}`, 'error');
   } finally {
     setBusy(false);
   }
@@ -3028,7 +3028,7 @@ async function createNewNote(event) {
   event.preventDefault();
   const title = els.newNoteTitleInput.value.trim();
   if (!title) {
-    renderAnswer('Title is required to create a note.');
+    showToast('Title is required to create a note.', 'error');
     return;
   }
 
@@ -3051,9 +3051,9 @@ async function createNewNote(event) {
       state.selectedHighlight = null;
       await openNote(created.noteId);
     }
-    renderAnswer(`Created note: ${created.title}`);
+    showToast(`Created note: ${created.title}`);
   } catch (error) {
-    renderAnswer(`Create note failed: ${error.message}`);
+    showToast(`Create note failed: ${error.message}`, 'error');
   } finally {
     setBusy(false);
   }
@@ -3271,7 +3271,7 @@ async function handleCheckForUpdates() {
 
   if (failedMessage) {
     window.alert(`Update check failed.\n\n${failedMessage}`);
-    renderAnswer(`Update check failed: ${failedMessage}`);
+    showToast(`Update check failed: ${failedMessage}`, 'error');
     return;
   }
 
@@ -3281,7 +3281,7 @@ async function handleCheckForUpdates() {
 
   if (result.updateAvailable) {
     const summary = `Update available: v${result.latestVersion} (current v${result.currentVersion}).`;
-    renderAnswer(summary);
+    showToast(summary);
     const shouldOpen = window.confirm(`${summary}\n\nOpen the release page now?`);
     if (shouldOpen) {
       await window.coachNotes.openExternal(result.releaseUrl || result.releasesUrl);
@@ -3298,7 +3298,7 @@ async function handleCheckForUpdates() {
 async function copyAnswerToClipboard() {
   const text = String(state.lastAnswerCopyText || '').trim();
   if (!text) {
-    renderAnswer('No answer available to copy.');
+    showToast('No answer available to copy.', 'error');
     return;
   }
 
@@ -3321,7 +3321,7 @@ async function copyAnswerToClipboard() {
       els.copyAnswerBtn.textContent = 'Copy answer';
     }, 1200);
   } catch (error) {
-    renderAnswer(`Copy failed: ${error.message}`);
+    showToast(`Copy failed: ${error.message}`, 'error');
   }
 }
 
@@ -3346,7 +3346,7 @@ async function saveSettings(event) {
     await loadNotes();
     await loadClientProfile();
   } catch (error) {
-    renderAnswer(`Saving settings failed: ${error.message}`);
+    showToast(`Saving settings failed: ${error.message}`, 'error');
   } finally {
     setBusy(false);
   }
@@ -3777,7 +3777,7 @@ async function init() {
         ...(state.settings || {}),
         rootFolder: picked
       };
-      renderAnswer('Root folder selected. Click Save & Reindex to apply.');
+      showToast('Root folder selected. Click Save & Reindex to apply.');
     }
   });
 
