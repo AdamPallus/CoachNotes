@@ -414,8 +414,18 @@ body {
   display: none;
 }
 
+.app-shell.clients-collapsed #archivedClientsBtn {
+  display: none;
+}
+
 .app-shell.clients-collapsed .sidebar-head .row-inline {
   gap: 0;
+}
+
+#archivedClientsBtn[aria-pressed="true"] {
+  background: var(--surface-elevated);
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
 }
 
 .icon-btn {
@@ -950,6 +960,35 @@ body {
   padding: 8px;
   display: grid;
   gap: 8px;
+}
+
+.profile-sidebar-tag-section {
+  border-top: 1px dashed var(--border-subtle);
+  padding-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.profile-sidebar-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 28px;
+  align-items: center;
+}
+
+.profile-sidebar-tags .tag-chip {
+  cursor: pointer;
+}
+
+.tag-pill.is-selected {
+  box-shadow: 0 0 0 1px var(--accent-primary) inset;
+  transform: translateY(-1px);
+}
+
+.profile-sidebar-empty {
+  font-size: 11px;
+  color: var(--text-tertiary);
 }
 
 .profile-tag-section-head {
@@ -1608,18 +1647,6 @@ dialog::backdrop {
 }
 
 @media (max-width: 1180px) {
-  .content-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .app-shell.clients-collapsed .content-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    max-height: 200px;
-  }
-
   .split-grid {
     grid-template-columns: 1fr;
   }

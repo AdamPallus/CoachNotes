@@ -4,7 +4,9 @@ const TEXT_SIZE_STORAGE_KEY = 'coachnotes-text-size';
 const state = {
   settings: null,
   status: null,
+  allClients: [],
   clients: [],
+  showArchivedClients: false,
   clientTagFilters: [],
   tagCategories: [],
   tagEditorDraftCategories: [],
@@ -36,6 +38,7 @@ const state = {
   clientsPanelOpen: true,
   pendingAnswerSave: null,
   profileClientTagsDraft: [],
+  profileSidebarTagsDraft: [],
   profileColorValue: '',
   profileColorPopoverOpen: false,
   profileTagEditorOpen: false,
@@ -71,6 +74,7 @@ const els = {
   clientsToggleBtn: document.getElementById('clientsToggleBtn'),
   clientsPanelBody: document.getElementById('clientsPanelBody'),
   allClientsBtn: document.getElementById('allClientsBtn'),
+  archivedClientsBtn: document.getElementById('archivedClientsBtn'),
   clientTagFiltersWrap: document.getElementById('clientTagFiltersWrap'),
   clientTagFilters: document.getElementById('clientTagFilters'),
   clearClientTagFiltersBtn: document.getElementById('clearClientTagFiltersBtn'),
@@ -116,6 +120,7 @@ const els = {
   profileConfirmNewTagBtn: document.getElementById('profileConfirmNewTagBtn'),
   profileCancelNewTagBtn: document.getElementById('profileCancelNewTagBtn'),
   profileClientTagsList: document.getElementById('profileClientTagsList'),
+  profileSidebarTagsList: document.getElementById('profileSidebarTagsList'),
   profileTagEditor: document.getElementById('profileTagEditor'),
   profileTagsToggleBtn: document.getElementById('profileTagsToggleBtn'),
   profileColorToggleBtn: document.getElementById('profileColorToggleBtn'),
@@ -128,6 +133,7 @@ const els = {
   profileCompletedInput: document.getElementById('profileCompletedInput'),
   profileFutureInput: document.getElementById('profileFutureInput'),
   saveProfileBtn: document.getElementById('saveProfileBtn'),
+  archiveClientBtn: document.getElementById('archiveClientBtn'),
   noteTitle: document.getElementById('noteTitle'),
   noteMeta: document.getElementById('noteMeta'),
   noteBody: document.getElementById('noteBody'),
@@ -244,6 +250,26 @@ function normalizeTagList(values, maxItems = 40) {
   }
 
   return rows;
+}
+
+function normalizeSidebarTags(values, allowedTags = [], maxItems = 8) {
+  const allowed = new Set((allowedTags || []).map((tag) => String(tag || '').toLowerCase()));
+  const selected = normalizeTagList(values || [], maxItems);
+  if (!allowed.size) {
+    return [];
+  }
+
+  return selected.filter((tag) => allowed.has(String(tag).toLowerCase()));
+}
+
+function getVisibleClients() {
+  return state.showArchivedClients
+    ? (state.allClients || []).filter((client) => Boolean(client.archived))
+    : (state.allClients || []).filter((client) => !client.archived);
+}
+
+function getSelectedClient() {
+  return (state.allClients || []).find((client) => client.id === state.selectedClientId) || null;
 }
 
 function normalizeHexColor(value) {
@@ -719,7 +745,9 @@ function updateBusyUi() {
   els.editTagsBtn.disabled = busy;
   els.helpBtn.disabled = busy;
   els.settingsBtn.disabled = busy;
+  els.archivedClientsBtn.disabled = busy;
   els.saveProfileBtn.disabled = busy || !state.selectedClientId;
+  els.archiveClientBtn.disabled = busy || !state.selectedClientId;
   els.profileTopInput.disabled = busy || !state.selectedClientId;
   els.profileCoachNotesInput.disabled = busy || !state.selectedClientId;
   els.profileTagPicker.disabled = busy || !state.selectedClientId;
@@ -1012,7 +1040,7 @@ function renderClientContextStrip() {
     return;
   }
 
-  const client = state.clients.find((row) => row.id === state.selectedClientId) || null;
+  const client = getSelectedClient();
   const profile = state.clientProfileClientId === state.selectedClientId ? state.clientProfile : null;
   const profileTags = profile?.clientTags || client?.profileTags || [];
   const color = normalizeHexColor(profile?.clientColor || client?.color || '');
@@ -1133,8 +1161,18 @@ function updateStatusLine() {
   els.statusLine.textContent = parts.length ? parts.join(' • ') : 'Ready.';
 }
 
+function renderArchivedClientsToggle() {
+  const archivedCount = (state.allClients || []).filter((client) => Boolean(client.archived)).length;
+  const showingArchived = Boolean(state.showArchivedClients);
+  els.archivedClientsBtn.hidden = archivedCount === 0 && !showingArchived;
+  els.archivedClientsBtn.textContent = showingArchived ? 'Active' : `Archived${archivedCount ? ` (${archivedCount})` : ''}`;
+  els.archivedClientsBtn.setAttribute('aria-pressed', showingArchived ? 'true' : 'false');
+  els.archivedClientsBtn.title = showingArchived ? 'Show active clients' : 'Show archived clients';
+}
+
 function renderClients() {
   els.clientsList.innerHTML = '';
+  renderArchivedClientsToggle();
 
   const selectedTagFilters = new Set((state.clientTagFilters || []).map((tag) => String(tag).toLowerCase()));
   const filteredClients = state.clients.filter((client) => {
@@ -1149,11 +1187,14 @@ function renderClients() {
   if (!filteredClients.length) {
     const li = document.createElement('li');
     li.className = 'clients-empty';
+    const emptyMessage = state.showArchivedClients
+      ? 'No archived clients.'
+      : (selectedTagFilters.size ? 'No clients match selected tags.' : 'No clients yet.');
     li.innerHTML = `
       <div class="empty-visual" style="width: auto; height: auto; border: none; background: transparent; margin-bottom: 8px;">
         <img src="../assets/empty-state-client.svg" alt="" style="max-width: 120px; opacity: 0.7;" />
       </div>
-      <p style="margin:0;">${selectedTagFilters.size ? 'No clients match selected tags.' : 'No clients yet.'}</p>
+      <p style="margin:0;">${emptyMessage}</p>
     `;
     els.clientsList.appendChild(li);
     return;
@@ -1175,10 +1216,13 @@ function renderClients() {
         <span class="client-color-dot" style="${color ? `background:${escapeHtml(color)};border-color:${escapeHtml(color)};` : ''}"></span>
         <span class="item-title">${escapeHtml(client.name)}</span>
       </div>
-      <div class="item-meta">${client.noteCount} notes</div>
+      <div class="item-meta">${client.noteCount} notes${client.archived ? ' • archived' : ''}</div>
     `;
-    const clientTags = normalizeTagList(client.profileTags || [], 3);
-    if (clientTags.length) {
+    const preferredTags = normalizeSidebarTags(client.sidebarTags || [], client.profileTags || [], 8);
+    const clientTags = preferredTags.length
+      ? preferredTags
+      : normalizeTagList(client.profileTags || [], 3);
+    if (clientTags.length && !state.showArchivedClients) {
       const tagRow = document.createElement('div');
       tagRow.className = 'client-tag-row';
       for (const tag of clientTags) {
@@ -1210,6 +1254,13 @@ function renderClients() {
 }
 
 function renderClientTagFilters() {
+  if (state.showArchivedClients) {
+    state.clientTagFilters = [];
+    els.clientTagFiltersWrap.hidden = true;
+    els.clientTagFilters.innerHTML = '';
+    return;
+  }
+
   const allTags = [...new Set(
     state.clients
       .flatMap((client) => client.profileTags || [])
@@ -1251,7 +1302,7 @@ function renderClientTagFilters() {
 
 function getKnownClientProfileTags() {
   return [...new Set(
-    state.clients
+    state.allClients
       .flatMap((client) => client.profileTags || [])
       .map((tag) => sanitizeName(tag))
       .filter(Boolean)
@@ -1283,6 +1334,47 @@ function renderProfileClientTagsList() {
     const chip = createTagPill(tag, { button: true, removable: true });
     chip.title = `Remove tag: ${tag}`;
     els.profileClientTagsList.appendChild(chip);
+  }
+}
+
+function renderProfileSidebarTagsList() {
+  const availableTags = state.profileClientTagsDraft || [];
+  const selectedTags = new Set((state.profileSidebarTagsDraft || []).map((tag) => String(tag).toLowerCase()));
+  els.profileSidebarTagsList.innerHTML = '';
+  if (!availableTags.length) {
+    const empty = document.createElement('span');
+    empty.className = 'profile-sidebar-empty';
+    empty.textContent = 'Add client tags first.';
+    els.profileSidebarTagsList.appendChild(empty);
+    return;
+  }
+
+  for (const tag of availableTags) {
+    const key = String(tag).toLowerCase();
+    const selected = selectedTags.has(key);
+    const chip = createTagPill(tag, { button: true, datasetTag: false });
+    chip.classList.add('tag-chip');
+    if (selected) {
+      chip.classList.add('is-selected');
+    }
+    chip.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    chip.title = selected ? `Hide ${tag} from client list` : `Show ${tag} in client list`;
+    chip.addEventListener('click', () => {
+      if (selected) {
+        state.profileSidebarTagsDraft = (state.profileSidebarTagsDraft || []).filter(
+          (entry) => String(entry).toLowerCase() !== key
+        );
+      } else {
+        if ((state.profileSidebarTagsDraft || []).length >= 8) {
+          showToast('Client list tags are limited to 8.', 'error');
+          return;
+        }
+        state.profileSidebarTagsDraft = [...(state.profileSidebarTagsDraft || []), tag];
+      }
+      renderProfileSidebarTagsList();
+      refreshProfileDirtyState();
+    });
+    els.profileSidebarTagsList.appendChild(chip);
   }
 }
 
@@ -1409,7 +1501,7 @@ function cloneCategories(categories) {
 
 function getProfileTagUsageMap() {
   const map = new Map();
-  for (const client of state.clients || []) {
+  for (const client of state.allClients || []) {
     for (const tag of client.profileTags || []) {
       const normalized = sanitizeName(tag);
       if (!normalized) {
@@ -1780,9 +1872,11 @@ async function submitProfileNewTagFromInput() {
 
 function setProfileClientTagsDraft(values) {
   state.profileClientTagsDraft = normalizeTagList(values, 40);
+  state.profileSidebarTagsDraft = normalizeSidebarTags(state.profileSidebarTagsDraft || [], state.profileClientTagsDraft, 8);
   hideProfileNewTagRow();
   renderProfileTagPickerOptions();
   renderProfileClientTagsList();
+  renderProfileSidebarTagsList();
 }
 
 function addProfileTag(rawValue) {
@@ -1799,8 +1893,10 @@ function addProfileTag(rawValue) {
   }
 
   state.profileClientTagsDraft = [...(state.profileClientTagsDraft || []), normalized];
+  state.profileSidebarTagsDraft = normalizeSidebarTags(state.profileSidebarTagsDraft || [], state.profileClientTagsDraft, 8);
   renderProfileTagPickerOptions();
   renderProfileClientTagsList();
+  renderProfileSidebarTagsList();
   refreshProfileDirtyState();
   return true;
 }
@@ -1810,8 +1906,10 @@ function removeProfileTag(rawValue) {
   state.profileClientTagsDraft = (state.profileClientTagsDraft || []).filter(
     (tag) => String(tag).toLowerCase() !== key
   );
+  state.profileSidebarTagsDraft = normalizeSidebarTags(state.profileSidebarTagsDraft || [], state.profileClientTagsDraft, 8);
   renderProfileTagPickerOptions();
   renderProfileClientTagsList();
+  renderProfileSidebarTagsList();
   refreshProfileDirtyState();
 }
 
@@ -1968,20 +2066,54 @@ function renderMarkdown(text) {
 }
 
 function parseCitationIds(answerText, citations) {
+  function extractBracketCitationIds(value, hasExplicitPrefix = false) {
+    const raw = String(value || '').trim();
+    if (!raw) {
+      return [];
+    }
+
+    const ids = [];
+    const seenLocal = new Set();
+    const pattern = /(?:^|[\s,;|/])(?:c:)?((?:note_)?\d+(?:_chunk_\d+)?)(?=$|[\s,;|/])/gi;
+    let match = pattern.exec(raw);
+    while (match) {
+      const id = String(match[1] || '').trim();
+      const key = id.toLowerCase();
+      if (id && !seenLocal.has(key)) {
+        seenLocal.add(key);
+        ids.push(id);
+      }
+      match = pattern.exec(raw);
+    }
+
+    if (ids.length) {
+      return ids;
+    }
+
+    const normalized = raw.replace(/^c:/i, '').trim();
+    if (/^(?:note_)?\d+(?:_chunk_\d+)?$/i.test(normalized) || hasExplicitPrefix) {
+      return normalized ? [normalized] : [];
+    }
+
+    return [];
+  }
+
   const ids = [];
   const seen = new Set();
   const pattern = /\[(?:c:)?([^\]]+)\]/gi;
   let match = pattern.exec(answerText || '');
   while (match) {
-    const id = String(match[1] || '').trim();
-    if (!id) {
+    const hasExplicitPrefix = String(match[0] || '').toLowerCase().startsWith('[c:');
+    const extracted = extractBracketCitationIds(match[1], hasExplicitPrefix);
+    if (!extracted.length) {
       match = pattern.exec(answerText || '');
       continue;
     }
 
-    const isChunkStyle = /^(?:note_)?\d+(?:_chunk_\d+)?$/i.test(id);
-    const hasExplicitPrefix = String(match[0] || '').toLowerCase().startsWith('[c:');
-    if ((isChunkStyle || hasExplicitPrefix) && !seen.has(id)) {
+    for (const id of extracted) {
+      if (seen.has(id)) {
+        continue;
+      }
       seen.add(id);
       ids.push(id);
     }
@@ -1989,10 +2121,12 @@ function parseCitationIds(answerText, citations) {
   }
 
   for (const citation of citations || []) {
-    const id = String(citation || '').trim();
-    if (id && !seen.has(id)) {
-      seen.add(id);
-      ids.push(id);
+    const extracted = extractBracketCitationIds(citation, true);
+    for (const id of extracted) {
+      if (!seen.has(id)) {
+        seen.add(id);
+        ids.push(id);
+      }
     }
   }
 
@@ -2083,28 +2217,76 @@ function buildAnswerView(answerText, sources, citations) {
       .map((source) => [String(source.citationId), source.citationNumber])
   );
 
-  const html = escapeHtml(answerText || '').replace(/\[(c:)?([^\]]+)\]/gi, (full, prefix, rawId) => {
-    const id = resolveCitationId(rawId);
-    const number = id ? numberById.get(id) : null;
-    if (!number) {
-      const raw = String(rawId || '').trim();
-      const looksCitationLike = /^(?:note_)?\d+(?:_chunk_\d+)?$/i.test(raw) || Boolean(prefix);
-      if (!looksCitationLike) {
-        return full;
-      }
-      return `<span class="citation-missing">[${escapeHtml(raw)}]</span>`;
+  function extractBracketCitationIds(value, hasExplicitPrefix = false) {
+    const raw = String(value || '').trim();
+    if (!raw) {
+      return [];
     }
 
-    return `<button class="citation-chip" data-citation-id="${escapeHtml(id)}">[${number}]</button>`;
-  });
+    const ids = [];
+    const seenLocal = new Set();
+    const pattern = /(?:^|[\s,;|/])(?:c:)?((?:note_)?\d+(?:_chunk_\d+)?)(?=$|[\s,;|/])/gi;
+    let match = pattern.exec(raw);
+    while (match) {
+      const id = String(match[1] || '').trim();
+      const key = id.toLowerCase();
+      if (id && !seenLocal.has(key)) {
+        seenLocal.add(key);
+        ids.push(id);
+      }
+      match = pattern.exec(raw);
+    }
 
-  const copyText = String(answerText || '').replace(/\[(c:)?([^\]]+)\]/gi, (full, _prefix, rawId) => {
-    const id = resolveCitationId(rawId);
-    const number = id ? numberById.get(id) : null;
-    if (!number) {
+    if (ids.length) {
+      return ids;
+    }
+
+    const normalized = raw.replace(/^c:/i, '').trim();
+    if (/^(?:note_)?\d+(?:_chunk_\d+)?$/i.test(normalized) || hasExplicitPrefix) {
+      return normalized ? [normalized] : [];
+    }
+
+    return [];
+  }
+
+  const html = escapeHtml(answerText || '').replace(/\[(c:)?([^\]]+)\]/gi, (full, prefix, rawId) => {
+    const extracted = extractBracketCitationIds(rawId, Boolean(prefix));
+    if (!extracted.length) {
       return full;
     }
-    return `[${number}]`;
+
+    const rendered = [];
+    for (const raw of extracted) {
+      const id = resolveCitationId(raw);
+      const number = id ? numberById.get(id) : null;
+      if (!number) {
+        rendered.push(`<span class="citation-missing">[${escapeHtml(raw)}]</span>`);
+        continue;
+      }
+      rendered.push(`<button class="citation-chip" data-citation-id="${escapeHtml(id)}">[${number}]</button>`);
+    }
+
+    return rendered.join(' ');
+  });
+
+  const copyText = String(answerText || '').replace(/\[(c:)?([^\]]+)\]/gi, (full, prefix, rawId) => {
+    const extracted = extractBracketCitationIds(rawId, Boolean(prefix));
+    if (!extracted.length) {
+      return full;
+    }
+
+    const rendered = [];
+    for (const raw of extracted) {
+      const id = resolveCitationId(raw);
+      const number = id ? numberById.get(id) : null;
+      if (!number) {
+        rendered.push(`[${raw}]`);
+        continue;
+      }
+      rendered.push(`[${number}]`);
+    }
+
+    return rendered.join(' ');
   });
 
   return {
@@ -2308,10 +2490,24 @@ function renderNote(note) {
 }
 
 async function loadClients() {
-  state.clients = await window.coachNotes.getClients();
-  if (state.selectedClientId && !state.clients.some((client) => client.id === state.selectedClientId)) {
+  state.allClients = await window.coachNotes.getClients();
+  state.clients = getVisibleClients();
+
+  const selectedExists = state.selectedClientId
+    ? state.allClients.some((client) => client.id === state.selectedClientId)
+    : false;
+  const selectedVisible = state.selectedClientId
+    ? state.clients.some((client) => client.id === state.selectedClientId)
+    : false;
+  if (state.selectedClientId && (!selectedExists || !selectedVisible)) {
     state.selectedClientId = null;
+    if (els.scopeSelect.value === 'client') {
+      els.scopeSelect.value = 'all';
+      state.scope = 'all';
+    }
   }
+
+  renderArchivedClientsToggle();
   renderClientTagFilters();
   renderProfileTagPickerOptions();
   renderClients();
@@ -2362,6 +2558,7 @@ function getProfileDraftFromInputs() {
   return {
     topPriorities: parseMultilineList(els.profileTopInput.value, 12),
     clientTags: [...(state.profileClientTagsDraft || [])],
+    sidebarTags: [...(state.profileSidebarTagsDraft || [])],
     clientColor: state.profileColorValue || '',
     coachNotes: String(els.profileCoachNotesInput.value || '').trim(),
     exerciseAtAGlance: parseMultilineList(els.profileExerciseInput.value),
@@ -2376,6 +2573,7 @@ function serializeProfileDraft(draft) {
   return JSON.stringify({
     topPriorities: draft.topPriorities || [],
     clientTags: draft.clientTags || [],
+    sidebarTags: draft.sidebarTags || [],
     clientColor: draft.clientColor || '',
     coachNotes: draft.coachNotes || '',
     exerciseAtAGlance: draft.exerciseAtAGlance || [],
@@ -2406,8 +2604,11 @@ function renderClientProfile(profile) {
     els.profileFormWrap.hidden = true;
     setProfileColorPopoverOpen(false);
     setProfileTagEditorOpen(false);
+    els.archiveClientBtn.textContent = 'Archive Client';
+    els.archiveClientBtn.disabled = true;
     els.profileTopInput.value = '';
     setProfileClientTagsDraft([]);
+    state.profileSidebarTagsDraft = [];
     state.profileColorValue = '';
     els.profileCoachNotesInput.value = '';
     els.profileExerciseInput.value = '';
@@ -2417,12 +2618,14 @@ function renderClientProfile(profile) {
     els.profileFutureInput.value = '';
     captureProfileSnapshot();
     renderProfileColorPalette();
+    renderProfileSidebarTagsList();
     renderClientContextStrip();
     updateBusyUi();
     return;
   }
 
   const clientName = profile?.clientName || 'Selected client';
+  const selectedClient = getSelectedClient();
   els.profileDialogTitle.textContent = `${clientName} - Profile`;
   els.profileClientName.textContent = clientName;
   els.profileUpdatedAt.textContent = profile?.updatedAt
@@ -2430,10 +2633,13 @@ function renderClientProfile(profile) {
     : 'No saved profile yet.';
   els.profileDisabled.hidden = true;
   els.profileFormWrap.hidden = false;
+  els.archiveClientBtn.textContent = selectedClient?.archived ? 'Restore Client' : 'Archive Client';
+  els.archiveClientBtn.disabled = false;
   setProfileColorPopoverOpen(false);
   setProfileTagEditorOpen(true);
   els.profileTopInput.value = (profile?.topPriorities || []).join('\n');
   setProfileClientTagsDraft(profile?.clientTags || []);
+  state.profileSidebarTagsDraft = normalizeSidebarTags(profile?.sidebarTags || [], profile?.clientTags || [], 8);
   state.profileColorValue = normalizeHexColor(profile?.clientColor || '');
   els.profileCoachNotesInput.value = profile?.coachNotes || '';
   els.profileExerciseInput.value = (profile?.exerciseAtAGlance || []).join('\n');
@@ -2443,6 +2649,7 @@ function renderClientProfile(profile) {
   els.profileFutureInput.value = (profile?.futureFocus || []).join('\n');
   captureProfileSnapshot();
   renderProfileColorPalette();
+  renderProfileSidebarTagsList();
   renderClientContextStrip();
   updateBusyUi();
 }
@@ -2458,9 +2665,10 @@ async function loadClientProfile() {
     renderClientProfile(profile);
   } catch (error) {
     renderClientProfile({
-      clientName: state.clients.find((client) => client.id === state.selectedClientId)?.name || 'Selected client',
+      clientName: getSelectedClient()?.name || 'Selected client',
       topPriorities: [],
       clientTags: [],
+      sidebarTags: [],
       clientColor: '',
       coachNotes: '',
       exerciseAtAGlance: [],
@@ -2490,6 +2698,7 @@ async function saveClientProfile(options = {}) {
     clientId: state.selectedClientId,
     topPriorities: topPrioritiesRaw,
     clientTags: [...(state.profileClientTagsDraft || [])],
+    sidebarTags: [...(state.profileSidebarTagsDraft || [])],
     clientColor: state.profileColorValue || '',
     coachNotes: String(els.profileCoachNotesInput.value || '').trim(),
     exerciseAtAGlance: parseMultilineList(els.profileExerciseInput.value),
@@ -2572,7 +2781,8 @@ function populateClientSelect(selectEl, emptyLabel = 'No client folder (root)') 
   emptyOption.textContent = emptyLabel;
   selectEl.appendChild(emptyOption);
 
-  for (const client of state.clients) {
+  const activeClients = (state.allClients || []).filter((client) => !client.archived);
+  for (const client of activeClients) {
     const option = document.createElement('option');
     option.value = client.name;
     option.textContent = client.name;
@@ -2624,9 +2834,25 @@ async function loadTags() {
 }
 
 async function loadNotes() {
+  if (state.showArchivedClients && !state.selectedClientId) {
+    state.notes = [];
+    state.activeQuery = '';
+    state.results = [];
+    state.selectedNoteId = null;
+    state.currentNote = null;
+    state.selectedHighlight = null;
+    renderResults();
+    renderNote(null);
+    return;
+  }
+
   const filters = {};
   if (state.selectedClientId) {
     filters.clientId = state.selectedClientId;
+    const selectedClient = getSelectedClient();
+    if (selectedClient?.archived) {
+      filters.includeArchivedClient = true;
+    }
   }
 
   state.notes = await window.coachNotes.getNotes(filters);
@@ -2654,6 +2880,11 @@ async function runSearch(inputQuery = null, options = {}) {
     return;
   }
 
+  if (state.scope === 'client' && !state.selectedClientId) {
+    showToast('Select a client or switch scope to All Clients.', 'error');
+    return { ok: false, count: 0, error: 'No selected client.' };
+  }
+
   const busyMessage = String(options?.busyMessage || '').trim() || 'Searching notes...';
   setBusy(true, busyMessage, {
     blocking: options?.blocking !== false
@@ -2663,6 +2894,7 @@ async function runSearch(inputQuery = null, options = {}) {
       query,
       scope: state.scope,
       clientId: state.scope === 'client' ? state.selectedClientId : null,
+      includeArchivedClient: state.scope === 'client' ? Boolean(getSelectedClient()?.archived) : false,
       limit: 30,
       relevanceMode: els.relevanceModeSelect.value
     });
@@ -2679,6 +2911,71 @@ async function runSearch(inputQuery = null, options = {}) {
   } catch (error) {
     showToast(`Search failed: ${error.message}`, 'error');
     return { ok: false, count: 0, error: error.message };
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function setArchivedClientView(showArchived) {
+  state.showArchivedClients = Boolean(showArchived);
+  state.clientTagFilters = [];
+  await loadClients();
+  await loadClientProfile();
+  if (state.activeQuery) {
+    await runSearch(state.activeQuery);
+  } else {
+    await loadNotes();
+  }
+}
+
+async function toggleClientArchived(client) {
+  const targetClient = client || getSelectedClient();
+  if (!targetClient) {
+    showToast('Select a client first.', 'error');
+    return;
+  }
+
+  if (els.clientProfileDialog.open && targetClient.id === state.selectedClientId) {
+    refreshProfileDirtyState();
+    if (state.profileDirty) {
+      const proceedWithDirty = window.confirm(
+        'You have unsaved profile changes.\n\nContinue and discard those changes?'
+      );
+      if (!proceedWithDirty) {
+        return;
+      }
+    }
+  }
+
+  const nextArchived = !Boolean(targetClient.archived);
+  const confirmText = nextArchived
+    ? `Archive ${targetClient.name}?\n\nArchived clients are hidden from All Clients search.`
+    : `Restore ${targetClient.name} to active clients?`;
+  if (!window.confirm(confirmText)) {
+    return;
+  }
+
+  setBusy(true, nextArchived ? 'Archiving client...' : 'Restoring client...');
+  try {
+    const result = await window.coachNotes.setClientArchived({
+      clientId: targetClient.id,
+      archived: nextArchived
+    });
+    await loadClients();
+    await loadClientProfile();
+    if (state.activeQuery) {
+      await runSearch(state.activeQuery);
+    } else {
+      await loadNotes();
+    }
+    if (!nextArchived && els.clientProfileDialog.open) {
+      els.clientProfileDialog.close();
+    } else if (nextArchived && !state.showArchivedClients && !state.selectedClientId && els.clientProfileDialog.open) {
+      els.clientProfileDialog.close();
+    }
+    showToast(result.archived ? `Archived client: ${result.clientName}` : `Restored client: ${result.clientName}`);
+  } catch (error) {
+    showToast(`Client archive update failed: ${error.message}`, 'error');
   } finally {
     setBusy(false);
   }
@@ -2724,6 +3021,7 @@ async function runAsk() {
       question,
       scope: els.scopeSelect.value,
       clientId: els.scopeSelect.value === 'client' ? state.selectedClientId : null,
+      includeArchivedClient: els.scopeSelect.value === 'client' ? Boolean(getSelectedClient()?.archived) : false,
       topK,
       relevanceMode: els.relevanceModeSelect.value
     });
@@ -2807,6 +3105,7 @@ async function runSummarize() {
       query,
       scope: els.scopeSelect.value,
       clientId: els.scopeSelect.value === 'client' ? state.selectedClientId : null,
+      includeArchivedClient: els.scopeSelect.value === 'client' ? Boolean(getSelectedClient()?.archived) : false,
       topK,
       relevanceMode: els.relevanceModeSelect.value,
       retrieved
@@ -2885,8 +3184,8 @@ function openNewNoteDialog() {
   els.newNoteBodyInput.value = '';
   els.newNoteTagsInput.value = '';
 
-  const selectedClient = state.clients.find((client) => client.id === state.selectedClientId);
-  els.newNoteClientSelect.value = selectedClient?.name || '';
+  const selectedClient = getSelectedClient();
+  els.newNoteClientSelect.value = selectedClient && !selectedClient.archived ? selectedClient.name : '';
 
   els.newNoteDialog.showModal();
   els.newNoteTitleInput.focus();
@@ -3065,7 +3364,7 @@ function getClientNameById(clientId) {
     return '';
   }
 
-  return state.clients.find((client) => client.id === id)?.name || '';
+  return (state.allClients || []).find((client) => client.id === id)?.name || '';
 }
 
 function truncateTitle(value, maxLength = 88) {
@@ -3137,14 +3436,14 @@ function populateSaveAnswerClientSelect(selectedClientName = '') {
   placeholder.textContent = 'Select client...';
   els.saveAnswerClientSelect.appendChild(placeholder);
 
-  for (const client of state.clients) {
+  for (const client of (state.allClients || []).filter((row) => !row.archived)) {
     const option = document.createElement('option');
     option.value = client.name;
     option.textContent = client.name;
     els.saveAnswerClientSelect.appendChild(option);
   }
 
-  if (selected && state.clients.some((client) => client.name === selected)) {
+  if (selected && (state.allClients || []).some((client) => !client.archived && client.name === selected)) {
     els.saveAnswerClientSelect.value = selected;
   } else {
     els.saveAnswerClientSelect.value = '';
@@ -3196,7 +3495,7 @@ async function handleSaveAnswerAsNote() {
     return;
   }
 
-  if (!state.clients.length) {
+  if (!(state.allClients || []).some((client) => !client.archived)) {
     showToast('Create a client before saving AI answers as notes.', 'error');
     return;
   }
@@ -3486,17 +3785,21 @@ async function init() {
 
   els.allClientsBtn.addEventListener('click', async () => {
     state.selectedClientId = null;
-    renderClients();
     if (els.scopeSelect.value === 'client') {
-      if (state.activeQuery) {
-        await runSearch(state.activeQuery);
-      } else {
-        await loadNotes();
-      }
+      els.scopeSelect.value = 'all';
+      state.scope = 'all';
+    }
+    renderClients();
+    renderClientContextStrip();
+    if (state.activeQuery) {
+      await runSearch(state.activeQuery);
     } else {
       await loadNotes();
     }
     await loadClientProfile();
+  });
+  els.archivedClientsBtn.addEventListener('click', async () => {
+    await setArchivedClientView(!state.showArchivedClients);
   });
 
   els.scopeSelect.addEventListener('change', async () => {
@@ -3574,6 +3877,9 @@ async function init() {
   });
   els.saveProfileBtn.addEventListener('click', async () => {
     await saveClientProfile({ closeDialog: true });
+  });
+  els.archiveClientBtn.addEventListener('click', async () => {
+    await toggleClientArchived(getSelectedClient());
   });
   const profileInputs = [
     els.profileTopInput,

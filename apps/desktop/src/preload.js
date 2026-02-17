@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('coachNotes', {
   getNote: (noteId) => ipcRenderer.invoke('app:get-note', noteId),
   createNote: (payload) => ipcRenderer.invoke('app:create-note', payload),
   createClient: (payload) => ipcRenderer.invoke('app:create-client', payload),
+  setClientArchived: (payload) => ipcRenderer.invoke('app:set-client-archived', payload),
   updateNote: (payload) => ipcRenderer.invoke('app:update-note', payload),
   deleteNote: (payload) => ipcRenderer.invoke('app:delete-note', payload),
   checkForUpdates: () => ipcRenderer.invoke('app:check-for-updates'),

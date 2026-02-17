@@ -48,6 +48,7 @@
             <h2 id="clientsHeaderLabel" class="collapsible-label">clients</h2>
             <div class="row-inline">
               <button id="allClientsBtn" class="btn btn-tiny">All</button>
+              <button id="archivedClientsBtn" class="btn btn-tiny" type="button" aria-pressed="false">Archived</button>
               <button id="clientsToggleBtn" class="btn btn-tiny icon-btn" type="button" aria-expanded="true" title="Hide clients">◀</button>
             </div>
           </div>
@@ -299,6 +300,13 @@
                 <input id="profileNewCategoryColorInput" type="color" value="#64748b" aria-label="Category color" />
               </div>
             </div>
+            <div class="profile-sidebar-tag-section">
+              <div class="profile-tag-section-head">
+                <span>Client List Tags</span>
+              </div>
+              <div id="profileSidebarTagsList" class="profile-sidebar-tags"></div>
+              <p class="advanced-note">Choose which tags appear in the client list card.</p>
+            </div>
           </div>
           <label class="profile-span-2">
             Coach Notes (shown on main page)
@@ -326,6 +334,7 @@
           </label>
         </div>
         <div class="row-inline actions">
+          <button type="button" id="archiveClientBtn" class="btn btn-ghost">Archive Client</button>
           <button type="button" id="cancelProfileBtn" class="btn btn-ghost">Cancel</button>
           <button type="button" id="saveProfileBtn" class="btn btn-primary">Save &amp; Close</button>
         </div>

@@ -14,6 +14,7 @@ const KEYCHAIN_SERVICE = 'coachnotes-invite-token';
 const KEYCHAIN_ACCOUNT = 'coachnotes';
 const DELETED_NOTES_DIRNAME = 'Deleted Notes';
 const CLIENT_PROFILE_FILE = '_client-profile.md';
+const CLIENT_SIDEBAR_TAG_LIMIT = 8;
 const TAG_CATEGORY_SETTINGS_KEY = 'tagCategoriesConfig';
 const DEFAULT_PROXY_URL = 'https://coach-notes-five.vercel.app';
 const DEFAULT_EMBED_MODEL = 'text-embedding-3-small';
@@ -48,6 +49,17 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function tableHasColumn(tableName, columnName) {
+  const table = String(tableName || '').trim();
+  const column = String(columnName || '').trim().toLowerCase();
+  if (!table || !column || !db) {
+    return false;
+  }
+
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all();
+  return rows.some((row) => String(row?.name || '').toLowerCase() === column);
+}
+
 function sha1(text) {
   return crypto.createHash('sha1').update(text).digest('hex');
 }
@@ -80,7 +92,9 @@ function ensureDb() {
     CREATE TABLE IF NOT EXISTS clients (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT UNIQUE NOT NULL,
-      display_name TEXT NOT NULL
+      display_name TEXT NOT NULL,
+      archived INTEGER NOT NULL DEFAULT 0,
+      archived_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS note_clients (
@@ -146,6 +160,13 @@ function ensureDb() {
     INSERT OR IGNORE INTO index_state (id, status, indexed_files)
     VALUES (1, 'idle', 0);
   `);
+
+  if (!tableHasColumn('clients', 'archived')) {
+    db.exec('ALTER TABLE clients ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!tableHasColumn('clients', 'archived_at')) {
+    db.exec('ALTER TABLE clients ADD COLUMN archived_at TEXT');
+  }
 }
 
 function ensureDbSafe() {
@@ -636,6 +657,7 @@ function parseClientProfileContent(content) {
   return {
     topPriorities: normalizeFocusList(data.top_priorities || data.topPriorities || data.current_focus || data.currentFocus, 3),
     clientTags: normalizeFocusList(data.client_tags || data.clientTags || data.profile_tags || data.profileTags, 40),
+    sidebarTags: normalizeFocusList(data.sidebar_tags || data.sidebarTags || data.top_tags || data.topTags, CLIENT_SIDEBAR_TAG_LIMIT),
     clientColor: normalizeHexColor(data.client_color || data.clientColor || data.color),
     coachNotes: normalizeMultilineText(data.coach_notes || data.coachNotes || data.notes || data.profile_notes || data.profileNotes),
     exerciseAtAGlance: normalizeFocusList(data.exercise_at_a_glance || data.exerciseAtAGlance || data.exercise_notes || data.exerciseNotes),
@@ -684,6 +706,7 @@ function buildClientProfileIndexText(rawText, metadata, parsedProfile) {
     'Document: Client Profile',
     `Client: ${clientName}`,
     listLine('Tags', profile.clientTags),
+    listLine('Sidebar Tags', profile.sidebarTags),
     listLine('Top Priorities', profile.topPriorities),
     `Coach Notes: ${profile.coachNotes ? profile.coachNotes.replace(/\n/g, ' ') : '(none)'}`,
     listLine('Exercise At-a-Glance', profile.exerciseAtAGlance),
@@ -704,6 +727,7 @@ function buildClientProfileContent({
   clientName,
   topPriorities,
   clientTags,
+  sidebarTags,
   clientColor,
   coachNotes,
   exerciseAtAGlance,
@@ -729,6 +753,7 @@ function buildClientProfileContent({
 
   appendList('top_priorities', topPriorities);
   appendList('client_tags', clientTags);
+  appendList('sidebar_tags', sidebarTags);
   lines.push(`client_color: ${yamlQuote(clientColor)}`);
   lines.push(`coach_notes: ${yamlQuote(coachNotes)}`);
   appendList('exercise_at_a_glance', exerciseAtAGlance);
@@ -1457,10 +1482,15 @@ function pruneOrphans() {
     db.prepare(
       `DELETE FROM clients
        WHERE id NOT IN (SELECT DISTINCT client_id FROM note_clients)
+         AND COALESCE(archived, 0) = 0
          AND name NOT IN (${placeholders})`
     ).run(...folderNames);
   } else {
-    db.prepare('DELETE FROM clients WHERE id NOT IN (SELECT DISTINCT client_id FROM note_clients)').run();
+    db.prepare(
+      `DELETE FROM clients
+       WHERE id NOT IN (SELECT DISTINCT client_id FROM note_clients)
+         AND COALESCE(archived, 0) = 0`
+    ).run();
   }
 
   db.prepare('DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM note_tags)').run();
@@ -1615,17 +1645,36 @@ async function waitForIndexIdle(timeoutMs = 180000) {
   }
 }
 
-function queryCandidates(scope, clientId, tags) {
+function queryCandidates(scope, clientId, tags, options = {}) {
   if (!db) {
     return [];
   }
 
   const where = [];
   const params = [];
+  const includeArchivedClient = Boolean(options?.includeArchivedClient);
 
   if (scope === 'client' && clientId) {
-    where.push('EXISTS (SELECT 1 FROM note_clients x WHERE x.note_id = n.id AND x.client_id = ?)');
+    where.push(
+      includeArchivedClient
+        ? 'EXISTS (SELECT 1 FROM note_clients x WHERE x.note_id = n.id AND x.client_id = ?)'
+        : `EXISTS (
+            SELECT 1
+            FROM note_clients x
+            JOIN clients cx ON cx.id = x.client_id
+            WHERE x.note_id = n.id AND x.client_id = ? AND COALESCE(cx.archived, 0) = 0
+          )`
+    );
     params.push(clientId);
+  } else {
+    where.push(
+      `NOT EXISTS (
+        SELECT 1
+        FROM note_clients x
+        JOIN clients cx ON cx.id = x.client_id
+        WHERE x.note_id = n.id AND COALESCE(cx.archived, 0) = 1
+      )`
+    );
   }
 
   const normalizedTags = normalizeArray(tags).map((value) => value.toLowerCase());
@@ -1670,6 +1719,7 @@ async function runSearch(payload) {
   const query = String(payload?.query || '').trim();
   const scope = payload?.scope === 'client' ? 'client' : 'all';
   const clientId = payload?.clientId ? Number(payload.clientId) : null;
+  const includeArchivedClient = Boolean(payload?.includeArchivedClient);
   const limit = Math.max(1, Math.min(Number(payload?.limit) || 30, 50));
   const tags = payload?.tags || [];
   const relevanceMode = parseRelevanceMode(payload?.relevanceMode);
@@ -1679,7 +1729,7 @@ async function runSearch(payload) {
     return [];
   }
 
-  const candidates = queryCandidates(scope, clientId, tags);
+  const candidates = queryCandidates(scope, clientId, tags, { includeArchivedClient });
   if (!candidates.length) {
     return [];
   }
@@ -1766,6 +1816,7 @@ async function runAsk(payload, options = {}) {
 
   const scope = payload?.scope === 'client' ? 'client' : 'all';
   const clientId = payload?.clientId ? Number(payload.clientId) : null;
+  const includeArchivedClient = Boolean(payload?.includeArchivedClient);
   const maxSources = Math.max(3, Math.min(Number(payload?.topK) || 8, 12));
   const relevanceMode = parseRelevanceMode(payload?.relevanceMode);
   const wantsStream = Boolean(payload?.stream);
@@ -1780,6 +1831,7 @@ async function runAsk(payload, options = {}) {
     query: question,
     scope,
     clientId,
+    includeArchivedClient,
     limit: maxSources,
     relevanceMode
   });
@@ -1945,6 +1997,7 @@ async function runSummarize(payload, options = {}) {
 
   const scope = payload?.scope === 'client' ? 'client' : 'all';
   const clientId = payload?.clientId ? Number(payload.clientId) : null;
+  const includeArchivedClient = Boolean(payload?.includeArchivedClient);
   const topK = Math.max(3, Math.min(Number(payload?.topK) || 8, 12));
   const relevanceMode = parseRelevanceMode(payload?.relevanceMode);
   const wantsStream = Boolean(payload?.stream);
@@ -1977,6 +2030,7 @@ async function runSummarize(payload, options = {}) {
       query,
       scope,
       clientId,
+      includeArchivedClient,
       limit: topK,
       relevanceMode
     });
@@ -2155,12 +2209,44 @@ async function createClient(payload) {
   const clientDirectory = path.join(rootFolder, clientName);
   await fsp.mkdir(clientDirectory, { recursive: true });
   const clientId = ensureClient(clientName);
+  if (clientId) {
+    db.prepare('UPDATE clients SET archived = 0, archived_at = NULL WHERE id = ?').run(clientId);
+  }
 
   return {
     id: clientId,
     name: clientName,
     noteCount: 0,
     path: clientDirectory
+  };
+}
+
+async function setClientArchived(payload) {
+  requireDb();
+
+  const clientId = Number(payload?.clientId);
+  if (!Number.isFinite(clientId)) {
+    throw new Error('clientId is required.');
+  }
+
+  const client = db.prepare('SELECT id, display_name FROM clients WHERE id = ?').get(clientId);
+  if (!client) {
+    throw new Error('Client not found.');
+  }
+
+  const archived = Boolean(payload?.archived);
+  const archivedAt = archived ? nowIso() : null;
+  db.prepare('UPDATE clients SET archived = ?, archived_at = ? WHERE id = ?').run(
+    archived ? 1 : 0,
+    archivedAt,
+    clientId
+  );
+
+  return {
+    clientId,
+    clientName: client.display_name,
+    archived,
+    archivedAt: parseDate(archivedAt)
   };
 }
 
@@ -2324,6 +2410,7 @@ async function getClientProfile(payload) {
   let parsed = {
     topPriorities: [],
     clientTags: [],
+    sidebarTags: [],
     clientColor: '',
     coachNotes: '',
     exerciseAtAGlance: [],
@@ -2348,6 +2435,7 @@ async function getClientProfile(payload) {
     clientName: client.display_name,
     topPriorities: parsed.topPriorities,
     clientTags: parsed.clientTags,
+    sidebarTags: parsed.sidebarTags,
     clientColor: parsed.clientColor,
     coachNotes: parsed.coachNotes,
     exerciseAtAGlance: parsed.exerciseAtAGlance,
@@ -2385,6 +2473,9 @@ async function saveClientProfile(payload) {
   }
 
   const clientTags = normalizeFocusList(payload?.clientTags, 40);
+  const tagSet = new Set(clientTags.map((tag) => String(tag).toLowerCase()));
+  const sidebarTags = normalizeFocusList(payload?.sidebarTags, CLIENT_SIDEBAR_TAG_LIMIT)
+    .filter((tag) => tagSet.has(String(tag).toLowerCase()));
   const clientColor = normalizeHexColor(payload?.clientColor);
   const coachNotes = normalizeMultilineText(payload?.coachNotes, 4000);
   const exerciseAtAGlance = normalizeFocusList(payload?.exerciseAtAGlance);
@@ -2400,6 +2491,7 @@ async function saveClientProfile(payload) {
     clientName: client.display_name,
     topPriorities,
     clientTags,
+    sidebarTags,
     clientColor,
     coachNotes,
     exerciseAtAGlance,
@@ -2419,6 +2511,7 @@ async function saveClientProfile(payload) {
     clientName: client.display_name,
     topPriorities,
     clientTags,
+    sidebarTags,
     clientColor,
     coachNotes,
     exerciseAtAGlance,
@@ -2464,6 +2557,7 @@ async function removeProfileTag(payload) {
       clientId,
       topPriorities: profile.topPriorities || [],
       clientTags: nextTags,
+      sidebarTags: (profile.sidebarTags || []).filter((tag) => String(tag).toLowerCase() !== target),
       clientColor: profile.clientColor || '',
       coachNotes: profile.coachNotes || '',
       exerciseAtAGlance: profile.exerciseAtAGlance || [],
@@ -2627,6 +2721,8 @@ function setupIpc() {
           c.id,
           c.name AS key_name,
           c.display_name AS display_name,
+          COALESCE(c.archived, 0) AS archived,
+          c.archived_at AS archived_at,
           COUNT(DISTINCT CASE
             WHEN LOWER(REPLACE(COALESCE(n.path, ''), '\\', '/')) LIKE ? THEN NULL
             ELSE nc.note_id
@@ -2664,6 +2760,9 @@ function setupIpc() {
         name: row.display_name,
         noteCount: Number(row.noteCount || 0),
         profileTags: parsed?.clientTags || [],
+        sidebarTags: parsed?.sidebarTags || [],
+        archived: Boolean(row.archived),
+        archivedAt: parseDate(row.archived_at),
         color: parsed?.clientColor || ''
       };
     }));
@@ -2711,13 +2810,32 @@ function setupIpc() {
     requireDb();
     const where = [];
     const params = [];
+    const includeArchivedClient = Boolean(filters?.includeArchivedClient);
 
     where.push("LOWER(REPLACE(n.path, '\\', '/')) NOT LIKE ?");
     params.push(`%/${CLIENT_PROFILE_FILE.toLowerCase()}`);
 
     if (filters.clientId) {
-      where.push('EXISTS (SELECT 1 FROM note_clients x WHERE x.note_id = n.id AND x.client_id = ?)');
+      where.push(
+        includeArchivedClient
+          ? 'EXISTS (SELECT 1 FROM note_clients x WHERE x.note_id = n.id AND x.client_id = ?)'
+          : `EXISTS (
+              SELECT 1
+              FROM note_clients x
+              JOIN clients cx ON cx.id = x.client_id
+              WHERE x.note_id = n.id AND x.client_id = ? AND COALESCE(cx.archived, 0) = 0
+            )`
+      );
       params.push(Number(filters.clientId));
+    } else {
+      where.push(
+        `NOT EXISTS (
+          SELECT 1
+          FROM note_clients x
+          JOIN clients cx ON cx.id = x.client_id
+          WHERE x.note_id = n.id AND COALESCE(cx.archived, 0) = 1
+        )`
+      );
     }
 
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
@@ -2801,6 +2919,10 @@ function setupIpc() {
 
   ipcMain.handle('app:create-client', async (_event, payload) => {
     return createClient(payload || {});
+  });
+
+  ipcMain.handle('app:set-client-archived', async (_event, payload) => {
+    return setClientArchived(payload || {});
   });
 
   ipcMain.handle('app:update-note', async (_event, payload) => {
