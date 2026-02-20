@@ -10,10 +10,20 @@ const {
   validateAnswerLikeSources
 } = require('./_shared');
 
-const summaryPrompt = [
+const baseSummaryPrompt = [
   'You are CoachNotes Assistant.',
   'Summarize only what appears in provided sources.',
   'Use concise coaching language.',
+  'Cite each major point with [c:chunk_id].'
+].join(' ');
+
+const coachingConversationPrompt = [
+  'You are CoachNotes Assistant.',
+  'This is a transcript of a coaching conversation between a client and coach.',
+  'Prioritize health coaching goals, barriers, action items, commitments, and progress updates.',
+  'Ignore non-coaching side chatter when possible.',
+  'If speakers are identifiable, keep attributions brief and accurate.',
+  'Summarize only what appears in provided sources.',
   'Cite each major point with [c:chunk_id].'
 ].join(' ');
 
@@ -67,6 +77,30 @@ function writeNdjsonEvent(res, payload) {
   res.write(`${JSON.stringify(payload)}\n`);
 }
 
+function normalizeSummaryMode(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'coaching_conversation_summary') {
+    return 'coaching_conversation_summary';
+  }
+
+  return 'search_results_summary';
+}
+
+function getSummaryPrompt(mode) {
+  return mode === 'coaching_conversation_summary'
+    ? coachingConversationPrompt
+    : baseSummaryPrompt;
+}
+
+function buildSummaryUserInput(mode, query, renderedSources) {
+  const lines = [`Mode: ${mode}`];
+  if (query) {
+    lines.push(`Requested focus: ${query}`);
+  }
+  lines.push(`Sources:\n${renderedSources}`);
+  return lines.join('\n\n');
+}
+
 module.exports = async function summarize(req, res) {
   const auth = authAndRateLimit(req, res);
   if (!auth.ok) {
@@ -85,6 +119,9 @@ module.exports = async function summarize(req, res) {
     const requestTimeoutMs = getOpenAITimeoutMs();
     const maxOutputTokens = getSummaryMaxOutputTokens();
     const streamRequested = Boolean(req.body?.stream);
+    const mode = normalizeSummaryMode(req.body?.mode);
+    const summaryPrompt = getSummaryPrompt(mode);
+    const query = String(req.body?.query || '').trim();
 
     const renderedSources = req.body.sources
       .map((source) => `chunk_id: ${source.chunk_id}\ntext: ${source.text}`)
@@ -95,6 +132,7 @@ module.exports = async function summarize(req, res) {
       writeNdjsonEvent(res, {
         type: 'start',
         mode: 'summarize',
+        summaryMode: mode,
         model,
         maxOutputTokens
       });
@@ -108,7 +146,7 @@ module.exports = async function summarize(req, res) {
           stream: true,
           input: [
             { role: 'system', content: summaryPrompt },
-            { role: 'user', content: `Mode: ${req.body.mode || 'search_results_summary'}\n\nSources:\n${renderedSources}` }
+            { role: 'user', content: buildSummaryUserInput(mode, query, renderedSources) }
           ]
         },
         { timeout: requestTimeoutMs }
@@ -158,7 +196,7 @@ module.exports = async function summarize(req, res) {
         max_output_tokens: maxOutputTokens,
         input: [
           { role: 'system', content: summaryPrompt },
-          { role: 'user', content: `Mode: ${req.body.mode || 'search_results_summary'}\n\nSources:\n${renderedSources}` }
+          { role: 'user', content: buildSummaryUserInput(mode, query, renderedSources) }
         ]
       }),
       requestTimeoutMs,

@@ -89,6 +89,7 @@ const els = {
   depthPresetSelect: document.getElementById('depthPresetSelect'),
   topKInput: document.getElementById('topKInput'),
   relevanceModeSelect: document.getElementById('relevanceModeSelect'),
+  summaryModeSelect: document.getElementById('summaryModeSelect'),
   resultsTitle: document.getElementById('resultsTitle'),
   resultsList: document.getElementById('resultsList'),
   qaContextCard: document.getElementById('qaContextCard'),
@@ -590,6 +591,14 @@ function getQueryModeConfig(mode) {
   }
 
   if (mode === 'summarize') {
+    const summaryMode = normalizeSummaryMode(els.summaryModeSelect?.value);
+    if (summaryMode === 'coaching_conversation') {
+      return {
+        placeholder: 'Optional focus for selected transcript (e.g. action items)',
+        buttonText: 'Summarize Selected Transcript'
+      };
+    }
+
     return {
       placeholder: 'Summarize notes about...',
       buttonText: 'Summarize'
@@ -608,6 +617,32 @@ function syncQueryModeControls() {
   els.modeSummarize.checked = state.queryMode === 'summarize';
 }
 
+function normalizeSummaryMode(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'coaching_conversation') {
+    return 'coaching_conversation';
+  }
+
+  return 'search_results';
+}
+
+function normalizeNoteKind(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'transcript') {
+    return 'transcript';
+  }
+
+  return 'all';
+}
+
+function syncSummaryModeControlState() {
+  if (!els.summaryModeSelect) {
+    return;
+  }
+
+  els.summaryModeSelect.disabled = state.queryMode !== 'summarize';
+}
+
 function setQueryMode(mode) {
   const normalized = mode === 'ask' || mode === 'summarize' ? mode : 'search';
   state.queryMode = normalized;
@@ -615,6 +650,7 @@ function setQueryMode(mode) {
   els.queryInput.placeholder = config.placeholder;
   els.goBtn.textContent = config.buttonText;
   syncQueryModeControls();
+  syncSummaryModeControlState();
 }
 
 function normalizeTopK(value) {
@@ -2886,6 +2922,7 @@ async function runSearch(inputQuery = null, options = {}) {
   }
 
   const busyMessage = String(options?.busyMessage || '').trim() || 'Searching notes...';
+  const noteKind = normalizeNoteKind(options?.noteKind);
   setBusy(true, busyMessage, {
     blocking: options?.blocking !== false
   });
@@ -2896,7 +2933,8 @@ async function runSearch(inputQuery = null, options = {}) {
       clientId: state.scope === 'client' ? state.selectedClientId : null,
       includeArchivedClient: state.scope === 'client' ? Boolean(getSelectedClient()?.archived) : false,
       limit: 30,
-      relevanceMode: els.relevanceModeSelect.value
+      relevanceMode: els.relevanceModeSelect.value,
+      noteKind
     });
     state.activeQuery = query;
     renderResults();
@@ -3058,18 +3096,98 @@ async function runAsk() {
 }
 
 async function runSummarize() {
-  const query = String(els.queryInput.value || '').trim();
-  if (!query) {
+  const summaryMode = normalizeSummaryMode(els.summaryModeSelect?.value);
+  const isConversationSummary = summaryMode === 'coaching_conversation';
+  const noteKind = isConversationSummary ? 'transcript' : 'all';
+  const summaryLabel = summaryMode === 'coaching_conversation'
+    ? 'Coaching conversation summary'
+    : 'Summary';
+  const queryInput = String(els.queryInput.value || '').trim();
+  if (!isConversationSummary && !queryInput) {
     renderAnswer('Enter search text or question first.');
     return;
   }
 
-  const searchResult = await runSearch(query, {
-    busyMessage: 'Finding relevant notes...',
-    blocking: false
-  });
-  if (!searchResult?.ok) {
-    return;
+  let selectedNote = null;
+  let searchResult = null;
+  let query = queryInput;
+  let retrieved = [];
+  let contextOnSuccess = '';
+  let contextOnError = '';
+  let topK = normalizeTopK(els.topKInput.value);
+  els.topKInput.value = String(topK);
+  syncDepthPresetFromTopK();
+
+  if (isConversationSummary) {
+    if (!state.selectedNoteId) {
+      renderAnswer('Select one transcript note first, then run Coaching conversation summary.');
+      return;
+    }
+
+    selectedNote = state.currentNote;
+    if (!selectedNote || Number(selectedNote.id) !== Number(state.selectedNoteId)) {
+      selectedNote = await window.coachNotes.getNote(state.selectedNoteId);
+      if (selectedNote) {
+        renderNote(selectedNote);
+      }
+    }
+
+    if (!selectedNote) {
+      renderAnswer('Could not load the selected note.');
+      return;
+    }
+
+    const chunks = Array.isArray(selectedNote.chunks) ? selectedNote.chunks : [];
+    if (!chunks.length) {
+      renderAnswer('Selected note has no indexed chunks. Reindex and try again.');
+      return;
+    }
+
+    retrieved = chunks.slice(0, topK).map((chunk) => ({
+      chunkId: chunk.id,
+      noteId: selectedNote.id,
+      notePath: selectedNote.path || '',
+      noteTags: selectedNote.tags || [],
+      title: selectedNote.title || 'Untitled',
+      date: selectedNote.date || '',
+      clientNames: selectedNote.clients || [],
+      snippet: '',
+      startOffset: chunk.start_offset,
+      endOffset: chunk.end_offset,
+      chunkText: chunk.content
+    }));
+
+    query = queryInput || `Selected note: ${selectedNote.title || 'Transcript'}`;
+    contextOnSuccess = `${summaryLabel} of "${selectedNote.title || 'Selected note'}" (${retrieved.length} chunks)`;
+    contextOnError = `${summaryLabel} of "${selectedNote.title || 'Selected note'}"`;
+  } else {
+    searchResult = await runSearch(queryInput, {
+      busyMessage: 'Finding relevant notes...',
+      blocking: false,
+      noteKind
+    });
+    if (!searchResult?.ok) {
+      return;
+    }
+
+    const matchCount = Number(searchResult.count) || 0;
+    retrieved = (state.results || []).slice(0, topK).map((item) => ({
+      chunkId: item.chunkId,
+      noteId: item.noteId,
+      notePath: item.notePath || '',
+      noteTags: item.noteTags || [],
+      title: item.title,
+      date: item.date,
+      clientNames: item.clientNames || [],
+      snippet: item.snippet || '',
+      startOffset: item.startOffset,
+      endOffset: item.endOffset,
+      chunkText: item.chunkText
+    }));
+    contextOnSuccess = matchCount > 0
+      ? `${summaryLabel} of top ${Math.min(topK, matchCount)} of ${matchCount} matches for "${queryInput}"`
+      : `${summaryLabel} for "${queryInput}"`;
+    contextOnError = contextOnSuccess;
   }
 
   const requestId = generateRequestId('summarize');
@@ -3083,26 +3201,13 @@ async function runSummarize() {
     { blocking: false }
   );
   try {
-    const topK = normalizeTopK(els.topKInput.value);
-    const matchCount = Number(searchResult.count) || 0;
-    els.topKInput.value = String(topK);
-    syncDepthPresetFromTopK();
-    const retrieved = (state.results || []).slice(0, topK).map((item) => ({
-      chunkId: item.chunkId,
-      noteId: item.noteId,
-      title: item.title,
-      date: item.date,
-      clientNames: item.clientNames || [],
-      snippet: item.snippet || '',
-      startOffset: item.startOffset,
-      endOffset: item.endOffset,
-      chunkText: item.chunkText
-    }));
-    beginStreamingAnswer(requestId, 'summarize', `Summary for "${query}"`);
+    beginStreamingAnswer(requestId, 'summarize', contextOnSuccess);
     const result = await window.coachNotes.summarize({
       requestId,
       stream: true,
       query,
+      summaryMode,
+      noteKind,
       scope: els.scopeSelect.value,
       clientId: els.scopeSelect.value === 'client' ? state.selectedClientId : null,
       includeArchivedClient: els.scopeSelect.value === 'client' ? Boolean(getSelectedClient()?.archived) : false,
@@ -3111,36 +3216,32 @@ async function runSummarize() {
       retrieved
     });
     const fallbackSuffix = result.fallbackUsed ? ' (fallback mode)' : '';
-
-    const context = matchCount > 0
-      ? `Summary of top ${Math.min(topK, matchCount)} of ${matchCount} matches for "${query}"${fallbackSuffix}`
-      : `Summary for "${query}"${fallbackSuffix}`;
+    const context = `${contextOnSuccess}${fallbackSuffix}`;
 
     renderAnswer(result.summary || '', result.sources || [], result.citations || [], {
       context,
       meta: {
         mode: 'summarize',
+        summaryMode,
         prompt: query,
         scope: els.scopeSelect.value,
         clientId: els.scopeSelect.value === 'client' ? state.selectedClientId : null,
+        noteId: isConversationSummary ? state.selectedNoteId : null,
         error: false
       },
       addToHistory: true,
       autoOpen: true
     });
   } catch (error) {
-    const topK = normalizeTopK(els.topKInput.value);
-    const matchCount = Number(searchResult.count) || 0;
-    const context = matchCount > 0
-      ? `Summary of top ${Math.min(topK, matchCount)} of ${matchCount} matches for "${query}"`
-      : `Summary for "${query}"`;
     renderAnswer(`Summarize failed: ${error.message}`, [], [], {
-      context,
+      context: contextOnError,
       meta: {
         mode: 'summarize',
+        summaryMode,
         prompt: query,
         scope: els.scopeSelect.value,
         clientId: els.scopeSelect.value === 'client' ? state.selectedClientId : null,
+        noteId: isConversationSummary ? state.selectedNoteId : null,
         error: true
       },
       addToHistory: true,
@@ -3828,6 +3929,12 @@ async function init() {
     const normalized = normalizeTopK(els.topKInput.value);
     els.topKInput.value = String(normalized);
     syncDepthPresetFromTopK();
+  });
+  els.summaryModeSelect.addEventListener('change', () => {
+    els.summaryModeSelect.value = normalizeSummaryMode(els.summaryModeSelect.value);
+    if (state.queryMode === 'summarize') {
+      setQueryMode('summarize');
+    }
   });
   els.goBtn.addEventListener('click', runActiveMode);
   els.queryInput.addEventListener('keydown', (event) => {

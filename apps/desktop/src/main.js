@@ -490,6 +490,171 @@ function parseHashtags(text) {
   return [...new Set(matches.map((entry) => entry.replace(/[#\s]/g, '').trim()).filter(Boolean))];
 }
 
+const TRANSCRIPT_TAG_CANDIDATES = new Set([
+  'transcript',
+  'transcription',
+  'transcribed',
+  'recording',
+  'audio',
+  'voice',
+  'conversation'
+]);
+
+function hasTranscriptKeyword(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  if (TRANSCRIPT_TAG_CANDIDATES.has(normalized)) {
+    return true;
+  }
+
+  return /\b(transcript|transcription|transcribed|recording|audio|voice)\b/.test(normalized);
+}
+
+function parseJsonObject(rawValue) {
+  if (!rawValue) {
+    return {};
+  }
+
+  if (typeof rawValue === 'object' && !Array.isArray(rawValue)) {
+    return rawValue;
+  }
+
+  try {
+    const parsed = JSON.parse(String(rawValue));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch {
+    return {};
+  }
+
+  return {};
+}
+
+function isTruthyFlag(value) {
+  if (value === true || value === 1) {
+    return true;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized === 'true' || normalized === 'yes' || normalized === '1';
+  }
+
+  return false;
+}
+
+function looksLikeSpeakerTranscript(text) {
+  const lines = String(text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 280);
+
+  if (lines.length < 6) {
+    return false;
+  }
+
+  const labels = new Set();
+  let turns = 0;
+  const patterns = [
+    /^([A-Za-z][A-Za-z0-9 _-]{1,30}):\s+\S+/,
+    /^(Speaker\s*\d+):\s+\S+/i,
+    /^\[\d{1,2}:\d{2}(?::\d{2})?\]\s*([A-Za-z][A-Za-z0-9 _-]{1,30}):\s+\S+/,
+    /^([A-Za-z][A-Za-z0-9 _-]{1,30})\s+\(\d{1,2}:\d{2}(?::\d{2})?\):\s+\S+/
+  ];
+
+  for (const line of lines) {
+    for (const pattern of patterns) {
+      const match = line.match(pattern);
+      if (!match) {
+        continue;
+      }
+
+      const label = sanitizeName(match[1]).toLowerCase();
+      if (label) {
+        labels.add(label);
+      }
+      turns += 1;
+      break;
+    }
+  }
+
+  return turns >= 6 && labels.size >= 2;
+}
+
+function isTranscriptFrontmatter(frontmatter) {
+  const meta = frontmatter && typeof frontmatter === 'object' ? frontmatter : {};
+  const directFlags = [
+    meta.transcript,
+    meta.is_transcript,
+    meta.isTranscript,
+    meta.transcribed,
+    meta.is_transcribed,
+    meta.isTranscribed,
+    meta.is_audio_recording,
+    meta.isAudioRecording
+  ];
+  if (directFlags.some((value) => isTruthyFlag(value))) {
+    return true;
+  }
+
+  if (Array.isArray(meta.speakers) && meta.speakers.length > 1) {
+    return true;
+  }
+
+  const candidateValues = [
+    meta.type,
+    meta.note_type,
+    meta.noteType,
+    meta.kind,
+    meta.category,
+    meta.format,
+    meta.source,
+    meta.origin,
+    meta.generated_by,
+    meta.generatedBy,
+    meta.app,
+    meta.document_type,
+    meta.documentType,
+    meta.content_type,
+    meta.contentType,
+    meta.recording_source,
+    meta.recordingSource
+  ];
+
+  return candidateValues.some((value) => hasTranscriptKeyword(value));
+}
+
+function inferTranscriptTag(frontmatter, notePath, title, bodyText, tags = []) {
+  if (normalizeArray(tags).some((value) => hasTranscriptKeyword(value))) {
+    return true;
+  }
+
+  if (isTranscriptFrontmatter(frontmatter)) {
+    return true;
+  }
+
+  if (hasTranscriptKeyword(path.basename(String(notePath || '')))) {
+    return true;
+  }
+
+  if (hasTranscriptKeyword(title)) {
+    return true;
+  }
+
+  return looksLikeSpeakerTranscript(bodyText);
+}
+
+function isTranscriptLikeCandidate(row) {
+  const tags = normalizeArray(row?.note_tags || '');
+  const metadata = parseJsonObject(row?.metadata_json);
+  return inferTranscriptTag(metadata, row?.note_path, row?.note_title, row?.content, tags);
+}
+
 function isClientProfilePath(filePath) {
   return path.basename(String(filePath || '')).toLowerCase() === CLIENT_PROFILE_FILE.toLowerCase();
 }
@@ -533,12 +698,20 @@ function parseMetadata(content, filePath, rootFolder) {
     : sanitizeName(data.title) || extractFirstHeading(body) || path.basename(filePath, path.extname(filePath));
   const profileDate = profilePath ? parseDate(data.updated_at || data.updatedAt) : null;
 
+  const mergedTags = [...new Set(tags)];
+  if (
+    inferTranscriptTag(data, filePath, title, body, mergedTags)
+    && !mergedTags.some((value) => value.toLowerCase() === 'transcript')
+  ) {
+    mergedTags.push('transcript');
+  }
+
   return {
     title,
     date: profileDate || parseDate(data.date) || extractFilenameDate(filePath),
     inlineClients: [...new Set(inlineClients)],
     folderClient: firstSegment,
-    tags: [...new Set(tags)],
+    tags: mergedTags,
     bodyText: body,
     frontmatter: data
   };
@@ -1268,6 +1441,28 @@ function relevanceProfile(mode) {
   return profiles[parseRelevanceMode(mode)];
 }
 
+function parseNoteKind(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'transcript') {
+    return 'transcript';
+  }
+
+  return 'all';
+}
+
+function parseSummaryMode(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (
+    normalized === 'coaching_conversation'
+    || normalized === 'conversation'
+    || normalized === 'coaching_transcript'
+  ) {
+    return 'coaching_conversation';
+  }
+
+  return 'search_results';
+}
+
 function isTimeoutLikeError(error) {
   const message = String(error?.message || error || '');
   return /FUNCTION_INVOCATION_TIMEOUT|timeout|timed out/i.test(message);
@@ -1704,11 +1899,15 @@ function queryCandidates(scope, clientId, tags, options = {}) {
         n.path AS note_path,
         n.title AS note_title,
         n.date AS note_date,
+        n.metadata_json,
+        COALESCE(GROUP_CONCAT(DISTINCT t.name), '') AS note_tags,
         COALESCE(GROUP_CONCAT(DISTINCT cl.display_name), '') AS client_names
       FROM chunks c
       JOIN notes n ON n.id = c.note_id
       LEFT JOIN note_clients nc ON nc.note_id = n.id
       LEFT JOIN clients cl ON cl.id = nc.client_id
+      LEFT JOIN note_tags nt ON nt.note_id = n.id
+      LEFT JOIN tags t ON t.id = nt.tag_id
       ${whereSql}
       GROUP BY c.id`
     )
@@ -1722,6 +1921,7 @@ async function runSearch(payload) {
   const includeArchivedClient = Boolean(payload?.includeArchivedClient);
   const limit = Math.max(1, Math.min(Number(payload?.limit) || 30, 50));
   const tags = payload?.tags || [];
+  const noteKind = parseNoteKind(payload?.noteKind);
   const relevanceMode = parseRelevanceMode(payload?.relevanceMode);
   const relevance = relevanceProfile(relevanceMode);
 
@@ -1729,7 +1929,10 @@ async function runSearch(payload) {
     return [];
   }
 
-  const candidates = queryCandidates(scope, clientId, tags, { includeArchivedClient });
+  let candidates = queryCandidates(scope, clientId, tags, { includeArchivedClient });
+  if (noteKind === 'transcript') {
+    candidates = candidates.filter((row) => isTranscriptLikeCandidate(row));
+  }
   if (!candidates.length) {
     return [];
   }
@@ -1774,6 +1977,7 @@ async function runSearch(payload) {
       title: isClientProfilePath(row.note_path) ? 'Client Profile' : row.note_title,
       date: row.note_date,
       clientNames: row.client_names ? row.client_names.split(',').filter(Boolean) : [],
+      noteTags: row.note_tags ? row.note_tags.split(',').filter(Boolean) : [],
       snippet: buildSnippet(row.content, query),
       startOffset: row.start_offset,
       endOffset: row.end_offset,
@@ -1990,11 +2194,16 @@ async function runAsk(payload, options = {}) {
 }
 
 async function runSummarize(payload, options = {}) {
+  const summaryMode = parseSummaryMode(payload?.summaryMode);
   const query = String(payload?.query || '').trim();
-  if (!query) {
+  const effectiveQuery = query || (summaryMode === 'coaching_conversation' ? 'selected coaching conversation note' : '');
+  if (!effectiveQuery) {
     throw new Error('Summary query is required.');
   }
 
+  const noteKind = parseNoteKind(
+    payload?.noteKind || (summaryMode === 'coaching_conversation' ? 'transcript' : 'all')
+  );
   const scope = payload?.scope === 'client' ? 'client' : 'all';
   const clientId = payload?.clientId ? Number(payload.clientId) : null;
   const includeArchivedClient = Boolean(payload?.includeArchivedClient);
@@ -2007,7 +2216,7 @@ async function runSummarize(payload, options = {}) {
     }
     options.onStreamEvent(event);
   };
-  const providedResults = Array.isArray(payload?.retrieved)
+  const mappedProvidedResults = Array.isArray(payload?.retrieved)
     ? payload.retrieved
       .map((row) => ({
         chunkId: String(row?.chunkId || '').trim(),
@@ -2015,25 +2224,60 @@ async function runSummarize(payload, options = {}) {
         title: String(row?.title || ''),
         date: String(row?.date || ''),
         clientNames: Array.isArray(row?.clientNames) ? row.clientNames.map((name) => String(name || '')) : [],
+        notePath: String(row?.notePath || ''),
+        noteTags: Array.isArray(row?.noteTags) ? row.noteTags.map((name) => String(name || '')) : [],
         snippet: String(row?.snippet || ''),
         startOffset: Number(row?.startOffset),
         endOffset: Number(row?.endOffset),
         chunkText: String(row?.chunkText || '')
       }))
       .filter((row) => row.chunkId && row.chunkText)
-      .slice(0, topK)
     : [];
+  const providedResults = mappedProvidedResults
+    .filter((row) => (
+      summaryMode === 'coaching_conversation'
+      || noteKind !== 'transcript'
+      || inferTranscriptTag({}, row.notePath, row.title, row.chunkText, row.noteTags)
+    ))
+    .slice(0, topK);
 
-  const results = providedResults.length
-    ? providedResults
-    : await runSearch({
-      query,
+  if (summaryMode === 'coaching_conversation') {
+    if (!providedResults.length) {
+      throw new Error('Coaching conversation summary requires one selected note.');
+    }
+
+    const noteScopes = new Set();
+    for (const row of providedResults) {
+      if (Number.isFinite(row.noteId)) {
+        noteScopes.add(`id:${row.noteId}`);
+      } else if (row.notePath) {
+        noteScopes.add(`path:${row.notePath}`);
+      } else {
+        noteScopes.add(`title:${row.title}`);
+      }
+    }
+
+    if (noteScopes.size > 1) {
+      throw new Error('Coaching conversation summary supports one note at a time.');
+    }
+  }
+
+  let results = providedResults;
+  if (!results.length) {
+    if (summaryMode === 'coaching_conversation') {
+      throw new Error('Coaching conversation summary requires one selected note.');
+    }
+
+    results = await runSearch({
+      query: effectiveQuery,
       scope,
       clientId,
       includeArchivedClient,
       limit: topK,
-      relevanceMode
+      relevanceMode,
+      noteKind
     });
+  }
   const summarizeSources = results.map((item) => ({
     chunk_id: item.chunkId,
     text: item.chunkText
@@ -2066,7 +2310,8 @@ async function runSummarize(payload, options = {}) {
         '/summarize',
         {
           model: DEFAULT_ANSWER_MODEL,
-          mode: 'search_results_summary',
+          mode: summaryMode === 'coaching_conversation' ? 'coaching_conversation_summary' : 'search_results_summary',
+          query: effectiveQuery,
           sources: summarizeSources,
           stream: true
         },
@@ -2078,7 +2323,8 @@ async function runSummarize(payload, options = {}) {
         '/summarize',
         {
           model: DEFAULT_ANSWER_MODEL,
-          mode: 'search_results_summary',
+          mode: summaryMode === 'coaching_conversation' ? 'coaching_conversation_summary' : 'search_results_summary',
+          query: effectiveQuery,
           sources: summarizeSources
         },
         settings
@@ -2098,8 +2344,12 @@ async function runSummarize(payload, options = {}) {
         '/answer',
         {
           model: DEFAULT_ANSWER_MODEL,
-          question: `Summarize these notes for query: ${query}`,
-          instructions: 'Provide a concise summary with citations for each major point.',
+          question: summaryMode === 'coaching_conversation'
+            ? `Summarize this coaching conversation transcript for query: ${effectiveQuery}`
+            : `Summarize these notes for query: ${effectiveQuery}`,
+          instructions: summaryMode === 'coaching_conversation'
+            ? 'This is a coach-client conversation. Prioritize health coaching goals, barriers, action items, commitments, and outcomes. Ignore side chatter when possible. Cite each major point.'
+            : 'Provide a concise summary with citations for each major point.',
           sources: answerSources,
           response_format: 'coachnotes.v1',
           stream: true
@@ -2112,8 +2362,12 @@ async function runSummarize(payload, options = {}) {
         '/answer',
         {
           model: DEFAULT_ANSWER_MODEL,
-          question: `Summarize these notes for query: ${query}`,
-          instructions: 'Provide a concise summary with citations for each major point.',
+          question: summaryMode === 'coaching_conversation'
+            ? `Summarize this coaching conversation transcript for query: ${effectiveQuery}`
+            : `Summarize these notes for query: ${effectiveQuery}`,
+          instructions: summaryMode === 'coaching_conversation'
+            ? 'This is a coach-client conversation. Prioritize health coaching goals, barriers, action items, commitments, and outcomes. Ignore side chatter when possible. Cite each major point.'
+            : 'Provide a concise summary with citations for each major point.',
           sources: answerSources,
           response_format: 'coachnotes.v1'
         },
@@ -2133,6 +2387,8 @@ async function runSummarize(payload, options = {}) {
     fallbackUsed,
     sources: results.map((item) => ({
       chunkId: item.chunkId,
+      notePath: item.notePath,
+      noteTags: item.noteTags || [],
       title: item.title,
       date: item.date,
       clientNames: item.clientNames,
