@@ -2883,6 +2883,8 @@ function createWindow() {
     minWidth: 1120,
     minHeight: 700,
     title: 'CoachNotes',
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 18, y: 18 },
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

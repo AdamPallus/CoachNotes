@@ -1,136 +1,45 @@
 :root {
-  /* Surface */
-  --surface-primary: #FAF6F0;
-  --surface-secondary: #F0EAE0;
-  --surface-elevated: #FFFFFF;
-  --surface-soft: rgba(240, 234, 224, 0.5); /* derived from secondary */
-  --surface-btn: #FFFFFF;
-  --surface-input: #FFFFFF;
-  --surface-ghost: rgba(255, 255, 255, 0.6);
-  --surface-tiny: rgba(255, 255, 255, 0.65);
-  
-  /* Text */
-  --text-primary: #3A3530;
-  --text-secondary: #7A7068;
-  --text-tertiary: #A89E94;
-  
-  /* Accent/Brand */
-  --accent-primary: #8B6244;
-  --accent-hover: #7A5538;
-  --accent-copper: #B5875A;
-  
-  /* Borders */
-  --border-default: #E0D8CE;
-  --border-subtle: #EDE7DF;
-  
-  /* Status */
-  --success: #5A6B56;
-  --success-bg: #EDF2EB;
-  --warning: #C49A4C;
-  --warning-bg: #FBF5E8;
-  --error: #B85C4A;
-  --error-bg: #FBF0ED;
-  
-  /* Shadows */
-  --shadow-sm: 0 1px 3px rgba(58, 53, 48, 0.08);
-  --shadow-md: 0 4px 12px rgba(58, 53, 48, 0.12);
-  --shadow-lg: 0 8px 24px rgba(58, 53, 48, 0.16);
-  --inset-shadow: inset 0 1px 2px rgba(58, 53, 48, 0.04);
-  
+  /* Surface — warm paper, harmonized with EchoScribe. */
+  --surface-primary: #fbf6ec;
+  --surface-secondary: #f5eedf;
+  --surface-elevated: #fffaf0;
+  --surface-soft: rgba(245, 238, 223, 0.55);
+  --surface-btn: #fffaf0;
+  --surface-input: #fffaf0;
+  --surface-ghost: rgba(255, 250, 240, 0.65);
+  --surface-tiny: rgba(255, 250, 240, 0.7);
+
+  /* Text — espresso ink. */
+  --text-primary: #2a1f15;
+  --text-secondary: #6a5847;
+  --text-tertiary: #8f7d6a;
+
+  /* Accent/Brand — terracotta. */
+  --accent-primary: #b8542a;
+  --accent-hover: #c76138;
+  --accent-copper: #a8751f;
+
+  /* Borders — oat paper edges. */
+  --border-default: #e2d6bd;
+  --border-subtle: rgba(92, 71, 42, 0.12);
+
+  /* Status — moss, amber, rose. */
+  --success: #617a55;
+  --success-bg: #eef2e8;
+  --warning: #a8751f;
+  --warning-bg: #faf2df;
+  --error: #a8443f;
+  --error-bg: #fbefed;
+
+  /* Shadows — warm, never bluish. */
+  --shadow-sm: 0 1px 3px rgba(58, 38, 18, 0.08);
+  --shadow-md: 0 4px 14px rgba(58, 38, 18, 0.14);
+  --shadow-lg: 0 14px 36px -16px rgba(58, 38, 18, 0.26);
+  --inset-shadow: inset 0 1px 2px rgba(58, 38, 18, 0.05);
+
   /* Legacy/Mapped Variables for compatibility */
   --bg: var(--surface-primary);
-  --bg-deep: #ECE4D7; /* slightly darker for gradient */
-  --card: var(--surface-secondary);
-  --card-strong: var(--surface-elevated);
-  --text: var(--text-primary);
-  --muted: var(--text-secondary);
-  --line: var(--border-default);
-  --brand: var(--accent-primary);
-  --brand-strong: var(--accent-hover);
-  --alert: var(--error);
-  --blockquote: var(--accent-primary); /* was #2d4348, now accent */
-  --code-bg: var(--surface-secondary);
-  --textarea-bg: var(--surface-elevated);
-  --snippet: var(--text-tertiary);
-  --citation-text: var(--accent-primary);
-  --dialog-backdrop: rgba(58, 53, 48, 0.4);
-  --progress-accent: var(--accent-copper);
-  --btn-primary-text: #FFFFFF;
-  --focus-ring: rgba(139, 98, 68, 0.25);
-  
-  /* Tags - Warmed up palette */
-  --tag-medical-bg: rgba(184, 92, 74, 0.12);
-  --tag-medical-border: rgba(184, 92, 74, 0.25);
-  --tag-medical-text: #8A3C32;
-  
-  --tag-training-bg: rgba(125, 139, 104, 0.15); /* sage/green-ish */
-  --tag-training-border: rgba(125, 139, 104, 0.3);
-  --tag-training-text: #4A573E;
-  
-  --tag-goal-bg: rgba(181, 135, 90, 0.15); /* copper/gold */
-  --tag-goal-border: rgba(181, 135, 90, 0.3);
-  --tag-goal-text: #78522C;
-  
-  --tag-personal-bg: rgba(196, 154, 76, 0.12); /* amber */
-  --tag-personal-border: rgba(196, 154, 76, 0.25);
-  --tag-personal-text: #856424;
-  
-  --tag-admin-bg: rgba(122, 112, 104, 0.12); /* warm grey */
-  --tag-admin-border: rgba(122, 112, 104, 0.25);
-  --tag-admin-text: #5C5248;
-  
-  --tag-default-bg: rgba(122, 112, 104, 0.1);
-  --tag-default-border: rgba(122, 112, 104, 0.2);
-  --tag-default-text: var(--text-secondary);
-
-  /* Radius */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-}
-
-html[data-theme="dark"] {
-  /* Surface */
-  --surface-primary: #1C1A16;
-  --surface-secondary: #272420;
-  --surface-elevated: #332F2A;
-  --surface-soft: rgba(39, 36, 32, 0.6);
-  --surface-btn: #2F2B26;
-  --surface-input: #272420;
-  --surface-ghost: rgba(39, 36, 32, 0.5);
-  --surface-tiny: rgba(39, 36, 32, 0.7);
-
-  /* Text */
-  --text-primary: #E8DCC8;
-  --text-secondary: #A89880;
-  --text-tertiary: #6B6054;
-
-  /* Accent/Brand */
-  --accent-primary: #D4A84B;
-  --accent-hover: #E0B85C;
-  --accent-copper: #C4934A;
-
-  /* Borders */
-  --border-default: #3D3528;
-  --border-subtle: #302B24;
-
-  /* Status */
-  --success: #7D8B68;
-  --success-bg: #252A22;
-  --warning: #D4A84B;
-  --warning-bg: #2A2620;
-  --error: #C47058;
-  --error-bg: #2A2220;
-
-  /* Shadows */
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
-  --inset-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
-
-  /* Legacy/Mapped Variables */
-  --bg: var(--surface-primary);
-  --bg-deep: #141210;
+  --bg-deep: #efe7d7;
   --card: var(--surface-secondary);
   --card-strong: var(--surface-elevated);
   --text: var(--text-primary);
@@ -140,38 +49,134 @@ html[data-theme="dark"] {
   --brand-strong: var(--accent-hover);
   --alert: var(--error);
   --blockquote: var(--accent-primary);
-  --code-bg: rgba(28, 26, 22, 0.6);
+  --code-bg: var(--surface-secondary);
+  --textarea-bg: var(--surface-elevated);
+  --snippet: var(--text-tertiary);
+  --citation-text: var(--accent-primary);
+  --dialog-backdrop: rgba(42, 31, 21, 0.4);
+  --progress-accent: var(--accent-copper);
+  --btn-primary-text: #fdf1e4;
+  --focus-ring: rgba(184, 84, 42, 0.24);
+
+  /* Tags — re-tuned within the shared palette. */
+  --tag-medical-bg: rgba(168, 68, 63, 0.12);
+  --tag-medical-border: rgba(168, 68, 63, 0.28);
+  --tag-medical-text: #7f2f2b;
+
+  --tag-training-bg: rgba(97, 122, 85, 0.14);
+  --tag-training-border: rgba(97, 122, 85, 0.32);
+  --tag-training-text: #3d5434;
+
+  --tag-goal-bg: rgba(168, 117, 31, 0.14);
+  --tag-goal-border: rgba(168, 117, 31, 0.32);
+  --tag-goal-text: #7e5a1e;
+
+  --tag-personal-bg: rgba(184, 132, 42, 0.12);
+  --tag-personal-border: rgba(184, 132, 42, 0.28);
+  --tag-personal-text: #7a541a;
+
+  --tag-admin-bg: rgba(106, 88, 71, 0.12);
+  --tag-admin-border: rgba(106, 88, 71, 0.26);
+  --tag-admin-text: #4e4033;
+
+  --tag-default-bg: rgba(106, 88, 71, 0.1);
+  --tag-default-border: rgba(106, 88, 71, 0.22);
+  --tag-default-text: var(--text-secondary);
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+
+  /* Typography stack — shared with EchoScribe. */
+  --font-display: 'Fraunces', 'New York', ui-serif, Georgia, 'Times New Roman', serif;
+  --font-body: 'Inter', 'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'IBM Plex Mono', 'SF Mono', 'Menlo', 'Consolas', monospace;
+}
+
+html[data-theme="dark"] {
+  /* Surface — espresso/walnut. */
+  --surface-primary: #1c1713;
+  --surface-secondary: #26201a;
+  --surface-elevated: #312a23;
+  --surface-soft: rgba(38, 32, 26, 0.6);
+  --surface-btn: #2c2620;
+  --surface-input: #26201a;
+  --surface-ghost: rgba(38, 32, 26, 0.5);
+  --surface-tiny: rgba(38, 32, 26, 0.7);
+
+  /* Text — warm cream on espresso. */
+  --text-primary: #f1e4d2;
+  --text-secondary: #b89f87;
+  --text-tertiary: #7a6a5a;
+
+  /* Accent/Brand — warmed terracotta that reads on dark. */
+  --accent-primary: #e07b47;
+  --accent-hover: #ea8a55;
+  --accent-copper: #c69a58;
+
+  /* Borders */
+  --border-default: #3a3026;
+  --border-subtle: #2d2620;
+
+  /* Status */
+  --success: #8ea07d;
+  --success-bg: #232820;
+  --warning: #d4a84b;
+  --warning-bg: #2a2620;
+  --error: #d87a6e;
+  --error-bg: #2a2120;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.38);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 14px 36px -16px rgba(0, 0, 0, 0.7);
+  --inset-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+
+  /* Legacy/Mapped Variables */
+  --bg: var(--surface-primary);
+  --bg-deep: #13100d;
+  --card: var(--surface-secondary);
+  --card-strong: var(--surface-elevated);
+  --text: var(--text-primary);
+  --muted: var(--text-secondary);
+  --line: var(--border-default);
+  --brand: var(--accent-primary);
+  --brand-strong: var(--accent-hover);
+  --alert: var(--error);
+  --blockquote: var(--accent-primary);
+  --code-bg: rgba(28, 23, 19, 0.6);
   --textarea-bg: var(--surface-input);
   --snippet: var(--text-tertiary);
   --citation-text: var(--accent-primary);
-  --dialog-backdrop: rgba(0, 0, 0, 0.7);
+  --dialog-backdrop: rgba(0, 0, 0, 0.72);
   --progress-accent: var(--accent-copper);
-  --btn-primary-text: #1C1A16; /* Dark text on amber button */
-  --focus-ring: rgba(212, 168, 75, 0.25);
+  --btn-primary-text: #1c1713;
+  --focus-ring: rgba(224, 123, 71, 0.28);
 
-  /* Tags - Dark Mode */
-  --tag-medical-bg: rgba(196, 112, 88, 0.15);
-  --tag-medical-border: rgba(196, 112, 88, 0.3);
-  --tag-medical-text: #E8B8A8;
-  
-  --tag-training-bg: rgba(125, 139, 104, 0.2);
-  --tag-training-border: rgba(125, 139, 104, 0.35);
-  --tag-training-text: #C8D1BE;
-  
-  --tag-goal-bg: rgba(212, 168, 75, 0.15);
-  --tag-goal-border: rgba(212, 168, 75, 0.3);
-  --tag-goal-text: #F0D8A8;
-  
-  --tag-personal-bg: rgba(235, 185, 95, 0.15);
-  --tag-personal-border: rgba(235, 185, 95, 0.3);
-  --tag-personal-text: #FBE6B8;
-  
-  --tag-admin-bg: rgba(168, 152, 128, 0.15);
-  --tag-admin-border: rgba(168, 152, 128, 0.3);
-  --tag-admin-text: #D8D0C0;
-  
+  /* Tags — Dark Mode, retuned within shared palette. */
+  --tag-medical-bg: rgba(216, 122, 110, 0.16);
+  --tag-medical-border: rgba(216, 122, 110, 0.32);
+  --tag-medical-text: #eab8ae;
+
+  --tag-training-bg: rgba(142, 160, 125, 0.18);
+  --tag-training-border: rgba(142, 160, 125, 0.34);
+  --tag-training-text: #cbd6bd;
+
+  --tag-goal-bg: rgba(212, 168, 75, 0.16);
+  --tag-goal-border: rgba(212, 168, 75, 0.32);
+  --tag-goal-text: #f0d8a8;
+
+  --tag-personal-bg: rgba(224, 158, 95, 0.16);
+  --tag-personal-border: rgba(224, 158, 95, 0.32);
+  --tag-personal-text: #f6d3a6;
+
+  --tag-admin-bg: rgba(170, 150, 128, 0.16);
+  --tag-admin-border: rgba(170, 150, 128, 0.3);
+  --tag-admin-text: #d9d0c1;
+
   --tag-default-bg: rgba(107, 96, 84, 0.2);
-  --tag-default-border: rgba(107, 96, 84, 0.3);
+  --tag-default-border: rgba(107, 96, 84, 0.32);
   --tag-default-text: var(--text-secondary);
 }
 
@@ -187,14 +192,30 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  /* Typography: Source Sans 3 with Inter fallback */
-  font-family: "Source Sans 3", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-body);
   color: var(--text);
-  /* Background: Subtle warm radials */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Background: subtle warm radials over paper. */
   background:
     radial-gradient(circle at 15% 10%, var(--surface-secondary), transparent 40%),
-    radial-gradient(circle at 85% 90%, rgba(139, 98, 68, 0.05), transparent 35%),
+    radial-gradient(circle at 85% 90%, rgba(184, 84, 42, 0.06), transparent 40%),
     var(--surface-primary);
+}
+
+/* Shared display type — headings, dialog titles, empty-state heroes. */
+h1,
+h2,
+h3,
+.page-title,
+.section-title,
+.dialog-title,
+dialog h2,
+dialog h3 {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .app-shell {
@@ -211,11 +232,28 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
+  /* Extra left padding clears the macOS hidden-inset traffic lights. */
+  padding: 14px 18px 14px 86px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
-  background: var(--surface-secondary); /* Opaque for cleaner look or very slight alpha */
+  background: var(--surface-secondary);
   box-shadow: var(--shadow-sm);
+  /* Whole bar is a drag region; interactive children opt out below. */
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.topbar button,
+.topbar a,
+.topbar input,
+.topbar select,
+.topbar label,
+.topbar .btn,
+.topbar .menu-popover,
+.topbar [role='button'],
+.topbar [contenteditable='true'] {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .topbar h1 {
