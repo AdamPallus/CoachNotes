@@ -2,66 +2,140 @@ const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
-const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
-const chokidar = require('chokidar');
 const Database = require('better-sqlite3');
-const matter = require('gray-matter');
 
-const SUPPORTED_EXTENSIONS = new Set(['.md', '.txt', '.markdown', '.pdf']);
-const EDITABLE_EXTENSIONS = new Set(['.md', '.markdown', '.txt']);
 const KEYCHAIN_SERVICE = 'coachnotes-invite-token';
 const KEYCHAIN_ACCOUNT = 'coachnotes';
-const DELETED_NOTES_DIRNAME = 'Deleted Notes';
-const CLIENT_PROFILE_FILE = '_client-profile.md';
-const CLIENT_SIDEBAR_TAG_LIMIT = 8;
-const TAG_CATEGORY_SETTINGS_KEY = 'tagCategoriesConfig';
-const DEFAULT_PROXY_URL = 'https://coach-notes-five.vercel.app';
-const DEFAULT_EMBED_MODEL = 'text-embedding-3-small';
-const DEFAULT_ANSWER_MODEL = 'gpt-5-mini';
-const UPDATE_REPO = process.env.COACHNOTES_UPDATE_REPO || 'AdamPallus/CoachNotes';
-const UPDATE_RELEASES_URL = `https://github.com/${UPDATE_REPO}/releases`;
-const UPDATE_RELEASE_API = `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`;
+const DEFAULT_PROXY_URL = app.isPackaged ? 'https://coach-notes-five.vercel.app' : 'http://localhost:3011';
+const DEFAULT_LLM_MODEL = 'gpt-5.4-mini';
+const CLIENT_IMPORTS_DIRNAME = 'Raw Imports';
+const MAX_WORKFLOW_CHARS = 220000;
+const SUPPORTED_IMPORT_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.pdf', '.csv', '.json']);
+const APP_NAME = app.isPackaged ? 'CoachNotes' : 'CoachNotes Dev';
+const BASELINE_SECTION_KEYS = new Set([
+  'overview',
+  'programContext',
+  'currentGoals',
+  'currentPriorities',
+  'activeConstraints',
+  'injuriesLimitations',
+  'medicalScopeFlags',
+  'habitsBehaviors',
+  'motivationValues',
+  'preferences',
+  'communicationNotes',
+  'wins',
+  'challenges',
+  'openLoops',
+  'suggestedTags',
+  'timeline',
+  'missingInfo',
+  'confidenceNotes'
+]);
 
-app.setName('CoachNotes');
+app.setName(APP_NAME);
+if (!app.isPackaged) {
+  app.setPath('userData', path.join(app.getPath('appData'), APP_NAME));
+}
 
 let db;
 let mainWindow;
-let watcher;
-let reindexTimer;
-let indexing = false;
-let reindexQueued = false;
 let ipcRegistered = false;
 let pdfJsModulePromise = null;
-let statusState = {
-  indexing: false,
-  message: 'Not indexed yet.',
-  progress: 0,
-  filesProcessed: 0,
-  totalFiles: 0,
-  unsupportedCount: 0,
-  unsupportedSummary: '',
-  lastError: null,
-  lastIndexedAt: null
-};
 
 function nowIso() {
   return new Date().toISOString();
 }
 
-function tableHasColumn(tableName, columnName) {
-  const table = String(tableName || '').trim();
-  const column = String(columnName || '').trim().toLowerCase();
-  if (!table || !column || !db) {
-    return false;
-  }
-
-  const rows = db.prepare(`PRAGMA table_info(${table})`).all();
-  return rows.some((row) => String(row?.name || '').toLowerCase() === column);
+function sanitizeName(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ');
 }
 
-function sha1(text) {
-  return crypto.createHash('sha1').update(text).digest('hex');
+function parseDate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) {
+    return '';
+  }
+
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    return `${match[1]}-${match[2]}-${match[3]}`;
+  }
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return '';
+  }
+
+  return parsed.toISOString().slice(0, 10);
+}
+
+function extractFilenameDate(filePath) {
+  const match = path.basename(String(filePath || '')).match(/(\d{4})[-_](\d{2})[-_](\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : '';
+}
+
+function normalizeTextContent(value) {
+  return String(value || '')
+    .replace(/\u0000/g, ' ')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function normalizeMultilineText(value, maxChars = 4000) {
+  return normalizeTextContent(value).slice(0, maxChars).trim();
+}
+
+function normalizeArray(values, maxItems = 80) {
+  const source = Array.isArray(values) ? values : String(values || '').split('\n');
+  const seen = new Set();
+  const rows = [];
+  for (const item of source) {
+    const value = sanitizeName(item);
+    if (!value) {
+      continue;
+    }
+    const key = value.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    rows.push(value);
+    if (rows.length >= maxItems) {
+      break;
+    }
+  }
+  return rows;
+}
+
+function yamlQuote(value) {
+  return JSON.stringify(String(value || ''));
+}
+
+function slugifyFileStem(value) {
+  const stem = sanitizeName(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 90);
+  return stem || 'source';
+}
+
+async function getUniqueFilePath(directory, baseStem, extension = '.md') {
+  for (let suffix = 1; suffix < 10000; suffix += 1) {
+    const filename = suffix === 1 ? `${baseStem}${extension}` : `${baseStem}-${suffix}${extension}`;
+    const candidate = path.join(directory, filename);
+    try {
+      await fsp.access(candidate, fs.constants.F_OK);
+    } catch {
+      return candidate;
+    }
+  }
+  throw new Error('Could not create a unique filename.');
 }
 
 function ensureDb() {
@@ -76,19 +150,6 @@ function ensureDb() {
       value TEXT
     );
 
-    CREATE TABLE IF NOT EXISTS notes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      path TEXT UNIQUE NOT NULL,
-      title TEXT NOT NULL,
-      date TEXT,
-      raw_text TEXT NOT NULL,
-      mtime_ms INTEGER NOT NULL,
-      size INTEGER NOT NULL,
-      sha1 TEXT NOT NULL,
-      metadata_json TEXT,
-      updated_at TEXT NOT NULL
-    );
-
     CREATE TABLE IF NOT EXISTS clients (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT UNIQUE NOT NULL,
@@ -97,70 +158,50 @@ function ensureDb() {
       archived_at TEXT
     );
 
-    CREATE TABLE IF NOT EXISTS note_clients (
-      note_id INTEGER NOT NULL,
+    CREATE TABLE IF NOT EXISTS intake_sources (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       client_id INTEGER NOT NULL,
-      PRIMARY KEY (note_id, client_id),
-      FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      source_date TEXT,
+      annotation TEXT,
+      original_path TEXT,
+      vault_path TEXT,
+      raw_text TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      metadata_json TEXT,
       FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
     );
 
-    CREATE TABLE IF NOT EXISTS tags (
+    CREATE TABLE IF NOT EXISTS client_baselines (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT UNIQUE NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS note_tags (
-      note_id INTEGER NOT NULL,
-      tag_id INTEGER NOT NULL,
-      PRIMARY KEY (note_id, tag_id),
-      FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE,
-      FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS chunks (
-      id TEXT PRIMARY KEY,
-      note_id INTEGER NOT NULL,
-      chunk_index INTEGER NOT NULL,
-      content TEXT NOT NULL,
-      start_offset INTEGER NOT NULL,
-      end_offset INTEGER NOT NULL,
-      embedding_json TEXT,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS note_overrides (
-      note_id INTEGER PRIMARY KEY,
-      clients_json TEXT,
-      tags_json TEXT,
-      FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS llm_answers (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      created_at TEXT NOT NULL,
-      question_text TEXT NOT NULL,
-      scope TEXT NOT NULL,
-      retrieval_params TEXT,
+      client_id INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      structured_json TEXT NOT NULL,
+      source_ids_json TEXT,
       model TEXT,
-      answer_text TEXT NOT NULL,
-      citations TEXT
+      raw_output TEXT,
+      created_at TEXT NOT NULL,
+      accepted_at TEXT,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
     );
 
-    CREATE TABLE IF NOT EXISTS index_state (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      root_folder TEXT,
-      status TEXT,
-      last_error TEXT,
-      indexed_files INTEGER DEFAULT 0,
-      last_index_at TEXT
+    CREATE TABLE IF NOT EXISTS client_section_undo (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      baseline_id INTEGER NOT NULL,
+      section_key TEXT NOT NULL,
+      previous_value_json TEXT NOT NULL,
+      current_value_json TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (baseline_id) REFERENCES client_baselines(id) ON DELETE CASCADE
     );
-
-    INSERT OR IGNORE INTO index_state (id, status, indexed_files)
-    VALUES (1, 'idle', 0);
   `);
 
+  if (!tableHasColumn('intake_sources', 'vault_path')) {
+    db.exec('ALTER TABLE intake_sources ADD COLUMN vault_path TEXT');
+  }
   if (!tableHasColumn('clients', 'archived')) {
     db.exec('ALTER TABLE clients ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
   }
@@ -169,35 +210,19 @@ function ensureDb() {
   }
 }
 
-function ensureDbSafe() {
-  if (db) {
-    return true;
-  }
-
-  try {
+function requireDb() {
+  if (!db) {
     ensureDb();
-    return true;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    updateStatus({
-      message: 'Database initialization failed.',
-      lastError: message
-    });
-    return false;
   }
 }
 
-function requireDb() {
-  if (!ensureDbSafe() || !db) {
-    throw new Error('Local database unavailable. Run `npm --workspace apps/desktop run rebuild-native` and restart the app.');
-  }
+function tableHasColumn(tableName, columnName) {
+  const rows = db.prepare(`PRAGMA table_info(${tableName})`).all();
+  return rows.some((row) => String(row.name || '').toLowerCase() === String(columnName || '').toLowerCase());
 }
 
 function setSetting(key, value) {
-  if (!ensureDbSafe()) {
-    throw new Error('Local database is unavailable.');
-  }
-
+  requireDb();
   db.prepare(
     `INSERT INTO settings (key, value) VALUES (?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`
@@ -205,10 +230,7 @@ function setSetting(key, value) {
 }
 
 function getSetting(key, fallback = '') {
-  if (!ensureDbSafe()) {
-    return fallback;
-  }
-
+  requireDb();
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
   return row?.value ?? fallback;
 }
@@ -219,16 +241,11 @@ function getInviteToken() {
     ['find-generic-password', '-a', KEYCHAIN_ACCOUNT, '-s', KEYCHAIN_SERVICE, '-w'],
     { encoding: 'utf8' }
   );
-
-  if (result.status !== 0) {
-    return '';
-  }
-
-  return result.stdout.trim();
+  return result.status === 0 ? result.stdout.trim() : '';
 }
 
 function setInviteToken(token) {
-  const trimmed = (token || '').trim();
+  const trimmed = String(token || '').trim();
   if (!trimmed) {
     spawnSync('security', ['delete-generic-password', '-a', KEYCHAIN_ACCOUNT, '-s', KEYCHAIN_SERVICE], {
       encoding: 'utf8'
@@ -241,7 +258,6 @@ function setInviteToken(token) {
     ['add-generic-password', '-a', KEYCHAIN_ACCOUNT, '-s', KEYCHAIN_SERVICE, '-w', trimmed, '-U'],
     { encoding: 'utf8' }
   );
-
   if (result.status !== 0) {
     throw new Error(result.stderr || 'Failed to store invite token in Keychain.');
   }
@@ -249,913 +265,29 @@ function setInviteToken(token) {
 
 function getAppSettings() {
   return {
-    rootFolder: getSetting('rootFolder', ''),
+    vaultFolder: getSetting('vaultFolder', ''),
     proxyBaseUrl: getSetting('proxyBaseUrl', DEFAULT_PROXY_URL),
     inviteToken: getInviteToken()
   };
 }
 
-function slugifyCategoryId(value) {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+async function ensureVaultRootFolder() {
+  requireDb();
+  const configured = getSetting('vaultFolder', '');
+  if (configured && fs.existsSync(configured)) {
+    return configured;
+  }
+
+  const documentsDir = app.getPath('documents') || app.getPath('home');
+  const rootFolder = path.join(documentsDir, 'CoachNotes Vault');
+  await fsp.mkdir(rootFolder, { recursive: true });
+  setSetting('vaultFolder', rootFolder);
+  return rootFolder;
 }
 
-function normalizeTagCategoriesConfig(payload) {
-  const source = Array.isArray(payload?.categories) ? payload.categories : [];
-  const categories = [];
-  const usedIds = new Set();
-  const assignedTags = new Set();
-
-  for (let i = 0; i < source.length; i += 1) {
-    const row = source[i] || {};
-    const name = sanitizeName(row.name || '');
-    if (!name) {
-      continue;
-    }
-
-    const idBase = slugifyCategoryId(row.id || name) || `category-${i + 1}`;
-    let id = idBase;
-    let suffix = 2;
-    while (usedIds.has(id)) {
-      id = `${idBase}-${suffix}`;
-      suffix += 1;
-    }
-    usedIds.add(id);
-
-    const color = normalizeHexColor(row.color) || '#64748b';
-    const rawTags = normalizeArray(row.tags || row.tagNames || []);
-    const tags = [];
-    for (const tag of rawTags) {
-      const key = tag.toLowerCase();
-      if (assignedTags.has(key)) {
-        continue;
-      }
-
-      assignedTags.add(key);
-      tags.push(tag);
-    }
-
-    categories.push({
-      id,
-      name,
-      color,
-      tags
-    });
-  }
-
-  return { categories };
-}
-
-function getTagCategoriesConfig() {
-  if (!ensureDbSafe()) {
-    return { categories: [] };
-  }
-
-  const raw = getSetting(TAG_CATEGORY_SETTINGS_KEY, '');
-  if (!raw) {
-    return { categories: [] };
-  }
-
-  try {
-    return normalizeTagCategoriesConfig(JSON.parse(raw));
-  } catch {
-    return { categories: [] };
-  }
-}
-
-function saveTagCategoriesConfig(payload) {
-  const normalized = normalizeTagCategoriesConfig(payload);
-  setSetting(TAG_CATEGORY_SETTINGS_KEY, JSON.stringify(normalized));
-  return normalized;
-}
-
-function updateStatus(patch) {
-  statusState = { ...statusState, ...patch };
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('app:status', statusState);
-  }
-}
-
-function setDockIconIfAvailable() {
-  if (process.platform !== 'darwin' || !app.dock?.setIcon) {
-    return;
-  }
-
-  const iconCandidates = [
-    path.join(__dirname, '..', 'build', 'icon_1024.png'),
-    path.join(process.cwd(), 'build', 'icon_1024.png')
-  ];
-
-  for (const iconPath of iconCandidates) {
-    if (fs.existsSync(iconPath)) {
-      app.dock.setIcon(iconPath);
-      return;
-    }
-  }
-}
-
-function sanitizeName(value) {
-  return String(value || '')
-    .trim()
-    .replace(/\s+/g, ' ');
-}
-
-function slugifyFileStem(value) {
-  const normalized = sanitizeName(value)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-
-  return normalized || 'note';
-}
-
-function yamlQuote(value) {
-  return `"${String(value || '')
-    .replace(/\\/g, '\\\\')
-    .replace(/\n/g, '\\n')
-    .replace(/"/g, '\\"')}"`;
-}
-
-function normalizeArray(value) {
-  if (Array.isArray(value)) {
-    return [...new Set(value.map((item) => sanitizeName(item)).filter(Boolean))];
-  }
-
-  if (typeof value === 'string') {
-    return [...new Set(value.split(',').map((item) => sanitizeName(item)).filter(Boolean))];
-  }
-
-  return [];
-}
-
-function parseDate(value) {
-  if (!value) {
-    return null;
-  }
-
-  if (typeof value === 'string') {
-    const short = value.trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(short)) {
-      return short;
-    }
-
-    const asDate = new Date(short);
-    if (!Number.isNaN(asDate.getTime())) {
-      return asDate.toISOString().slice(0, 10);
-    }
-
-    return null;
-  }
-
-  if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value.toISOString().slice(0, 10);
-  }
-
-  return null;
-}
-
-function normalizeHexColor(value) {
-  const raw = String(value || '').trim().toLowerCase();
-  if (!raw) {
-    return '';
-  }
-
-  const withHash = raw.startsWith('#') ? raw : `#${raw}`;
-  if (/^#[0-9a-f]{3}$/.test(withHash)) {
-    const expanded = withHash
-      .slice(1)
-      .split('')
-      .map((char) => `${char}${char}`)
-      .join('');
-    return `#${expanded}`;
-  }
-
-  if (/^#[0-9a-f]{6}$/.test(withHash)) {
-    return withHash;
-  }
-
-  return '';
-}
-
-function normalizeVersion(value) {
-  const raw = String(value || '')
-    .trim()
-    .replace(/^v/i, '')
-    .split('-')[0];
-
-  const parts = raw
-    .split('.')
-    .map((part) => Number.parseInt(part, 10))
-    .filter((part) => Number.isFinite(part));
-
-  while (parts.length < 3) {
-    parts.push(0);
-  }
-
-  return parts.slice(0, 3);
-}
-
-function compareVersions(left, right) {
-  const a = normalizeVersion(left);
-  const b = normalizeVersion(right);
-
-  for (let i = 0; i < 3; i += 1) {
-    if (a[i] > b[i]) {
-      return 1;
-    }
-
-    if (a[i] < b[i]) {
-      return -1;
-    }
-  }
-
-  return 0;
-}
-
-function extractFirstHeading(text) {
-  const match = text.match(/^#\s+(.+)$/m);
-  return match ? sanitizeName(match[1]) : '';
-}
-
-function extractFilenameDate(filePath) {
-  const match = path.basename(filePath).match(/(\d{4}-\d{2}-\d{2})/);
-  return match ? match[1] : null;
-}
-
-function parseHashtags(text) {
-  const matches = text.match(/(?:^|\s)#([a-zA-Z0-9_-]+)/g) || [];
-  return [...new Set(matches.map((entry) => entry.replace(/[#\s]/g, '').trim()).filter(Boolean))];
-}
-
-const TRANSCRIPT_TAG_CANDIDATES = new Set([
-  'transcript',
-  'transcription',
-  'transcribed',
-  'recording',
-  'audio',
-  'voice',
-  'conversation'
-]);
-
-function hasTranscriptKeyword(value) {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-
-  if (TRANSCRIPT_TAG_CANDIDATES.has(normalized)) {
-    return true;
-  }
-
-  return /\b(transcript|transcription|transcribed|recording|audio|voice)\b/.test(normalized);
-}
-
-function parseJsonObject(rawValue) {
-  if (!rawValue) {
-    return {};
-  }
-
-  if (typeof rawValue === 'object' && !Array.isArray(rawValue)) {
-    return rawValue;
-  }
-
-  try {
-    const parsed = JSON.parse(String(rawValue));
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed;
-    }
-  } catch {
-    return {};
-  }
-
-  return {};
-}
-
-function isTruthyFlag(value) {
-  if (value === true || value === 1) {
-    return true;
-  }
-
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    return normalized === 'true' || normalized === 'yes' || normalized === '1';
-  }
-
-  return false;
-}
-
-function looksLikeSpeakerTranscript(text) {
-  const lines = String(text || '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, 280);
-
-  if (lines.length < 6) {
-    return false;
-  }
-
-  const labels = new Set();
-  let turns = 0;
-  const patterns = [
-    /^([A-Za-z][A-Za-z0-9 _-]{1,30}):\s+\S+/,
-    /^(Speaker\s*\d+):\s+\S+/i,
-    /^\[\d{1,2}:\d{2}(?::\d{2})?\]\s*([A-Za-z][A-Za-z0-9 _-]{1,30}):\s+\S+/,
-    /^([A-Za-z][A-Za-z0-9 _-]{1,30})\s+\(\d{1,2}:\d{2}(?::\d{2})?\):\s+\S+/
-  ];
-
-  for (const line of lines) {
-    for (const pattern of patterns) {
-      const match = line.match(pattern);
-      if (!match) {
-        continue;
-      }
-
-      const label = sanitizeName(match[1]).toLowerCase();
-      if (label) {
-        labels.add(label);
-      }
-      turns += 1;
-      break;
-    }
-  }
-
-  return turns >= 6 && labels.size >= 2;
-}
-
-function isTranscriptFrontmatter(frontmatter) {
-  const meta = frontmatter && typeof frontmatter === 'object' ? frontmatter : {};
-  const directFlags = [
-    meta.transcript,
-    meta.is_transcript,
-    meta.isTranscript,
-    meta.transcribed,
-    meta.is_transcribed,
-    meta.isTranscribed,
-    meta.is_audio_recording,
-    meta.isAudioRecording
-  ];
-  if (directFlags.some((value) => isTruthyFlag(value))) {
-    return true;
-  }
-
-  if (Array.isArray(meta.speakers) && meta.speakers.length > 1) {
-    return true;
-  }
-
-  const candidateValues = [
-    meta.type,
-    meta.note_type,
-    meta.noteType,
-    meta.kind,
-    meta.category,
-    meta.format,
-    meta.source,
-    meta.origin,
-    meta.generated_by,
-    meta.generatedBy,
-    meta.app,
-    meta.document_type,
-    meta.documentType,
-    meta.content_type,
-    meta.contentType,
-    meta.recording_source,
-    meta.recordingSource
-  ];
-
-  return candidateValues.some((value) => hasTranscriptKeyword(value));
-}
-
-function inferTranscriptTag(frontmatter, notePath, title, bodyText, tags = []) {
-  if (normalizeArray(tags).some((value) => hasTranscriptKeyword(value))) {
-    return true;
-  }
-
-  if (isTranscriptFrontmatter(frontmatter)) {
-    return true;
-  }
-
-  if (hasTranscriptKeyword(path.basename(String(notePath || '')))) {
-    return true;
-  }
-
-  if (hasTranscriptKeyword(title)) {
-    return true;
-  }
-
-  return looksLikeSpeakerTranscript(bodyText);
-}
-
-function isTranscriptLikeCandidate(row) {
-  const tags = normalizeArray(row?.note_tags || '');
-  const metadata = parseJsonObject(row?.metadata_json);
-  return inferTranscriptTag(metadata, row?.note_path, row?.note_title, row?.content, tags);
-}
-
-function isClientProfilePath(filePath) {
-  return path.basename(String(filePath || '')).toLowerCase() === CLIENT_PROFILE_FILE.toLowerCase();
-}
-
-function parseMetadata(content, filePath, rootFolder) {
-  let data = {};
-  let body = content;
-
-  try {
-    const parsed = matter(content);
-    data = parsed.data || {};
-    body = parsed.content || content;
-  } catch {
-    data = {};
-    body = content;
-  }
-
-  const inlineClients = [
-    ...normalizeArray(data.clients),
-    ...normalizeArray(data.client)
-  ];
-
-  const tags = [
-    ...normalizeArray(data.tags),
-    ...parseHashtags(body)
-  ];
-
-  const relativePath = path.relative(rootFolder, filePath);
-  let firstSegment = '';
-  if (relativePath && !relativePath.startsWith('..')) {
-    const segments = relativePath.split(path.sep).filter(Boolean);
-    // Only treat first segment as client when file is nested under a subfolder.
-    if (segments.length > 1) {
-      firstSegment = sanitizeName(segments[0]);
-    }
-  }
-
-  const profilePath = isClientProfilePath(filePath);
-  const title = profilePath
-    ? 'Client Profile'
-    : sanitizeName(data.title) || extractFirstHeading(body) || path.basename(filePath, path.extname(filePath));
-  const profileDate = profilePath ? parseDate(data.updated_at || data.updatedAt) : null;
-
-  const mergedTags = [...new Set(tags)];
-  if (
-    inferTranscriptTag(data, filePath, title, body, mergedTags)
-    && !mergedTags.some((value) => value.toLowerCase() === 'transcript')
-  ) {
-    mergedTags.push('transcript');
-  }
-
-  return {
-    title,
-    date: profileDate || parseDate(data.date) || extractFilenameDate(filePath),
-    inlineClients: [...new Set(inlineClients)],
-    folderClient: firstSegment,
-    tags: mergedTags,
-    bodyText: body,
-    frontmatter: data
-  };
-}
-
-async function getUniqueFilePath(directory, baseStem, extension = '.md') {
-  let suffix = 1;
-  while (suffix < 10000) {
-    const candidate = suffix === 1
-      ? path.join(directory, `${baseStem}${extension}`)
-      : path.join(directory, `${baseStem}-${suffix}${extension}`);
-
-    try {
-      await fsp.access(candidate, fs.constants.F_OK);
-      suffix += 1;
-    } catch {
-      return candidate;
-    }
-  }
-
-  throw new Error('Could not create a unique filename.');
-}
-
-function getClientFolderNames(rootFolder) {
-  if (!rootFolder || !fs.existsSync(rootFolder)) {
-    return [];
-  }
-
-  const names = [];
-  const entries = fs.readdirSync(rootFolder, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory()) {
-      continue;
-    }
-
-    if (entry.name.startsWith('.')) {
-      continue;
-    }
-
-    if (entry.name === DELETED_NOTES_DIRNAME) {
-      continue;
-    }
-
-    const normalized = sanitizeName(entry.name).toLowerCase();
-    if (normalized) {
-      names.push(normalized);
-    }
-  }
-
-  return names;
-}
-
-function findClientDirectory(rootFolder, clientRow) {
-  const preferred = path.join(rootFolder, clientRow.display_name || '');
-  if (clientRow.display_name && fs.existsSync(preferred) && fs.statSync(preferred).isDirectory()) {
-    return preferred;
-  }
-
-  if (!rootFolder || !fs.existsSync(rootFolder)) {
-    return preferred;
-  }
-
-  const entries = fs.readdirSync(rootFolder, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith('.')) {
-      continue;
-    }
-
-    if (entry.name === DELETED_NOTES_DIRNAME) {
-      continue;
-    }
-
-    const normalized = sanitizeName(entry.name).toLowerCase();
-    if (normalized === String(clientRow.name || '').toLowerCase()) {
-      return path.join(rootFolder, entry.name);
-    }
-  }
-
-  return preferred;
-}
-
-function normalizeFocusList(values, maxItems = 80) {
-  return normalizeArray(values)
-    .map((value) => sanitizeName(value))
-    .filter(Boolean)
-    .slice(0, maxItems);
-}
-
-function normalizeMultilineText(value, maxChars = 4000) {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => String(item || '').trim())
-      .filter(Boolean)
-      .join('\n')
-      .slice(0, maxChars)
-      .trim();
-  }
-
-  return String(value || '')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-    .slice(0, maxChars);
-}
-
-function parseClientProfileContent(content) {
-  let data = {};
-  try {
-    const parsed = matter(content);
-    data = parsed.data || {};
-  } catch {
-    data = {};
-  }
-
-  return {
-    topPriorities: normalizeFocusList(data.top_priorities || data.topPriorities || data.current_focus || data.currentFocus, 3),
-    clientTags: normalizeFocusList(data.client_tags || data.clientTags || data.profile_tags || data.profileTags, 40),
-    sidebarTags: normalizeFocusList(data.sidebar_tags || data.sidebarTags || data.top_tags || data.topTags, CLIENT_SIDEBAR_TAG_LIMIT),
-    clientColor: normalizeHexColor(data.client_color || data.clientColor || data.color),
-    coachNotes: normalizeMultilineText(data.coach_notes || data.coachNotes || data.notes || data.profile_notes || data.profileNotes),
-    exerciseAtAGlance: normalizeFocusList(data.exercise_at_a_glance || data.exerciseAtAGlance || data.exercise_notes || data.exerciseNotes),
-    ongoingMedicalConsiderations: normalizeFocusList(
-      data.ongoing_medical_considerations
-      || data.ongoingMedicalConsiderations
-      || data.medical_considerations
-      || data.medicalConsiderations
-    ),
-    acuteInjuries: normalizeFocusList(data.acute_injuries || data.acuteInjuries),
-    completedFocus: normalizeFocusList(data.completed_focus || data.completedFocus),
-    futureFocus: normalizeFocusList(data.future_focus || data.futureFocus),
-    updatedAt: parseDate(data.updated_at || data.updatedAt) || null
-  };
-}
-
-function inferProfileClientName(rawText, metadata) {
-  const folderClient = sanitizeName(metadata?.folderClient || '');
-  if (folderClient) {
-    return folderClient;
-  }
-
-  const inlineClient = sanitizeName(metadata?.inlineClients?.[0] || '');
-  if (inlineClient) {
-    return inlineClient;
-  }
-
-  const heading = sanitizeName(extractFirstHeading(rawText));
-  if (!heading) {
-    return '';
-  }
-
-  return heading.replace(/\s+focus profile$/i, '').trim();
-}
-
-function buildClientProfileIndexText(rawText, metadata, parsedProfile) {
-  const profile = parsedProfile || parseClientProfileContent(rawText);
-  const clientName = inferProfileClientName(rawText, metadata) || 'Unknown client';
-
-  function listLine(label, values) {
-    const items = normalizeFocusList(values || []);
-    return `${label}: ${items.length ? items.join(', ') : '(none)'}`;
-  }
-
-  const lines = [
-    'Document: Client Profile',
-    `Client: ${clientName}`,
-    listLine('Tags', profile.clientTags),
-    listLine('Sidebar Tags', profile.sidebarTags),
-    listLine('Top Priorities', profile.topPriorities),
-    `Coach Notes: ${profile.coachNotes ? profile.coachNotes.replace(/\n/g, ' ') : '(none)'}`,
-    listLine('Exercise At-a-Glance', profile.exerciseAtAGlance),
-    listLine('Ongoing Medical Considerations', profile.ongoingMedicalConsiderations),
-    listLine('Acute Injuries', profile.acuteInjuries),
-    listLine('Completed Focus', profile.completedFocus),
-    listLine('Future Focus', profile.futureFocus)
-  ];
-
-  if (profile.updatedAt) {
-    lines.push(`Profile Updated: ${profile.updatedAt}`);
-  }
-
-  return lines.join('\n');
-}
-
-function buildClientProfileContent({
-  clientName,
-  topPriorities,
-  clientTags,
-  sidebarTags,
-  clientColor,
-  coachNotes,
-  exerciseAtAGlance,
-  ongoingMedicalConsiderations,
-  acuteInjuries,
-  completedFocus,
-  futureFocus,
-  updatedAt
-}) {
-  const lines = ['---'];
-
-  function appendList(key, items) {
-    lines.push(`${key}:`);
-    if (!items.length) {
-      lines.push('  []');
-      return;
-    }
-
-    for (const item of items) {
-      lines.push(`  - ${yamlQuote(item)}`);
-    }
-  }
-
-  appendList('top_priorities', topPriorities);
-  appendList('client_tags', clientTags);
-  appendList('sidebar_tags', sidebarTags);
-  lines.push(`client_color: ${yamlQuote(clientColor)}`);
-  lines.push(`coach_notes: ${yamlQuote(coachNotes)}`);
-  appendList('exercise_at_a_glance', exerciseAtAGlance);
-  appendList('ongoing_medical_considerations', ongoingMedicalConsiderations);
-  appendList('acute_injuries', acuteInjuries);
-  appendList('completed_focus', completedFocus);
-  appendList('future_focus', futureFocus);
-  lines.push(`updated_at: ${yamlQuote(updatedAt)}`);
-  lines.push('---', '', `# ${clientName} Focus Profile`, '', 'Managed by CoachNotes.');
-  return `${lines.join('\n')}\n`;
-}
-
-function buildStructuredNoteContent({ title, noteDate, clientName, tags, body }) {
-  const frontmatterLines = [
-    '---',
-    `date: ${yamlQuote(noteDate)}`,
-    `tags: [${tags.map((tag) => yamlQuote(tag)).join(', ')}]`
-  ];
-
-  if (clientName) {
-    frontmatterLines.splice(1, 0, `client: ${yamlQuote(clientName)}`);
-  }
-
-  frontmatterLines.push('---', '', `# ${title}`, '');
-  return `${frontmatterLines.join('\n')}${body ? `${body}\n` : ''}`;
-}
-
-function buildChunks(text, targetSize = 2200, maxSize = 3200, overlap = 300) {
-  const source = String(text || '');
-  const chunks = [];
-  if (!source.trim()) {
-    return chunks;
-  }
-
-  let start = 0;
-  let guard = 0;
-
-  while (start < source.length && guard < 10000) {
-    guard += 1;
-    const tentative = Math.min(start + targetSize, source.length);
-    let end = tentative;
-
-    if (end < source.length) {
-      const forwardWindowEnd = Math.min(start + maxSize, source.length);
-      const forwardSlice = source.slice(tentative, forwardWindowEnd);
-      const forwardBreak = forwardSlice.search(/\n{2,}/);
-
-      if (forwardBreak >= 0) {
-        end = tentative + forwardBreak + 2;
-      } else {
-        const backSlice = source.slice(start, tentative);
-        const backBreak = backSlice.lastIndexOf('\n\n');
-        if (backBreak > targetSize * 0.4) {
-          end = start + backBreak + 2;
-        }
-      }
-    }
-
-    const raw = source.slice(start, end);
-    const trimmed = raw.trim();
-    if (trimmed) {
-      const leftTrim = raw.indexOf(trimmed);
-      const chunkStart = start + (leftTrim >= 0 ? leftTrim : 0);
-      const chunkEnd = chunkStart + trimmed.length;
-      chunks.push({
-        content: trimmed,
-        startOffset: chunkStart,
-        endOffset: chunkEnd
-      });
-    }
-
-    if (end >= source.length) {
-      break;
-    }
-
-    const nextStart = Math.max(end - overlap, start + 1);
-    start = nextStart;
-  }
-
-  if (chunks.length === 0) {
-    chunks.push({
-      content: source.trim(),
-      startOffset: 0,
-      endOffset: source.trim().length
-    });
-  }
-
-  return chunks;
-}
-
-function buildUnsupportedSummary(counterMap) {
-  const entries = [...counterMap.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([ext, count]) => `${ext} (${count})`);
-
-  return entries.join(', ');
-}
-
-function normalizeTextContent(input) {
-  return String(input || '')
-    .replace(/\u0000/g, ' ')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
-async function getPdfJsModule() {
-  if (!pdfJsModulePromise) {
-    pdfJsModulePromise = import('pdfjs-dist/legacy/build/pdf.mjs');
-  }
-
-  return pdfJsModulePromise;
-}
-
-async function extractPdfText(filePath) {
-  const pdfJs = await getPdfJsModule();
-  const fileBuffer = await fsp.readFile(filePath);
-  const loadingTask = pdfJs.getDocument({
-    data: new Uint8Array(fileBuffer),
-    disableWorker: true,
-    verbosity: pdfJs.VerbosityLevel.ERRORS
-  });
-
-  const pdfDocument = await loadingTask.promise;
-  const pages = [];
-
-  for (let pageNum = 1; pageNum <= pdfDocument.numPages; pageNum += 1) {
-    const page = await pdfDocument.getPage(pageNum);
-    const textContent = await page.getTextContent();
-    const pageText = textContent.items
-      .map((item) => ('str' in item ? item.str : ''))
-      .join(' ');
-    pages.push(pageText);
-  }
-
-  return pages.join('\n\n');
-}
-
-async function readNoteText(filePath) {
-  const extension = path.extname(filePath).toLowerCase();
-  if (extension === '.pdf') {
-    const text = normalizeTextContent(await extractPdfText(filePath));
-    if (!text) {
-      throw new Error('PDF contains no extractable text.');
-    }
-
-    return text;
-  }
-
-  const raw = await fsp.readFile(filePath, 'utf8');
-  return normalizeTextContent(raw);
-}
-
-async function scanNoteFiles(rootFolder) {
-  const supported = [];
-  let unsupportedCount = 0;
-  const unsupportedByExt = new Map();
-
-  async function walk(currentPath) {
-    const entries = await fsp.readdir(currentPath, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.name.startsWith('.')) {
-        continue;
-      }
-
-      const fullPath = path.join(currentPath, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name === DELETED_NOTES_DIRNAME) {
-          continue;
-        }
-        await walk(fullPath);
-        continue;
-      }
-
-      if (!entry.isFile()) {
-        continue;
-      }
-
-      const ext = path.extname(entry.name).toLowerCase();
-      if (SUPPORTED_EXTENSIONS.has(ext)) {
-        supported.push(fullPath);
-      } else {
-        unsupportedCount += 1;
-        const key = ext || '(no extension)';
-        unsupportedByExt.set(key, (unsupportedByExt.get(key) || 0) + 1);
-      }
-    }
-  }
-
-  await walk(rootFolder);
-  return {
-    supported,
-    unsupportedCount,
-    unsupportedSummary: buildUnsupportedSummary(unsupportedByExt)
-  };
-}
-
-function ensureClient(name) {
-  const normalized = sanitizeName(name);
-  if (!normalized) {
-    return null;
-  }
-
-  db.prepare(
-    `INSERT INTO clients (name, display_name) VALUES (?, ?)
-     ON CONFLICT(name) DO UPDATE SET display_name = excluded.display_name`
-  ).run(normalized.toLowerCase(), normalized);
-
-  const row = db.prepare('SELECT id FROM clients WHERE name = ?').get(normalized.toLowerCase());
-  return row?.id ?? null;
-}
-
-function ensureTag(name) {
-  const normalized = sanitizeName(name);
-  if (!normalized) {
-    return null;
-  }
-
-  db.prepare('INSERT INTO tags (name) VALUES (?) ON CONFLICT(name) DO NOTHING').run(normalized.toLowerCase());
-  const row = db.prepare('SELECT id FROM tags WHERE name = ?').get(normalized.toLowerCase());
-  return row?.id ?? null;
-}
-
-async function callProxy(endpoint, payload, settings) {
-  const baseUrl = (settings.proxyBaseUrl || '').trim().replace(/\/$/, '');
-  const token = (settings.inviteToken || '').trim();
+async function callProxy(endpoint, payload, settings = getAppSettings()) {
+  const baseUrl = String(settings.proxyBaseUrl || '').trim().replace(/\/$/, '');
+  const token = String(settings.inviteToken || '').trim();
   if (!baseUrl || !token) {
     throw new Error('Proxy URL or invite token is missing in Settings.');
   }
@@ -1184,1703 +316,713 @@ async function callProxy(endpoint, payload, settings) {
   return data;
 }
 
-async function callProxyStream(endpoint, payload, settings, onEvent) {
-  const baseUrl = (settings.proxyBaseUrl || '').trim().replace(/\/$/, '');
-  const token = (settings.inviteToken || '').trim();
-  if (!baseUrl || !token) {
-    throw new Error('Proxy URL or invite token is missing in Settings.');
+function ensureClient(name) {
+  const displayName = sanitizeName(name);
+  if (!displayName) {
+    return null;
   }
+  const key = displayName.toLowerCase();
+  db.prepare(
+    `INSERT INTO clients (name, display_name, archived, archived_at) VALUES (?, ?, 0, NULL)
+     ON CONFLICT(name) DO UPDATE SET display_name = excluded.display_name, archived = 0, archived_at = NULL`
+  ).run(key, displayName);
+  return db.prepare('SELECT id FROM clients WHERE name = ?').get(key)?.id || null;
+}
 
-  const response = await fetch(`${baseUrl}${endpoint}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`
-    },
-    body: JSON.stringify(payload)
+function normalizeIntakeSourceType(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  const allowed = new Set(['everfit', 'chatgpt', 'transcript', 'check-in', 'message', 'pdf', 'notes', 'manual', 'other']);
+  return allowed.has(normalized) ? normalized : 'other';
+}
+
+function normalizeIntakeSources(values) {
+  const sources = Array.isArray(values) ? values : [];
+  return sources.map((source, index) => {
+    const rawText = normalizeTextContent(source?.rawText || source?.text || '');
+    if (!rawText) {
+      return null;
+    }
+    return {
+      title: sanitizeName(source?.title || '') || `Intake Source ${index + 1}`,
+      sourceType: normalizeIntakeSourceType(source?.sourceType || source?.source_type || source?.type),
+      sourceDate: parseDate(source?.sourceDate || source?.date) || '',
+      annotation: normalizeMultilineText(source?.annotation || '', 1200),
+      originalPath: String(source?.originalPath || source?.path || '').trim(),
+      rawText
+    };
+  }).filter(Boolean);
+}
+
+function buildIntakeSourceContent({ title, clientName, sourceType, sourceDate, annotation, originalPath, rawText }) {
+  const frontmatter = [
+    '---',
+    `client: ${yamlQuote(clientName)}`,
+    `date: ${yamlQuote(sourceDate || new Date().toISOString().slice(0, 10))}`,
+    `source_type: ${yamlQuote(sourceType)}`,
+    `tags: ["intake-source", ${yamlQuote(sourceType)}]`
+  ];
+  if (annotation) {
+    frontmatter.push(`coach_annotation: ${yamlQuote(annotation)}`);
+  }
+  if (originalPath) {
+    frontmatter.push(`original_path: ${yamlQuote(originalPath)}`);
+  }
+  frontmatter.push('---', '', `# ${title}`, '');
+
+  const metaLines = [
+    annotation ? `Coach annotation: ${annotation}` : '',
+    originalPath ? `Original file: ${originalPath}` : ''
+  ].filter(Boolean);
+
+  return `${frontmatter.join('\n')}${metaLines.length ? `${metaLines.join('\n')}\n\n` : ''}${String(rawText || '').trim()}\n`;
+}
+
+async function saveIntakeSource({ clientId, clientName, rootFolder, source }) {
+  const importDirectory = path.join(rootFolder, clientName, CLIENT_IMPORTS_DIRNAME);
+  await fsp.mkdir(importDirectory, { recursive: true });
+
+  const sourceDate = source.sourceDate || new Date().toISOString().slice(0, 10);
+  const stem = `${sourceDate}-${source.sourceType}-${slugifyFileStem(source.title)}`.slice(0, 140);
+  const vaultPath = await getUniqueFilePath(importDirectory, stem, '.md');
+  const content = buildIntakeSourceContent({
+    ...source,
+    clientName,
+    sourceDate
   });
 
-  if (!response.ok) {
-    const text = await response.text();
-    let data;
-    try {
-      data = text ? JSON.parse(text) : {};
-    } catch {
-      data = { error: text || 'Invalid JSON from proxy.' };
-    }
-    throw new Error(data.error || `Proxy request failed (${response.status}).`);
-  }
+  await fsp.writeFile(vaultPath, content, 'utf8');
+  const result = db.prepare(
+    `INSERT INTO intake_sources
+      (client_id, title, source_type, source_date, annotation, original_path, vault_path, raw_text, created_at, metadata_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    clientId,
+    source.title,
+    source.sourceType,
+    sourceDate,
+    source.annotation,
+    source.originalPath,
+    vaultPath,
+    source.rawText,
+    nowIso(),
+    JSON.stringify({})
+  );
 
-  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
-  if (!contentType.includes('application/x-ndjson')) {
-    const text = await response.text();
-    let data;
-    try {
-      data = text ? JSON.parse(text) : {};
-    } catch {
-      data = { error: text || 'Invalid JSON from proxy.' };
-    }
-    return data;
-  }
-
-  if (!response.body) {
-    throw new Error('Proxy stream did not include a response body.');
-  }
-
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let completed = null;
-  for await (const chunk of response.body) {
-    buffer += decoder.decode(chunk, { stream: true });
-    while (true) {
-      const newline = buffer.indexOf('\n');
-      if (newline < 0) {
-        break;
-      }
-
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
-      if (!line) {
-        continue;
-      }
-
-      let event;
-      try {
-        event = JSON.parse(line);
-      } catch {
-        continue;
-      }
-
-      if (typeof onEvent === 'function') {
-        onEvent(event);
-      }
-
-      if (event?.type === 'error') {
-        throw new Error(event.error || 'Proxy stream failed.');
-      }
-      if (event?.type === 'done' && event.data && typeof event.data === 'object') {
-        completed = event.data;
-      }
-    }
-  }
-
-  buffer += decoder.decode();
-  const tail = buffer.trim();
-  if (tail) {
-    let event = null;
-    try {
-      event = JSON.parse(tail);
-    } catch {
-      event = null;
-    }
-
-    if (event) {
-      if (typeof onEvent === 'function') {
-        onEvent(event);
-      }
-      if (event?.type === 'error') {
-        throw new Error(event.error || 'Proxy stream failed.');
-      }
-      if (event?.type === 'done' && event.data && typeof event.data === 'object') {
-        completed = event.data;
-      }
-    }
-  }
-
-  if (completed && typeof completed === 'object') {
-    return completed;
-  }
-
-  throw new Error('Proxy stream ended without a completion payload.');
+  return {
+    id: result.lastInsertRowid,
+    sourceId: `intake_source_${result.lastInsertRowid}`,
+    title: source.title,
+    sourceType: source.sourceType,
+    sourceDate,
+    annotation: source.annotation,
+    originalPath: source.originalPath,
+    vaultPath,
+    rawText: source.rawText
+  };
 }
 
-async function embedTexts(inputs, settings) {
-  const vectors = new Map();
-  const batchSize = 32;
+function buildWorkflowSourcePayload(records) {
+  const payload = [];
+  let remaining = MAX_WORKFLOW_CHARS;
 
-  for (let i = 0; i < inputs.length; i += batchSize) {
-    const batch = inputs.slice(i, i + batchSize);
-    const payload = {
-      model: DEFAULT_EMBED_MODEL,
-      inputs: batch.map((item) => ({ id: item.id, text: item.text }))
-    };
-
-    const result = await callProxy('/embed', payload, settings);
-    for (const row of result.data || []) {
-      if (row.id && Array.isArray(row.embedding)) {
-        vectors.set(row.id, row.embedding);
-      }
+  for (const record of records) {
+    if (remaining <= 0) {
+      break;
     }
-  }
-
-  return vectors;
-}
-
-async function verifyEmbeddingProxy(settings) {
-  if (!settings?.proxyBaseUrl || !settings?.inviteToken) {
-    return {
-      ok: false,
-      error: 'Proxy URL or invite token is missing in Settings.'
-    };
-  }
-
-  try {
-    await callProxy(
-      '/embed',
-      {
-        model: DEFAULT_EMBED_MODEL,
-        inputs: [{ id: 'healthcheck', text: 'proxy check' }]
-      },
-      settings
-    );
-    return { ok: true };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error.message
-    };
-  }
-}
-
-function keywordScore(text, title, terms) {
-  if (terms.length === 0) {
-    return 0;
-  }
-
-  const corpus = `${title || ''}\n${text || ''}`.toLowerCase();
-  let hits = 0;
-  for (const term of terms) {
-    if (!term) {
+    const raw = String(record.rawText || '').trim();
+    if (!raw) {
       continue;
     }
-
-    if (corpus.includes(term)) {
-      hits += 1;
-    }
+    const text = raw.length > remaining
+      ? `${raw.slice(0, Math.max(0, remaining - 120))}\n\n[Truncated by CoachNotes before AI intake.]`
+      : raw;
+    remaining -= text.length;
+    payload.push({
+      source_id: record.sourceId,
+      title: record.title,
+      source_type: record.sourceType,
+      date: record.sourceDate,
+      annotation: record.annotation,
+      text
+    });
   }
 
-  return hits / terms.length;
+  return payload;
 }
 
-function cosineSimilarity(vecA, vecB) {
-  if (!Array.isArray(vecA) || !Array.isArray(vecB) || vecA.length !== vecB.length) {
-    return 0;
-  }
-
-  let dot = 0;
-  let magA = 0;
-  let magB = 0;
-
-  for (let i = 0; i < vecA.length; i += 1) {
-    const a = Number(vecA[i]) || 0;
-    const b = Number(vecB[i]) || 0;
-    dot += a * b;
-    magA += a * a;
-    magB += b * b;
-  }
-
-  if (magA === 0 || magB === 0) {
-    return 0;
-  }
-
-  return dot / (Math.sqrt(magA) * Math.sqrt(magB));
-}
-
-function buildSnippet(text, query) {
-  const clean = String(text || '').replace(/\s+/g, ' ').trim();
-  if (!clean) {
-    return '';
-  }
-
-  const lower = clean.toLowerCase();
-  const token = String(query || '').toLowerCase().split(/\s+/).find((part) => part.length > 2);
-  if (!token) {
-    return clean.slice(0, 220);
-  }
-
-  const index = lower.indexOf(token);
-  if (index < 0) {
-    return clean.slice(0, 220);
-  }
-
-  const start = Math.max(0, index - 80);
-  const end = Math.min(clean.length, index + 180);
-  const prefix = start > 0 ? '...' : '';
-  const suffix = end < clean.length ? '...' : '';
-  return `${prefix}${clean.slice(start, end)}${suffix}`;
-}
-
-function parseRelevanceMode(value) {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'narrow' || normalized === 'wide') {
-    return normalized;
-  }
-
-  return 'default';
-}
-
-function relevanceProfile(mode) {
-  const profiles = {
-    narrow: {
-      relativeToBest: 0.68,
-      absoluteFloor: 0.18,
-      keywordFloor: 0.5
-    },
-    default: {
-      relativeToBest: 0.52,
-      absoluteFloor: 0.1,
-      keywordFloor: 0.25
-    },
-    wide: {
-      relativeToBest: 0.34,
-      absoluteFloor: 0.03,
-      keywordFloor: 0.12
-    }
-  };
-
-  return profiles[parseRelevanceMode(mode)];
-}
-
-function parseNoteKind(value) {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'transcript') {
-    return 'transcript';
-  }
-
-  return 'all';
-}
-
-function parseSummaryMode(value) {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (
-    normalized === 'coaching_conversation'
-    || normalized === 'conversation'
-    || normalized === 'coaching_transcript'
-  ) {
-    return 'coaching_conversation';
-  }
-
-  return 'search_results';
-}
-
-function isTimeoutLikeError(error) {
-  const message = String(error?.message || error || '');
-  return /FUNCTION_INVOCATION_TIMEOUT|timeout|timed out/i.test(message);
-}
-
-async function upsertFileIndex(filePath, stat, rootFolder, appSettings, forceRebuild = false, diagnostics = null) {
-  const rawText = await readNoteText(filePath);
-  const hash = sha1(rawText);
-  const mtimeMs = Math.floor(stat.mtimeMs);
-  const existing = db
-    .prepare('SELECT id, sha1 FROM notes WHERE path = ?')
-    .get(filePath);
-
-  if (existing && existing.sha1 === hash && !forceRebuild) {
-    db.prepare('UPDATE notes SET mtime_ms = ?, size = ?, updated_at = ? WHERE id = ?').run(
-      mtimeMs,
-      stat.size,
-      nowIso(),
-      existing.id
-    );
-    return false;
-  }
-
-  const metadata = parseMetadata(rawText, filePath, rootFolder);
-  if (isClientProfilePath(filePath)) {
-    const profile = parseClientProfileContent(rawText);
-    const profileClientName = inferProfileClientName(rawText, metadata);
-    if (profileClientName && !metadata.inlineClients.length) {
-      metadata.inlineClients = [profileClientName];
-    }
-    if (profileClientName) {
-      metadata.folderClient = profileClientName;
-    }
-    metadata.title = 'Client Profile';
-    metadata.bodyText = buildClientProfileIndexText(rawText, metadata, profile);
-  }
-
-  if (existing) {
-    db.prepare(
-      `UPDATE notes
-       SET title = ?, date = ?, raw_text = ?, mtime_ms = ?, size = ?, sha1 = ?, metadata_json = ?, updated_at = ?
-       WHERE id = ?`
-    ).run(
-      metadata.title,
-      metadata.date,
-      rawText,
-      mtimeMs,
-      stat.size,
-      hash,
-      JSON.stringify(metadata.frontmatter || {}),
-      nowIso(),
-      existing.id
-    );
-  } else {
-    db.prepare(
-      `INSERT INTO notes (path, title, date, raw_text, mtime_ms, size, sha1, metadata_json, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      filePath,
-      metadata.title,
-      metadata.date,
-      rawText,
-      mtimeMs,
-      stat.size,
-      hash,
-      JSON.stringify(metadata.frontmatter || {}),
-      nowIso()
-    );
-  }
-
-  const note = db.prepare('SELECT id FROM notes WHERE path = ?').get(filePath);
-  if (!note) {
-    throw new Error(`Failed to create note index for ${filePath}`);
-  }
-
-  const noteId = note.id;
-
-  db.prepare('DELETE FROM note_clients WHERE note_id = ?').run(noteId);
-  db.prepare('DELETE FROM note_tags WHERE note_id = ?').run(noteId);
-  db.prepare('DELETE FROM chunks WHERE note_id = ?').run(noteId);
-
-  const override = db.prepare('SELECT clients_json, tags_json FROM note_overrides WHERE note_id = ?').get(noteId);
-  const hasOverrideClients = override && override.clients_json !== null;
-  const hasOverrideTags = override && override.tags_json !== null;
-
-  const overrideClients = hasOverrideClients ? normalizeArray(JSON.parse(override.clients_json || '[]')) : [];
-  const overrideTags = hasOverrideTags ? normalizeArray(JSON.parse(override.tags_json || '[]')) : [];
-
-  const resolvedClients = hasOverrideClients
-    ? overrideClients
-    : metadata.inlineClients.length
-      ? metadata.inlineClients
-      : metadata.folderClient
-        ? [metadata.folderClient]
-        : [];
-
-  const resolvedTags = hasOverrideTags ? overrideTags : metadata.tags;
-
-  for (const clientName of resolvedClients) {
-    const clientId = ensureClient(clientName);
-    if (clientId) {
-      db.prepare('INSERT OR IGNORE INTO note_clients (note_id, client_id) VALUES (?, ?)').run(noteId, clientId);
-    }
-  }
-
-  for (const tagName of resolvedTags) {
-    const tagId = ensureTag(tagName);
-    if (tagId) {
-      db.prepare('INSERT OR IGNORE INTO note_tags (note_id, tag_id) VALUES (?, ?)').run(noteId, tagId);
-    }
-  }
-
-  const chunks = buildChunks(metadata.bodyText || rawText);
-  const contextualChunks = chunks.map((chunk, idx) => {
-    const chunkId = `${noteId}_chunk_${idx}`;
-    const clientLabel = resolvedClients.length ? resolvedClients.join(', ') : 'Unknown';
-    const dateLabel = metadata.date || 'Unknown date';
-    const enrichedText = `Title: ${metadata.title}\nClient: ${clientLabel}\nDate: ${dateLabel}\n\n${chunk.content}`;
-    return {
-      id: chunkId,
-      text: enrichedText,
-      content: chunk.content,
-      startOffset: chunk.startOffset,
-      endOffset: chunk.endOffset,
-      index: idx
-    };
-  });
-
-  let embeddings = new Map();
-  if (contextualChunks.length > 0 && appSettings.proxyBaseUrl && appSettings.inviteToken) {
-    try {
-      embeddings = await embedTexts(contextualChunks, appSettings);
-    } catch (error) {
-      if (diagnostics && !diagnostics.embeddingError) {
-        diagnostics.embeddingError = error.message;
-      }
-    }
-  }
-
-  const insertChunk = db.prepare(
-    `INSERT INTO chunks (id, note_id, chunk_index, content, start_offset, end_offset, embedding_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  );
-
-  for (const chunk of contextualChunks) {
-    const vector = embeddings.get(chunk.id) || null;
-    insertChunk.run(
-      chunk.id,
-      noteId,
-      chunk.index,
-      chunk.content,
-      chunk.startOffset,
-      chunk.endOffset,
-      vector ? JSON.stringify(vector) : null,
-      nowIso()
-    );
-  }
-
-  return true;
-}
-
-function startWatching(rootFolder) {
-  if (watcher) {
-    watcher.close();
-    watcher = null;
-  }
-
-  if (!rootFolder || !fs.existsSync(rootFolder)) {
-    return;
-  }
-
-  watcher = chokidar.watch(
-    [
-      path.join(rootFolder, '**/*.md'),
-      path.join(rootFolder, '**/*.txt'),
-      path.join(rootFolder, '**/*.markdown'),
-      path.join(rootFolder, '**/*.pdf')
-    ],
-    {
-      ignoreInitial: true,
-      awaitWriteFinish: {
-        stabilityThreshold: 600,
-        pollInterval: 100
-      }
-    }
-  );
-
-  const queue = () => {
-    if (reindexTimer) {
-      clearTimeout(reindexTimer);
-    }
-
-    reindexTimer = setTimeout(() => {
-      runIndex('watcher');
-    }, 1200);
-  };
-
-  watcher.on('add', queue);
-  watcher.on('change', queue);
-  watcher.on('unlink', queue);
-}
-
-function pruneOrphans() {
-  if (!db) {
-    return;
-  }
-
-  const rootFolder = getSetting('rootFolder', '');
-  const folderNames = getClientFolderNames(rootFolder);
-  if (folderNames.length) {
-    const placeholders = folderNames.map(() => '?').join(', ');
-    db.prepare(
-      `DELETE FROM clients
-       WHERE id NOT IN (SELECT DISTINCT client_id FROM note_clients)
-         AND COALESCE(archived, 0) = 0
-         AND name NOT IN (${placeholders})`
-    ).run(...folderNames);
-  } else {
-    db.prepare(
-      `DELETE FROM clients
-       WHERE id NOT IN (SELECT DISTINCT client_id FROM note_clients)
-         AND COALESCE(archived, 0) = 0`
-    ).run();
-  }
-
-  db.prepare('DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM note_tags)').run();
-}
-
-async function runIndex(reason = 'manual', forceRebuild = false) {
+async function generateClientBaseline(payload) {
   requireDb();
-
+  const rootFolder = await ensureVaultRootFolder();
   const settings = getAppSettings();
-  const rootFolder = settings.rootFolder;
-
-  if (!rootFolder || !fs.existsSync(rootFolder)) {
-    updateStatus({
-      indexing: false,
-      message: 'Select a root notes folder to start indexing.',
-      progress: 0
-    });
-    return { indexed: 0, changed: 0 };
-  }
-
-  if (indexing) {
-    reindexQueued = true;
-    return { indexed: 0, changed: 0, queued: true };
-  }
-
-  indexing = true;
-  updateStatus({
-    indexing: true,
-    message: `Indexing (${reason})...`,
-    progress: 0,
-    filesProcessed: 0,
-    totalFiles: 0,
-    unsupportedCount: 0,
-    unsupportedSummary: '',
-    lastError: null
-  });
-
-  try {
-    const scan = await scanNoteFiles(rootFolder);
-    const files = scan.supported;
-    const fileErrors = [];
-    const diagnostics = { embeddingError: null };
-    const existingNotes = db
-      .prepare('SELECT id, path, mtime_ms, size FROM notes')
-      .all();
-
-    const existingByPath = new Map(existingNotes.map((row) => [row.path, row]));
-    const liveSet = new Set(files);
-
-    for (const row of existingNotes) {
-      if (!liveSet.has(row.path)) {
-        db.prepare('DELETE FROM notes WHERE id = ?').run(row.id);
-      }
-    }
-
-    let changedFiles = 0;
-    for (let i = 0; i < files.length; i += 1) {
-      const filePath = files[i];
-      const stat = await fsp.stat(filePath);
-      const existing = existingByPath.get(filePath);
-      const mtimeMs = Math.floor(stat.mtimeMs);
-
-      const shouldSkip = !forceRebuild && existing && existing.mtime_ms === mtimeMs && existing.size === stat.size;
-      if (!shouldSkip) {
-        try {
-          const changed = await upsertFileIndex(filePath, stat, rootFolder, settings, forceRebuild, diagnostics);
-          if (changed) {
-            changedFiles += 1;
-          }
-        } catch (error) {
-          const basename = path.basename(filePath);
-          fileErrors.push(`${basename}: ${error.message}`);
-          updateStatus({
-            lastError: fileErrors[fileErrors.length - 1]
-          });
-        }
-      }
-
-      updateStatus({
-        filesProcessed: i + 1,
-        totalFiles: files.length,
-        progress: files.length ? (i + 1) / files.length : 1
-      });
-    }
-
-    pruneOrphans();
-
-    db.prepare(
-      `UPDATE index_state
-       SET root_folder = ?, status = ?, last_error = NULL, indexed_files = ?, last_index_at = ?
-       WHERE id = 1`
-    ).run(rootFolder, fileErrors.length ? 'up_to_date_with_errors' : 'up_to_date', files.length, nowIso());
-
-    const errorSummary = fileErrors.length
-      ? ` ${fileErrors.length} files failed to index.`
-      : '';
-    const embeddingSummary = diagnostics.embeddingError
-      ? ' Embeddings unavailable: running keyword-only fallback until proxy/auth is fixed.'
-      : '';
-
-    updateStatus({
-      indexing: false,
-      message: `Up to date. Indexed ${files.length} notes (${changedFiles} changed).${errorSummary}${embeddingSummary}`,
-      progress: 1,
-      unsupportedCount: scan.unsupportedCount,
-      unsupportedSummary: scan.unsupportedSummary,
-      lastIndexedAt: nowIso(),
-      lastError: fileErrors[0] || diagnostics.embeddingError || null
-    });
-
-    return {
-      indexed: files.length,
-      changed: changedFiles,
-      errors: fileErrors,
-      embeddingError: diagnostics.embeddingError
-    };
-  } catch (error) {
-    if (db) {
-      db.prepare(
-        `UPDATE index_state
-         SET status = ?, last_error = ?, last_index_at = ?
-         WHERE id = 1`
-      ).run('error', error.message, nowIso());
-    }
-
-    updateStatus({
-      indexing: false,
-      message: 'Indexing failed.',
-      lastError: error.message
-    });
-    throw error;
-  } finally {
-    indexing = false;
-
-    if (reindexQueued) {
-      reindexQueued = false;
-      setTimeout(() => {
-        runIndex('queued', false).catch(() => {});
-      }, 200);
-    }
-  }
-}
-
-async function waitForIndexIdle(timeoutMs = 180000) {
-  const started = Date.now();
-  while (indexing) {
-    if (Date.now() - started > timeoutMs) {
-      throw new Error('Timed out waiting for indexing to finish.');
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 150));
-  }
-}
-
-function queryCandidates(scope, clientId, tags, options = {}) {
-  if (!db) {
-    return [];
-  }
-
-  const where = [];
-  const params = [];
-  const includeArchivedClient = Boolean(options?.includeArchivedClient);
-
-  if (scope === 'client' && clientId) {
-    where.push(
-      includeArchivedClient
-        ? 'EXISTS (SELECT 1 FROM note_clients x WHERE x.note_id = n.id AND x.client_id = ?)'
-        : `EXISTS (
-            SELECT 1
-            FROM note_clients x
-            JOIN clients cx ON cx.id = x.client_id
-            WHERE x.note_id = n.id AND x.client_id = ? AND COALESCE(cx.archived, 0) = 0
-          )`
-    );
-    params.push(clientId);
-  } else {
-    where.push(
-      `NOT EXISTS (
-        SELECT 1
-        FROM note_clients x
-        JOIN clients cx ON cx.id = x.client_id
-        WHERE x.note_id = n.id AND COALESCE(cx.archived, 0) = 1
-      )`
-    );
-  }
-
-  const normalizedTags = normalizeArray(tags).map((value) => value.toLowerCase());
-  if (normalizedTags.length) {
-    const placeholders = normalizedTags.map(() => '?').join(', ');
-    where.push(
-      `EXISTS (
-        SELECT 1 FROM note_tags nt
-        JOIN tags t ON t.id = nt.tag_id
-        WHERE nt.note_id = n.id AND t.name IN (${placeholders})
-      )`
-    );
-    params.push(...normalizedTags);
-  }
-
-  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-
-  return db
-    .prepare(
-      `SELECT
-        c.id AS chunk_id,
-        c.content,
-        c.start_offset,
-        c.end_offset,
-        c.embedding_json,
-        n.id AS note_id,
-        n.path AS note_path,
-        n.title AS note_title,
-        n.date AS note_date,
-        n.metadata_json,
-        COALESCE(GROUP_CONCAT(DISTINCT t.name), '') AS note_tags,
-        COALESCE(GROUP_CONCAT(DISTINCT cl.display_name), '') AS client_names
-      FROM chunks c
-      JOIN notes n ON n.id = c.note_id
-      LEFT JOIN note_clients nc ON nc.note_id = n.id
-      LEFT JOIN clients cl ON cl.id = nc.client_id
-      LEFT JOIN note_tags nt ON nt.note_id = n.id
-      LEFT JOIN tags t ON t.id = nt.tag_id
-      ${whereSql}
-      GROUP BY c.id`
-    )
-    .all(...params);
-}
-
-async function runSearch(payload) {
-  const query = String(payload?.query || '').trim();
-  const scope = payload?.scope === 'client' ? 'client' : 'all';
-  const clientId = payload?.clientId ? Number(payload.clientId) : null;
-  const includeArchivedClient = Boolean(payload?.includeArchivedClient);
-  const limit = Math.max(1, Math.min(Number(payload?.limit) || 30, 50));
-  const tags = payload?.tags || [];
-  const noteKind = parseNoteKind(payload?.noteKind);
-  const relevanceMode = parseRelevanceMode(payload?.relevanceMode);
-  const relevance = relevanceProfile(relevanceMode);
-
-  if (!query) {
-    return [];
-  }
-
-  let candidates = queryCandidates(scope, clientId, tags, { includeArchivedClient });
-  if (noteKind === 'transcript') {
-    candidates = candidates.filter((row) => isTranscriptLikeCandidate(row));
-  }
-  if (!candidates.length) {
-    return [];
-  }
-
-  const terms = query
-    .toLowerCase()
-    .split(/\s+/)
-    .map((term) => term.trim())
-    .filter((term) => term.length > 1);
-
-  let queryEmbedding = null;
-  const settings = getAppSettings();
-
-  if (settings.proxyBaseUrl && settings.inviteToken) {
-    try {
-      const response = await callProxy(
-        '/embed',
-        {
-          model: DEFAULT_EMBED_MODEL,
-          inputs: [{ id: 'query', text: query }]
-        },
-        settings
-      );
-
-      const found = (response.data || []).find((entry) => entry.id === 'query');
-      queryEmbedding = found?.embedding || null;
-    } catch {
-      queryEmbedding = null;
-    }
-  }
-
-  const scored = candidates.map((row) => {
-    const keyword = keywordScore(row.content, row.note_title, terms);
-    const vector = row.embedding_json ? JSON.parse(row.embedding_json) : null;
-    const semantic = queryEmbedding && vector ? cosineSimilarity(queryEmbedding, vector) : 0;
-    const score = queryEmbedding ? semantic * 0.88 + keyword * 0.12 : keyword;
-
-    return {
-      chunkId: row.chunk_id,
-      noteId: row.note_id,
-      notePath: row.note_path,
-      title: isClientProfilePath(row.note_path) ? 'Client Profile' : row.note_title,
-      date: row.note_date,
-      clientNames: row.client_names ? row.client_names.split(',').filter(Boolean) : [],
-      noteTags: row.note_tags ? row.note_tags.split(',').filter(Boolean) : [],
-      snippet: buildSnippet(row.content, query),
-      startOffset: row.start_offset,
-      endOffset: row.end_offset,
-      chunkText: row.content,
-      keyword,
-      semantic,
-      score
-    };
-  });
-
-  scored.sort((a, b) => b.score - a.score);
-  if (!scored.length) {
-    return [];
-  }
-
-  const topScore = scored[0].score;
-  let filtered;
-  const hasSemanticCoverage = Boolean(queryEmbedding) && scored.some((entry) => Math.abs(entry.semantic) > 0.00001);
-  if (hasSemanticCoverage) {
-    const floor = Math.max(relevance.absoluteFloor, topScore * relevance.relativeToBest);
-    filtered = scored.filter((entry) => entry.score >= floor);
-  } else {
-    filtered = scored.filter((entry) => entry.keyword >= relevance.keywordFloor);
-  }
-
-  const finalRows = (filtered.length ? filtered : [scored[0]]).slice(0, limit);
-  return finalRows.map((entry) => {
-    const { keyword, semantic, ...rest } = entry;
-    void keyword;
-    void semantic;
-    return rest;
-  });
-}
-
-async function runAsk(payload, options = {}) {
-  const question = String(payload?.question || '').trim();
-  if (!question) {
-    throw new Error('Question is required.');
-  }
-
-  const scope = payload?.scope === 'client' ? 'client' : 'all';
-  const clientId = payload?.clientId ? Number(payload.clientId) : null;
-  const includeArchivedClient = Boolean(payload?.includeArchivedClient);
-  const maxSources = Math.max(3, Math.min(Number(payload?.topK) || 8, 12));
-  const relevanceMode = parseRelevanceMode(payload?.relevanceMode);
-  const wantsStream = Boolean(payload?.stream);
-  const emitStream = (event) => {
-    if (!wantsStream || typeof options.onStreamEvent !== 'function' || !event || typeof event !== 'object') {
-      return;
-    }
-    options.onStreamEvent(event);
-  };
-
-  const results = await runSearch({
-    query: question,
-    scope,
-    clientId,
-    includeArchivedClient,
-    limit: maxSources,
-    relevanceMode
-  });
-
-  if (!results.length) {
-    const answer = 'Not found in the provided notes.';
-    db.prepare(
-      `INSERT INTO llm_answers (created_at, question_text, scope, retrieval_params, model, answer_text, citations)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      nowIso(),
-      question,
-      scope,
-      JSON.stringify({ topK: maxSources, relevanceMode }),
-      DEFAULT_ANSWER_MODEL,
-      answer,
-      JSON.stringify([])
-    );
-
-    return {
-      model: DEFAULT_ANSWER_MODEL,
-      answer,
-      citations: [],
-      structured: { bullets: [answer], warnings: [] },
-      sources: []
-    };
-  }
-
-  const settings = getAppSettings();
-  const sources = results.map((item) => ({
-    chunk_id: item.chunkId,
-    note_id: `note_${item.noteId}`,
-    client_ids: item.clientNames,
-    title: item.title,
-    date: item.date,
-    text: item.chunkText
-  }));
-
-  let response;
-  let fallbackUsed = false;
-  try {
-    if (wantsStream) {
-      response = await callProxyStream(
-        '/answer',
-        {
-          model: DEFAULT_ANSWER_MODEL,
-          question,
-          instructions: payload?.instructions || '',
-          sources,
-          response_format: 'coachnotes.v1',
-          stream: true
-        },
-        settings,
-        emitStream
-      );
-    } else {
-      response = await callProxy(
-        '/answer',
-        {
-          model: DEFAULT_ANSWER_MODEL,
-          question,
-          instructions: payload?.instructions || '',
-          sources,
-          response_format: 'coachnotes.v1'
-        },
-        settings
-      );
-    }
-  } catch (error) {
-    if (!isTimeoutLikeError(error)) {
-      throw error;
-    }
-
-    fallbackUsed = true;
-    const reducedSources = sources
-      .slice(0, Math.min(4, sources.length))
-      .map((source) => ({
-        ...source,
-        text: String(source.text || '').slice(0, 1800)
-      }));
-
-    try {
-      if (wantsStream) {
-        response = await callProxyStream(
-          '/answer',
-          {
-            model: DEFAULT_ANSWER_MODEL,
-            question,
-            instructions: 'Answer concisely from the provided sources only.',
-            sources: reducedSources,
-            response_format: 'coachnotes.v1',
-            stream: true
-          },
-          settings,
-          emitStream
-        );
-      } else {
-        response = await callProxy(
-          '/answer',
-          {
-            model: DEFAULT_ANSWER_MODEL,
-            question,
-            instructions: 'Answer concisely from the provided sources only.',
-            sources: reducedSources,
-            response_format: 'coachnotes.v1'
-          },
-          settings
-        );
-      }
-    } catch (retryError) {
-      if (!isTimeoutLikeError(retryError)) {
-        throw retryError;
-      }
-
-      const timeoutAnswer = 'Answer timed out on the server. Try a more specific question or lower AI source depth.';
-      response = {
-        model: DEFAULT_ANSWER_MODEL,
-        answer: timeoutAnswer,
-        citations: [],
-        structured: {
-          bullets: [timeoutAnswer],
-          warnings: ['Request timed out in proxy function.']
-        }
-      };
-      emitStream({ type: 'delta', delta: `${timeoutAnswer}\n` });
-    }
-  }
-
-  db.prepare(
-    `INSERT INTO llm_answers (created_at, question_text, scope, retrieval_params, model, answer_text, citations)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    nowIso(),
-    question,
-    scope,
-    JSON.stringify({ topK: maxSources, relevanceMode, fallbackUsed }),
-    response.model || DEFAULT_ANSWER_MODEL,
-    response.answer || '',
-    JSON.stringify(response.citations || [])
-  );
-
-  return {
-    ...response,
-    fallbackUsed,
-    sources: results.map((item) => ({
-      chunkId: item.chunkId,
-      title: item.title,
-      date: item.date,
-      clientNames: item.clientNames,
-      snippet: item.snippet,
-      noteId: item.noteId,
-      startOffset: item.startOffset,
-      endOffset: item.endOffset
-    }))
-  };
-}
-
-async function runSummarize(payload, options = {}) {
-  const summaryMode = parseSummaryMode(payload?.summaryMode);
-  const query = String(payload?.query || '').trim();
-  const effectiveQuery = query || (summaryMode === 'coaching_conversation' ? 'selected coaching conversation note' : '');
-  if (!effectiveQuery) {
-    throw new Error('Summary query is required.');
-  }
-
-  const noteKind = parseNoteKind(
-    payload?.noteKind || (summaryMode === 'coaching_conversation' ? 'transcript' : 'all')
-  );
-  const scope = payload?.scope === 'client' ? 'client' : 'all';
-  const clientId = payload?.clientId ? Number(payload.clientId) : null;
-  const includeArchivedClient = Boolean(payload?.includeArchivedClient);
-  const topK = Math.max(3, Math.min(Number(payload?.topK) || 8, 12));
-  const relevanceMode = parseRelevanceMode(payload?.relevanceMode);
-  const wantsStream = Boolean(payload?.stream);
-  const emitStream = (event) => {
-    if (!wantsStream || typeof options.onStreamEvent !== 'function' || !event || typeof event !== 'object') {
-      return;
-    }
-    options.onStreamEvent(event);
-  };
-  const mappedProvidedResults = Array.isArray(payload?.retrieved)
-    ? payload.retrieved
-      .map((row) => ({
-        chunkId: String(row?.chunkId || '').trim(),
-        noteId: Number(row?.noteId),
-        title: String(row?.title || ''),
-        date: String(row?.date || ''),
-        clientNames: Array.isArray(row?.clientNames) ? row.clientNames.map((name) => String(name || '')) : [],
-        notePath: String(row?.notePath || ''),
-        noteTags: Array.isArray(row?.noteTags) ? row.noteTags.map((name) => String(name || '')) : [],
-        snippet: String(row?.snippet || ''),
-        startOffset: Number(row?.startOffset),
-        endOffset: Number(row?.endOffset),
-        chunkText: String(row?.chunkText || '')
-      }))
-      .filter((row) => row.chunkId && row.chunkText)
-    : [];
-  const providedResults = mappedProvidedResults
-    .filter((row) => (
-      summaryMode === 'coaching_conversation'
-      || noteKind !== 'transcript'
-      || inferTranscriptTag({}, row.notePath, row.title, row.chunkText, row.noteTags)
-    ))
-    .slice(0, topK);
-
-  if (summaryMode === 'coaching_conversation') {
-    if (!providedResults.length) {
-      throw new Error('Coaching conversation summary requires one selected note.');
-    }
-
-    const noteScopes = new Set();
-    for (const row of providedResults) {
-      if (Number.isFinite(row.noteId)) {
-        noteScopes.add(`id:${row.noteId}`);
-      } else if (row.notePath) {
-        noteScopes.add(`path:${row.notePath}`);
-      } else {
-        noteScopes.add(`title:${row.title}`);
-      }
-    }
-
-    if (noteScopes.size > 1) {
-      throw new Error('Coaching conversation summary supports one note at a time.');
-    }
-  }
-
-  let results = providedResults;
-  if (!results.length) {
-    if (summaryMode === 'coaching_conversation') {
-      throw new Error('Coaching conversation summary requires one selected note.');
-    }
-
-    results = await runSearch({
-      query: effectiveQuery,
-      scope,
-      clientId,
-      includeArchivedClient,
-      limit: topK,
-      relevanceMode,
-      noteKind
-    });
-  }
-  const summarizeSources = results.map((item) => ({
-    chunk_id: item.chunkId,
-    text: item.chunkText
-  }));
-
-  if (!summarizeSources.length) {
-    return {
-      model: DEFAULT_ANSWER_MODEL,
-      summary: 'Not found in the provided notes.',
-      citations: [],
-      sources: []
-    };
-  }
-
-  const settings = getAppSettings();
-  const answerSources = results.map((item) => ({
-    chunk_id: item.chunkId,
-    note_id: `note_${item.noteId}`,
-    client_ids: item.clientNames,
-    title: item.title,
-    date: item.date,
-    text: item.chunkText
-  }));
-
-  let response;
-  let fallbackUsed = false;
-  try {
-    if (wantsStream) {
-      response = await callProxyStream(
-        '/summarize',
-        {
-          model: DEFAULT_ANSWER_MODEL,
-          mode: summaryMode === 'coaching_conversation' ? 'coaching_conversation_summary' : 'search_results_summary',
-          query: effectiveQuery,
-          sources: summarizeSources,
-          stream: true
-        },
-        settings,
-        emitStream
-      );
-    } else {
-      response = await callProxy(
-        '/summarize',
-        {
-          model: DEFAULT_ANSWER_MODEL,
-          mode: summaryMode === 'coaching_conversation' ? 'coaching_conversation_summary' : 'search_results_summary',
-          query: effectiveQuery,
-          sources: summarizeSources
-        },
-        settings
-      );
-    }
-  } catch (error) {
-    const message = String(error?.message || error || '');
-    const isTimeout = /FUNCTION_INVOCATION_TIMEOUT|timeout|timed out/i.test(message);
-    if (!isTimeout) {
-      throw error;
-    }
-
-    fallbackUsed = true;
-    let fallback;
-    if (wantsStream) {
-      fallback = await callProxyStream(
-        '/answer',
-        {
-          model: DEFAULT_ANSWER_MODEL,
-          question: summaryMode === 'coaching_conversation'
-            ? `Summarize this coaching conversation transcript for query: ${effectiveQuery}`
-            : `Summarize these notes for query: ${effectiveQuery}`,
-          instructions: summaryMode === 'coaching_conversation'
-            ? 'This is a coach-client conversation. Prioritize health coaching goals, barriers, action items, commitments, and outcomes. Ignore side chatter when possible. Cite each major point.'
-            : 'Provide a concise summary with citations for each major point.',
-          sources: answerSources,
-          response_format: 'coachnotes.v1',
-          stream: true
-        },
-        settings,
-        emitStream
-      );
-    } else {
-      fallback = await callProxy(
-        '/answer',
-        {
-          model: DEFAULT_ANSWER_MODEL,
-          question: summaryMode === 'coaching_conversation'
-            ? `Summarize this coaching conversation transcript for query: ${effectiveQuery}`
-            : `Summarize these notes for query: ${effectiveQuery}`,
-          instructions: summaryMode === 'coaching_conversation'
-            ? 'This is a coach-client conversation. Prioritize health coaching goals, barriers, action items, commitments, and outcomes. Ignore side chatter when possible. Cite each major point.'
-            : 'Provide a concise summary with citations for each major point.',
-          sources: answerSources,
-          response_format: 'coachnotes.v1'
-        },
-        settings
-      );
-    }
-
-    response = {
-      model: fallback.model || DEFAULT_ANSWER_MODEL,
-      summary: fallback.answer || 'Not found in the provided notes.',
-      citations: fallback.citations || []
-    };
-  }
-
-  return {
-    ...response,
-    fallbackUsed,
-    sources: results.map((item) => ({
-      chunkId: item.chunkId,
-      notePath: item.notePath,
-      noteTags: item.noteTags || [],
-      title: item.title,
-      date: item.date,
-      clientNames: item.clientNames,
-      snippet: item.snippet,
-      noteId: item.noteId,
-      startOffset: item.startOffset,
-      endOffset: item.endOffset
-    }))
-  };
-}
-
-async function createNote(payload) {
-  requireDb();
-
-  const settings = getAppSettings();
-  const rootFolder = settings.rootFolder;
-  if (!rootFolder || !fs.existsSync(rootFolder)) {
-    throw new Error('Set a valid root notes folder before creating notes.');
-  }
-
-  const noteDate = parseDate(payload?.date) || new Date().toISOString().slice(0, 10);
-  const clientName = sanitizeName(payload?.clientName || '');
-  const title = sanitizeName(payload?.title || '') || `Session ${noteDate}`;
-  const tags = normalizeArray(payload?.tags || []);
-  const body = String(payload?.body || '').replace(/\r\n/g, '\n').trimEnd();
-
-  const noteDirectory = clientName ? path.join(rootFolder, clientName) : rootFolder;
-  await fsp.mkdir(noteDirectory, { recursive: true });
-
-  const stem = `${noteDate}-${slugifyFileStem(title)}`.slice(0, 120);
-  const filePath = await getUniqueFilePath(noteDirectory, stem, '.md');
-  const content = buildStructuredNoteContent({
-    title,
-    noteDate,
-    clientName,
-    tags,
-    body
-  });
-  await fsp.writeFile(filePath, content, 'utf8');
-
-  const stat = await fsp.stat(filePath);
-  await upsertFileIndex(filePath, stat, rootFolder, settings, true);
-  pruneOrphans();
-
-  const note = db.prepare('SELECT id, path, title, date FROM notes WHERE path = ?').get(filePath);
-  if (!note) {
-    throw new Error('Note file was created but indexing failed.');
-  }
-
-  return {
-    noteId: note.id,
-    path: note.path,
-    title: note.title,
-    date: note.date,
-    clientName,
-    tags
-  };
-}
-
-async function createClient(payload) {
-  requireDb();
-
-  const settings = getAppSettings();
-  const rootFolder = settings.rootFolder;
-  if (!rootFolder || !fs.existsSync(rootFolder)) {
-    throw new Error('Set a valid root notes folder before creating clients.');
-  }
-
-  const clientName = sanitizeName(payload?.name || '');
+  const clientName = sanitizeName(payload?.clientName || payload?.client?.name || '');
   if (!clientName) {
     throw new Error('Client name is required.');
   }
 
-  const clientDirectory = path.join(rootFolder, clientName);
-  await fsp.mkdir(clientDirectory, { recursive: true });
+  const sources = normalizeIntakeSources(payload?.sources || []);
+  if (!sources.length) {
+    throw new Error('Add at least one source before running intake.');
+  }
+
   const clientId = ensureClient(clientName);
-  if (clientId) {
-    db.prepare('UPDATE clients SET archived = 0, archived_at = NULL WHERE id = ?').run(clientId);
+  if (!clientId) {
+    throw new Error('Could not create client.');
   }
 
-  return {
-    id: clientId,
-    name: clientName,
-    noteCount: 0,
-    path: clientDirectory
-  };
-}
-
-async function setClientArchived(payload) {
-  requireDb();
-
-  const clientId = Number(payload?.clientId);
-  if (!Number.isFinite(clientId)) {
-    throw new Error('clientId is required.');
+  const savedSources = [];
+  for (const source of sources) {
+    savedSources.push(await saveIntakeSource({ clientId, clientName, rootFolder, source }));
   }
-
-  const client = db.prepare('SELECT id, display_name FROM clients WHERE id = ?').get(clientId);
-  if (!client) {
-    throw new Error('Client not found.');
-  }
-
-  const archived = Boolean(payload?.archived);
-  const archivedAt = archived ? nowIso() : null;
-  db.prepare('UPDATE clients SET archived = ?, archived_at = ? WHERE id = ?').run(
-    archived ? 1 : 0,
-    archivedAt,
-    clientId
-  );
-
-  return {
-    clientId,
-    clientName: client.display_name,
-    archived,
-    archivedAt: parseDate(archivedAt)
-  };
-}
-
-async function updateNote(payload) {
-  requireDb();
-
-  const noteId = Number(payload?.noteId);
-  if (!Number.isFinite(noteId)) {
-    throw new Error('noteId is required.');
-  }
-
-  const existing = db
-    .prepare('SELECT id, path, title, date FROM notes WHERE id = ?')
-    .get(noteId);
-  if (!existing) {
-    throw new Error('Note not found.');
-  }
-
-  const settings = getAppSettings();
-  const rootFolder = settings.rootFolder;
-  if (!rootFolder || !fs.existsSync(rootFolder)) {
-    throw new Error('Set a valid root notes folder before editing notes.');
-  }
-
-  const currentPath = existing.path;
-  const extension = path.extname(currentPath).toLowerCase();
-  if (!EDITABLE_EXTENSIONS.has(extension)) {
-    throw new Error(`Editing is supported for ${[...EDITABLE_EXTENSIONS].join(', ')} files only.`);
-  }
-
-  const noteDate = parseDate(payload?.date) || parseDate(existing.date) || new Date().toISOString().slice(0, 10);
-  const clientName = sanitizeName(payload?.clientName || '');
-  const title = sanitizeName(payload?.title || '') || sanitizeName(existing.title) || `Session ${noteDate}`;
-  const tags = normalizeArray(payload?.tags || []);
-  const body = String(payload?.body || '').replace(/\r\n/g, '\n').trimEnd();
-
-  const targetDirectory = clientName ? path.join(rootFolder, clientName) : rootFolder;
-  await fsp.mkdir(targetDirectory, { recursive: true });
-
-  const stem = `${noteDate}-${slugifyFileStem(title)}`.slice(0, 120);
-  const desiredPath = path.join(targetDirectory, `${stem}${extension}`);
-  let targetPath = desiredPath;
-  if (path.resolve(desiredPath) !== path.resolve(currentPath)) {
-    try {
-      await fsp.access(desiredPath, fs.constants.F_OK);
-      targetPath = await getUniqueFilePath(targetDirectory, stem, extension);
-    } catch {
-      targetPath = desiredPath;
-    }
-  }
-
-  const content = buildStructuredNoteContent({
-    title,
-    noteDate,
-    clientName,
-    tags,
-    body
-  });
-  await fsp.writeFile(targetPath, content, 'utf8');
-  if (path.resolve(targetPath) !== path.resolve(currentPath) && fs.existsSync(currentPath)) {
-    await fsp.unlink(currentPath);
-  }
-
-  const stat = await fsp.stat(targetPath);
-  await upsertFileIndex(targetPath, stat, rootFolder, settings, true);
-  if (path.resolve(targetPath) !== path.resolve(currentPath)) {
-    db.prepare('DELETE FROM notes WHERE path = ?').run(currentPath);
-  }
-  pruneOrphans();
-
-  const note = db.prepare('SELECT id, path, title, date FROM notes WHERE path = ?').get(targetPath);
-  if (!note) {
-    throw new Error('Note was updated but indexing failed.');
-  }
-
-  return {
-    noteId: note.id,
-    path: note.path,
-    title: note.title,
-    date: note.date,
-    clientName,
-    tags
-  };
-}
-
-async function deleteNote(payload) {
-  requireDb();
-
-  const noteId = Number(payload?.noteId);
-  if (!Number.isFinite(noteId)) {
-    throw new Error('noteId is required.');
-  }
-
-  const note = db
-    .prepare('SELECT id, path, title FROM notes WHERE id = ?')
-    .get(noteId);
-  if (!note) {
-    throw new Error('Note not found.');
-  }
-
-  const settings = getAppSettings();
-  const rootFolder = settings.rootFolder;
-  if (!rootFolder || !fs.existsSync(rootFolder)) {
-    throw new Error('Set a valid root notes folder before deleting notes.');
-  }
-
-  const relativePath = path.relative(rootFolder, note.path);
-  if (!relativePath || relativePath.startsWith('..')) {
-    throw new Error('Note is outside the configured root folder.');
-  }
-
-  const deletedRoot = path.join(rootFolder, DELETED_NOTES_DIRNAME);
-  const relativeDir = path.dirname(relativePath);
-  const targetDirectory = relativeDir === '.'
-    ? deletedRoot
-    : path.join(deletedRoot, relativeDir);
-  await fsp.mkdir(targetDirectory, { recursive: true });
-
-  const extension = path.extname(note.path);
-  const baseName = path.basename(note.path, extension);
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const destinationPath = await getUniqueFilePath(
-    targetDirectory,
-    `${stamp}-${slugifyFileStem(baseName)}`,
-    extension
-  );
-
-  await fsp.rename(note.path, destinationPath);
-  db.prepare('DELETE FROM notes WHERE id = ?').run(note.id);
-  pruneOrphans();
-
-  return {
-    noteId: note.id,
-    title: note.title,
-    movedTo: destinationPath
-  };
-}
-
-async function getClientProfile(payload) {
-  requireDb();
-
-  const clientId = Number(payload?.clientId);
-  if (!Number.isFinite(clientId)) {
-    throw new Error('clientId is required.');
-  }
-
-  const client = db.prepare('SELECT id, name, display_name FROM clients WHERE id = ?').get(clientId);
-  if (!client) {
-    throw new Error('Client not found.');
-  }
-
-  const settings = getAppSettings();
-  const rootFolder = settings.rootFolder;
-  if (!rootFolder || !fs.existsSync(rootFolder)) {
-    throw new Error('Set a valid root notes folder before editing client profiles.');
-  }
-
-  const clientDirectory = findClientDirectory(rootFolder, client);
-  const profilePath = path.join(clientDirectory, CLIENT_PROFILE_FILE);
-
-  let parsed = {
-    topPriorities: [],
-    clientTags: [],
-    sidebarTags: [],
-    clientColor: '',
-    coachNotes: '',
-    exerciseAtAGlance: [],
-    ongoingMedicalConsiderations: [],
-    acuteInjuries: [],
-    completedFocus: [],
-    futureFocus: [],
-    updatedAt: null
-  };
-  let exists = false;
-
-  try {
-    const content = await fsp.readFile(profilePath, 'utf8');
-    parsed = parseClientProfileContent(content);
-    exists = true;
-  } catch {
-    exists = false;
-  }
-
-  return {
-    clientId: client.id,
-    clientName: client.display_name,
-    topPriorities: parsed.topPriorities,
-    clientTags: parsed.clientTags,
-    sidebarTags: parsed.sidebarTags,
-    clientColor: parsed.clientColor,
-    coachNotes: parsed.coachNotes,
-    exerciseAtAGlance: parsed.exerciseAtAGlance,
-    ongoingMedicalConsiderations: parsed.ongoingMedicalConsiderations,
-    acuteInjuries: parsed.acuteInjuries,
-    completedFocus: parsed.completedFocus,
-    futureFocus: parsed.futureFocus,
-    updatedAt: parsed.updatedAt,
-    exists
-  };
-}
-
-async function saveClientProfile(payload) {
-  requireDb();
-
-  const clientId = Number(payload?.clientId);
-  if (!Number.isFinite(clientId)) {
-    throw new Error('clientId is required.');
-  }
-
-  const client = db.prepare('SELECT id, name, display_name FROM clients WHERE id = ?').get(clientId);
-  if (!client) {
-    throw new Error('Client not found.');
-  }
-
-  const settings = getAppSettings();
-  const rootFolder = settings.rootFolder;
-  if (!rootFolder || !fs.existsSync(rootFolder)) {
-    throw new Error('Set a valid root notes folder before editing client profiles.');
-  }
-
-  const topPriorities = normalizeFocusList(payload?.topPriorities, 3);
-  if (normalizeArray(payload?.topPriorities).length > 3) {
-    throw new Error('Top priorities is limited to 3 items.');
-  }
-
-  const clientTags = normalizeFocusList(payload?.clientTags, 40);
-  const tagSet = new Set(clientTags.map((tag) => String(tag).toLowerCase()));
-  const sidebarTags = normalizeFocusList(payload?.sidebarTags, CLIENT_SIDEBAR_TAG_LIMIT)
-    .filter((tag) => tagSet.has(String(tag).toLowerCase()));
-  const clientColor = normalizeHexColor(payload?.clientColor);
-  const coachNotes = normalizeMultilineText(payload?.coachNotes, 4000);
-  const exerciseAtAGlance = normalizeFocusList(payload?.exerciseAtAGlance);
-  const completedFocus = normalizeFocusList(payload?.completedFocus);
-  const futureFocus = normalizeFocusList(payload?.futureFocus);
-  const ongoingMedicalConsiderations = normalizeFocusList(payload?.ongoingMedicalConsiderations);
-  const acuteInjuries = normalizeFocusList(payload?.acuteInjuries);
-  const clientDirectory = findClientDirectory(rootFolder, client);
-  await fsp.mkdir(clientDirectory, { recursive: true });
-  const profilePath = path.join(clientDirectory, CLIENT_PROFILE_FILE);
-  const updatedAt = nowIso();
-  const content = buildClientProfileContent({
-    clientName: client.display_name,
-    topPriorities,
-    clientTags,
-    sidebarTags,
-    clientColor,
-    coachNotes,
-    exerciseAtAGlance,
-    ongoingMedicalConsiderations,
-    acuteInjuries,
-    completedFocus,
-    futureFocus,
-    updatedAt
-  });
-  await fsp.writeFile(profilePath, content, 'utf8');
-  const stat = await fsp.stat(profilePath);
-  await upsertFileIndex(profilePath, stat, rootFolder, settings, true);
-  pruneOrphans();
-
-  return {
-    clientId: client.id,
-    clientName: client.display_name,
-    topPriorities,
-    clientTags,
-    sidebarTags,
-    clientColor,
-    coachNotes,
-    exerciseAtAGlance,
-    ongoingMedicalConsiderations,
-    acuteInjuries,
-    completedFocus,
-    futureFocus,
-    updatedAt: parseDate(updatedAt),
-    exists: true
-  };
-}
-
-async function removeProfileTag(payload) {
-  requireDb();
-
-  const tagName = sanitizeName(payload?.tagName || '');
-  if (!tagName) {
-    throw new Error('tagName is required.');
-  }
-
-  const allClients = db.prepare('SELECT id FROM clients ORDER BY id ASC').all();
-  if (!allClients.length) {
-    return { removedFromClients: 0 };
-  }
-
-  const target = tagName.toLowerCase();
-  let removedFromClients = 0;
-
-  for (const row of allClients) {
-    const clientId = Number(row.id);
-    if (!Number.isFinite(clientId)) {
-      continue;
-    }
-
-    const profile = await getClientProfile({ clientId });
-    const currentTags = normalizeFocusList(profile.clientTags || [], 40);
-    if (!currentTags.some((tag) => String(tag).toLowerCase() === target)) {
-      continue;
-    }
-
-    const nextTags = currentTags.filter((tag) => String(tag).toLowerCase() !== target);
-    await saveClientProfile({
-      clientId,
-      topPriorities: profile.topPriorities || [],
-      clientTags: nextTags,
-      sidebarTags: (profile.sidebarTags || []).filter((tag) => String(tag).toLowerCase() !== target),
-      clientColor: profile.clientColor || '',
-      coachNotes: profile.coachNotes || '',
-      exerciseAtAGlance: profile.exerciseAtAGlance || [],
-      ongoingMedicalConsiderations: profile.ongoingMedicalConsiderations || [],
-      acuteInjuries: profile.acuteInjuries || [],
-      completedFocus: profile.completedFocus || [],
-      futureFocus: profile.futureFocus || []
-    });
-    removedFromClients += 1;
-  }
-
-  return { removedFromClients };
-}
-
-async function checkForUpdates() {
-  const currentVersion = app.getVersion();
 
   let response;
   try {
-    response = await fetch(UPDATE_RELEASE_API, {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        'User-Agent': 'CoachNotes Desktop'
-      }
-    });
+    response = await callProxy('/workflow', {
+      model: DEFAULT_LLM_MODEL,
+      workflow: 'client_intake_baseline',
+      client: {
+        name: clientName,
+        programContext: normalizeMultilineText(payload?.programContext || '', 2000),
+        coachNotes: normalizeMultilineText(payload?.coachNotes || '', 2000)
+      },
+      sources: buildWorkflowSourcePayload(savedSources)
+    }, settings);
   } catch (error) {
-    throw new Error(`Could not reach GitHub releases: ${error.message}`);
+    for (const source of savedSources) {
+      db.prepare('DELETE FROM intake_sources WHERE id = ?').run(source.id);
+      if (source.vaultPath) {
+        await fsp.unlink(source.vaultPath).catch(() => {});
+      }
+    }
+    throw error;
   }
 
-  if (response.status === 404) {
+  const structured = response.structured && typeof response.structured === 'object' ? response.structured : {};
+  const createdAt = nowIso();
+  const baseline = db.prepare(
+    `INSERT INTO client_baselines
+      (client_id, status, structured_json, source_ids_json, model, raw_output, created_at, accepted_at, updated_at)
+     VALUES (?, 'accepted', ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    clientId,
+    JSON.stringify(structured),
+    JSON.stringify(savedSources.map((source) => source.id)),
+    response.model || DEFAULT_LLM_MODEL,
+    response.rawOutput || '',
+    createdAt,
+    createdAt,
+    createdAt
+  );
+
+  return getClientDetail({ clientId, baselineId: baseline.lastInsertRowid });
+}
+
+async function acceptClientBaseline(payload) {
+  requireDb();
+  const baselineId = Number(payload?.baselineId);
+  if (!Number.isFinite(baselineId)) {
+    throw new Error('baselineId is required.');
+  }
+
+  const baseline = db.prepare('SELECT id, client_id FROM client_baselines WHERE id = ?').get(baselineId);
+  if (!baseline) {
+    throw new Error('Client baseline not found.');
+  }
+
+  const structured = payload?.structured && typeof payload.structured === 'object' ? payload.structured : {};
+  const acceptedAt = nowIso();
+  db.prepare(
+    `UPDATE client_baselines
+     SET status = 'accepted', structured_json = ?, accepted_at = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(JSON.stringify(structured), acceptedAt, acceptedAt, baselineId);
+
+  return getClientDetail({ clientId: baseline.client_id });
+}
+
+function parseJsonObject(value) {
+  try {
+    const parsed = JSON.parse(value || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function parseJsonArray(value) {
+  try {
+    const parsed = JSON.parse(value || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function stringifyJsonValue(value) {
+  return JSON.stringify(value ?? null);
+}
+
+function jsonValuesEqual(left, right) {
+  return stringifyJsonValue(left) === stringifyJsonValue(right);
+}
+
+function assertBaselineSectionKey(sectionKey) {
+  const key = String(sectionKey || '').trim();
+  if (!BASELINE_SECTION_KEYS.has(key)) {
+    throw new Error('Unsupported dashboard section.');
+  }
+  return key;
+}
+
+function getAcceptedBaselineRow(clientId) {
+  return db.prepare(
+    `SELECT
+      c.id AS clientId,
+      c.display_name AS clientName,
+      b.id AS baselineId,
+      b.structured_json AS structuredJson,
+      b.source_ids_json AS sourceIdsJson
+     FROM clients c
+     JOIN client_baselines b ON b.id = (
+       SELECT bx.id
+       FROM client_baselines bx
+       WHERE bx.client_id = c.id AND bx.status = 'accepted'
+       ORDER BY bx.accepted_at DESC, bx.id DESC
+       LIMIT 1
+     )
+     WHERE c.id = ?`
+  ).get(clientId);
+}
+
+function pushSectionUndo({ baselineId, sectionKey, previousValue, currentValue, reason }) {
+  if (jsonValuesEqual(previousValue, currentValue)) {
+    return false;
+  }
+  db.prepare(
+    `INSERT INTO client_section_undo
+      (baseline_id, section_key, previous_value_json, current_value_json, reason, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(
+    baselineId,
+    sectionKey,
+    stringifyJsonValue(previousValue),
+    stringifyJsonValue(currentValue),
+    reason || 'Dashboard edit',
+    nowIso()
+  );
+  return true;
+}
+
+function getUndoCounts(baselineId) {
+  if (!baselineId) {
+    return {};
+  }
+  return Object.fromEntries(db.prepare(
+    `SELECT section_key AS sectionKey, COUNT(*) AS count
+     FROM client_section_undo
+     WHERE baseline_id = ?
+     GROUP BY section_key`
+  ).all(baselineId).map((row) => [row.sectionKey, row.count]));
+}
+
+function getClients() {
+  requireDb();
+  return db.prepare(
+    `SELECT
+      c.id,
+      c.display_name AS name,
+      b.id AS baselineId,
+      b.accepted_at AS acceptedAt,
+      b.updated_at AS updatedAt,
+      b.structured_json AS structuredJson,
+      b.source_ids_json AS sourceIdsJson,
+      (
+        SELECT COUNT(*)
+        FROM intake_sources s
+        WHERE s.client_id = c.id
+      ) AS sourceCount
+     FROM clients c
+     JOIN client_baselines b ON b.id = (
+       SELECT bx.id
+       FROM client_baselines bx
+       WHERE bx.client_id = c.id AND bx.status = 'accepted'
+       ORDER BY bx.accepted_at DESC, bx.id DESC
+       LIMIT 1
+     )
+     WHERE COALESCE(c.archived, 0) = 0
+     ORDER BY LOWER(c.display_name) ASC`
+  ).all().map((row) => {
+    const structured = parseJsonObject(row.structuredJson);
+    const sourceIds = parseJsonArray(row.sourceIdsJson);
     return {
-      currentVersion,
-      latestVersion: null,
-      updateAvailable: false,
-      releaseUrl: UPDATE_RELEASES_URL,
-      releasesUrl: UPDATE_RELEASES_URL,
-      message: 'No published release found yet.'
+      id: row.id,
+      name: row.name,
+      baselineId: row.baselineId,
+      acceptedAt: row.acceptedAt,
+      updatedAt: row.updatedAt,
+      sourceCount: sourceIds.length || Number(row.sourceCount || 0),
+      summary: String(structured.overview || '').slice(0, 180),
+      tags: normalizeArray(structured.suggestedTags || [], 8),
+      activeConstraintCount: Array.isArray(structured.activeConstraints) ? structured.activeConstraints.length : 0,
+      openLoopCount: Array.isArray(structured.openLoops) ? structured.openLoops.length : 0
     };
+  });
+}
+
+function updateClientSection(payload) {
+  requireDb();
+  const clientId = Number(payload?.clientId);
+  if (!Number.isFinite(clientId)) {
+    throw new Error('clientId is required.');
+  }
+  const sectionKey = assertBaselineSectionKey(payload?.sectionKey);
+  const row = getAcceptedBaselineRow(clientId);
+  if (!row) {
+    throw new Error('Accepted client baseline not found.');
   }
 
-  if (!response.ok) {
-    throw new Error(`GitHub release check failed (${response.status}).`);
+  const structured = parseJsonObject(row.structuredJson);
+  const previousValue = structured[sectionKey];
+  const nextValue = payload?.value;
+  if (jsonValuesEqual(previousValue, nextValue)) {
+    return getClientDetail({ clientId });
   }
 
-  const release = await response.json();
-  const latestVersionRaw = release.tag_name || release.name || '';
-  const latestVersion = latestVersionRaw.replace(/^v/i, '');
-  const updateAvailable = compareVersions(latestVersion, currentVersion) > 0;
+  pushSectionUndo({
+    baselineId: row.baselineId,
+    sectionKey,
+    previousValue,
+    currentValue: nextValue,
+    reason: 'Coach dashboard edit'
+  });
+  structured[sectionKey] = nextValue;
+  const updatedAt = nowIso();
+  db.prepare('UPDATE client_baselines SET structured_json = ?, updated_at = ? WHERE id = ?')
+    .run(JSON.stringify(structured), updatedAt, row.baselineId);
+  return getClientDetail({ clientId });
+}
+
+function undoClientSection(payload) {
+  requireDb();
+  const clientId = Number(payload?.clientId);
+  if (!Number.isFinite(clientId)) {
+    throw new Error('clientId is required.');
+  }
+  const sectionKey = assertBaselineSectionKey(payload?.sectionKey);
+  const row = getAcceptedBaselineRow(clientId);
+  if (!row) {
+    throw new Error('Accepted client baseline not found.');
+  }
+
+  const undo = db.prepare(
+    `SELECT id, previous_value_json AS previousValueJson
+     FROM client_section_undo
+     WHERE baseline_id = ? AND section_key = ?
+     ORDER BY id DESC
+     LIMIT 1`
+  ).get(row.baselineId, sectionKey);
+  if (!undo) {
+    throw new Error('Nothing to undo for this section.');
+  }
+
+  const structured = parseJsonObject(row.structuredJson);
+  structured[sectionKey] = JSON.parse(undo.previousValueJson);
+  const updatedAt = nowIso();
+  db.prepare('UPDATE client_baselines SET structured_json = ?, updated_at = ? WHERE id = ?')
+    .run(JSON.stringify(structured), updatedAt, row.baselineId);
+  db.prepare('DELETE FROM client_section_undo WHERE id = ?').run(undo.id);
+  return getClientDetail({ clientId });
+}
+
+function extractUpdatedBaselineResponse(response, currentStructured) {
+  const structured = response.structured && typeof response.structured === 'object' ? response.structured : {};
+  const updatedBaseline = structured.updatedBaseline && typeof structured.updatedBaseline === 'object'
+    ? structured.updatedBaseline
+    : structured.baseline && typeof structured.baseline === 'object'
+      ? structured.baseline
+      : structured;
+  return {
+    updatedBaseline: updatedBaseline && typeof updatedBaseline === 'object' ? updatedBaseline : currentStructured,
+    changes: Array.isArray(structured.changes) ? structured.changes : [],
+    updateSummary: normalizeMultilineText(structured.updateSummary || '', 600)
+  };
+}
+
+async function updateClientFromNote(payload) {
+  requireDb();
+  const rootFolder = await ensureVaultRootFolder();
+  const settings = getAppSettings();
+  const clientId = Number(payload?.clientId);
+  if (!Number.isFinite(clientId)) {
+    throw new Error('clientId is required.');
+  }
+
+  const row = getAcceptedBaselineRow(clientId);
+  if (!row) {
+    throw new Error('Accepted client baseline not found.');
+  }
+  const sources = normalizeIntakeSources(payload?.sources || []);
+  if (!sources.length) {
+    throw new Error('Add at least one note source before updating.');
+  }
+
+  const savedSources = [];
+  for (const source of sources) {
+    savedSources.push(await saveIntakeSource({
+      clientId,
+      clientName: row.clientName,
+      rootFolder,
+      source
+    }));
+  }
+
+  const currentStructured = parseJsonObject(row.structuredJson);
+  let response;
+  try {
+    response = await callProxy('/workflow', {
+      model: DEFAULT_LLM_MODEL,
+      workflow: 'client_note_update',
+      client: {
+        name: row.clientName
+      },
+      currentBaseline: currentStructured,
+      sources: buildWorkflowSourcePayload(savedSources)
+    }, settings);
+  } catch (error) {
+    for (const source of savedSources) {
+      db.prepare('DELETE FROM intake_sources WHERE id = ?').run(source.id);
+      if (source.vaultPath) {
+        await fsp.unlink(source.vaultPath).catch(() => {});
+      }
+    }
+    throw error;
+  }
+
+  const { updatedBaseline, changes, updateSummary } = extractUpdatedBaselineResponse(response, currentStructured);
+  const nextStructured = {
+    ...currentStructured,
+    ...updatedBaseline
+  };
+  const changedSections = [...BASELINE_SECTION_KEYS].filter((sectionKey) => (
+    Object.prototype.hasOwnProperty.call(nextStructured, sectionKey)
+    && !jsonValuesEqual(currentStructured[sectionKey], nextStructured[sectionKey])
+  ));
+
+  for (const sectionKey of changedSections) {
+    pushSectionUndo({
+      baselineId: row.baselineId,
+      sectionKey,
+      previousValue: currentStructured[sectionKey],
+      currentValue: nextStructured[sectionKey],
+      reason: `AI update from ${savedSources.length} new source${savedSources.length === 1 ? '' : 's'}`
+    });
+  }
+
+  const sourceIds = new Set(parseJsonArray(row.sourceIdsJson).map((id) => Number(id)).filter(Number.isFinite));
+  for (const source of savedSources) {
+    sourceIds.add(source.id);
+  }
+  const updatedAt = nowIso();
+  db.prepare(
+    `UPDATE client_baselines
+     SET structured_json = ?, source_ids_json = ?, model = ?, raw_output = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(
+    JSON.stringify(nextStructured),
+    JSON.stringify([...sourceIds]),
+    response.model || DEFAULT_LLM_MODEL,
+    response.rawOutput || '',
+    updatedAt,
+    row.baselineId
+  );
 
   return {
-    currentVersion,
-    latestVersion,
-    updateAvailable,
-    releaseUrl: release.html_url || UPDATE_RELEASES_URL,
-    releasesUrl: UPDATE_RELEASES_URL,
-    publishedAt: release.published_at || null,
-    message: updateAvailable
-      ? `Update available: v${latestVersion}`
-      : `You are up to date (v${currentVersion}).`
+    detail: getClientDetail({ clientId }),
+    changes,
+    changedSections,
+    updateSummary
   };
+}
+
+function getClientDetail(payload) {
+  requireDb();
+  const clientId = Number(payload?.clientId);
+  if (!Number.isFinite(clientId)) {
+    throw new Error('clientId is required.');
+  }
+
+  const row = db.prepare(
+    `SELECT
+      c.id,
+      c.display_name AS name,
+      b.id AS baselineId,
+      b.status,
+      b.model,
+      b.created_at AS createdAt,
+      b.accepted_at AS acceptedAt,
+      b.updated_at AS updatedAt,
+      b.structured_json AS structuredJson,
+      b.source_ids_json AS sourceIdsJson
+     FROM clients c
+     LEFT JOIN client_baselines b ON b.id = (
+       SELECT bx.id
+       FROM client_baselines bx
+       WHERE bx.client_id = c.id AND bx.status = 'accepted'
+       ORDER BY bx.accepted_at DESC, bx.id DESC
+       LIMIT 1
+     )
+     WHERE c.id = ?`
+  ).get(clientId);
+
+  if (!row) {
+    throw new Error('Client not found.');
+  }
+
+  const sourceIds = parseJsonArray(row.sourceIdsJson).map((id) => Number(id)).filter(Number.isFinite);
+  let sources = [];
+  if (sourceIds.length) {
+    const placeholders = sourceIds.map(() => '?').join(', ');
+    sources = db.prepare(
+      `SELECT id, title, source_type AS sourceType, source_date AS sourceDate, annotation, original_path AS originalPath, vault_path AS vaultPath, raw_text AS rawText, created_at AS createdAt
+       FROM intake_sources
+       WHERE id IN (${placeholders})
+       ORDER BY created_at DESC, id DESC`
+    ).all(...sourceIds);
+  } else {
+    sources = db.prepare(
+      `SELECT id, title, source_type AS sourceType, source_date AS sourceDate, annotation, original_path AS originalPath, vault_path AS vaultPath, raw_text AS rawText, created_at AS createdAt
+       FROM intake_sources
+       WHERE client_id = ?
+       ORDER BY created_at DESC, id DESC`
+    ).all(clientId);
+  }
+
+  sources = sources.map((source) => ({
+    ...source,
+    sourceId: `intake_source_${source.id}`,
+    rawText: normalizeTextContent(source.rawText || '')
+  }));
+
+  return {
+    client: {
+      id: row.id,
+      name: row.name
+    },
+    baseline: row.baselineId ? {
+      id: row.baselineId,
+      status: row.status,
+      model: row.model,
+      createdAt: row.createdAt,
+      acceptedAt: row.acceptedAt,
+      updatedAt: row.updatedAt,
+      structured: parseJsonObject(row.structuredJson)
+    } : null,
+    undoCounts: getUndoCounts(row.baselineId),
+    sources
+  };
+}
+
+async function getPdfJsModule() {
+  if (!pdfJsModulePromise) {
+    pdfJsModulePromise = import('pdfjs-dist/legacy/build/pdf.mjs');
+  }
+  return pdfJsModulePromise;
+}
+
+async function extractPdfText(filePath) {
+  const pdfJs = await getPdfJsModule();
+  const fileBuffer = await fsp.readFile(filePath);
+  const loadingTask = pdfJs.getDocument({
+    data: new Uint8Array(fileBuffer),
+    disableWorker: true,
+    verbosity: pdfJs.VerbosityLevel.ERRORS
+  });
+  const pdfDocument = await loadingTask.promise;
+  const pages = [];
+  for (let pageNum = 1; pageNum <= pdfDocument.numPages; pageNum += 1) {
+    const page = await pdfDocument.getPage(pageNum);
+    const textContent = await page.getTextContent();
+    pages.push(textContent.items.map((item) => ('str' in item ? item.str : '')).join(' '));
+  }
+  return normalizeTextContent(pages.join('\n\n'));
+}
+
+async function readImportText(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.pdf') {
+    const text = await extractPdfText(filePath);
+    if (!text) {
+      throw new Error('PDF contains no extractable text.');
+    }
+    return text;
+  }
+  return normalizeTextContent(await fsp.readFile(filePath, 'utf8'));
+}
+
+async function selectIntakeFiles() {
+  const result = await dialog.showOpenDialog({
+    title: 'Import Client Sources',
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: 'CoachNotes sources', extensions: ['md', 'markdown', 'txt', 'pdf', 'csv', 'json'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+
+  if (result.canceled || !result.filePaths.length) {
+    return [];
+  }
+
+  const imported = [];
+  for (const filePath of result.filePaths) {
+    const ext = path.extname(filePath).toLowerCase();
+    if (!SUPPORTED_IMPORT_EXTENSIONS.has(ext)) {
+      imported.push({
+        title: path.basename(filePath),
+        originalPath: filePath,
+        error: `Unsupported file type: ${ext || 'unknown'}`
+      });
+      continue;
+    }
+
+    try {
+      imported.push({
+        title: path.basename(filePath, ext),
+        sourceType: ext === '.pdf' ? 'pdf' : 'notes',
+        sourceDate: extractFilenameDate(filePath),
+        originalPath: filePath,
+        rawText: await readImportText(filePath)
+      });
+    } catch (error) {
+      imported.push({
+        title: path.basename(filePath),
+        originalPath: filePath,
+        error: error.message || 'Could not read file.'
+      });
+    }
+  }
+
+  return imported;
+}
+
+async function selectVaultFolder() {
+  const result = await dialog.showOpenDialog({
+    title: 'Select CoachNotes Vault',
+    properties: ['openDirectory', 'createDirectory']
+  });
+  return result.canceled || !result.filePaths.length ? null : result.filePaths[0];
+}
+
+async function revealVault() {
+  const vaultFolder = await ensureVaultRootFolder();
+  await shell.openPath(vaultFolder);
+  return true;
 }
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 920,
-    minWidth: 1120,
+    width: 1280,
+    height: 860,
+    minWidth: 1040,
     minHeight: 700,
     title: 'CoachNotes',
     titleBarStyle: 'hiddenInset',
@@ -2901,388 +1043,53 @@ function setupIpc() {
   }
   ipcRegistered = true;
 
-  ipcMain.handle('app:get-settings', async () => {
-    return {
+  ipcMain.handle('app:get-state', async () => ({
+    settings: {
       ...getAppSettings(),
-      status: statusState
-    };
-  });
+      vaultFolder: await ensureVaultRootFolder()
+    },
+    clients: getClients()
+  }));
 
   ipcMain.handle('app:save-settings', async (_event, payload) => {
-    const previous = getAppSettings();
-    const rootFolder = payload?.rootFolder ? String(payload.rootFolder).trim() : '';
-    const proxyBaseUrl = payload?.proxyBaseUrl ? String(payload.proxyBaseUrl).trim() : '';
-
-    if (rootFolder) {
-      setSetting('rootFolder', rootFolder);
+    const vaultFolder = String(payload?.vaultFolder || '').trim();
+    const proxyBaseUrl = String(payload?.proxyBaseUrl || '').trim();
+    if (vaultFolder) {
+      await fsp.mkdir(vaultFolder, { recursive: true });
+      setSetting('vaultFolder', vaultFolder);
     }
-
     if (proxyBaseUrl) {
       setSetting('proxyBaseUrl', proxyBaseUrl);
     }
-
     if (Object.prototype.hasOwnProperty.call(payload || {}, 'inviteToken')) {
       setInviteToken(payload.inviteToken || '');
     }
-
-    const latest = getAppSettings();
-    startWatching(latest.rootFolder);
-
-    if (payload?.runIndexAfterSave) {
-      const proxyCheck = await verifyEmbeddingProxy(latest);
-      if (!proxyCheck.ok) {
-        updateStatus({
-          message: 'Proxy check failed: indexing will continue in keyword-only mode until fixed.',
-          lastError: proxyCheck.error
-        });
-      }
-
-      const forceFullReindex =
-        Boolean(payload?.forceFullReindex) ||
-        latest.rootFolder !== previous.rootFolder ||
-        latest.proxyBaseUrl !== previous.proxyBaseUrl ||
-        latest.inviteToken !== previous.inviteToken;
-      const result = await runIndex('settings-update', forceFullReindex);
-      if (result?.queued) {
-        // If a prior index is in flight, guarantee one final pass with latest settings.
-        await waitForIndexIdle();
-        await runIndex('settings-update-followup', true);
-      }
-    }
-
-    return latest;
-  });
-
-  ipcMain.handle('app:select-root-folder', async () => {
-    const result = await dialog.showOpenDialog({
-      title: 'Select Notes Folder',
-      properties: ['openDirectory']
-    });
-
-    if (result.canceled || !result.filePaths.length) {
-      return null;
-    }
-
-    return result.filePaths[0];
-  });
-
-  ipcMain.handle('app:reindex', async () => {
-    requireDb();
-    return runIndex('manual', true);
-  });
-
-  ipcMain.handle('app:get-clients', async () => {
-    requireDb();
-    const rows = db
-      .prepare(
-        `SELECT
-          c.id,
-          c.name AS key_name,
-          c.display_name AS display_name,
-          COALESCE(c.archived, 0) AS archived,
-          c.archived_at AS archived_at,
-          COUNT(DISTINCT CASE
-            WHEN LOWER(REPLACE(COALESCE(n.path, ''), '\\', '/')) LIKE ? THEN NULL
-            ELSE nc.note_id
-          END) AS noteCount
-         FROM clients c
-         LEFT JOIN note_clients nc ON nc.client_id = c.id
-         LEFT JOIN notes n ON n.id = nc.note_id
-         GROUP BY c.id
-         ORDER BY LOWER(c.display_name) ASC`
-      )
-      .all(`%/${CLIENT_PROFILE_FILE.toLowerCase()}`);
-
-    const settings = getAppSettings();
-    const rootFolder = settings.rootFolder;
-    const canReadProfiles = Boolean(rootFolder && fs.existsSync(rootFolder));
-
-    const enriched = await Promise.all(rows.map(async (row) => {
-      let parsed = null;
-      if (canReadProfiles) {
-        const clientDirectory = findClientDirectory(rootFolder, {
-          name: row.key_name,
-          display_name: row.display_name
-        });
-        const profilePath = path.join(clientDirectory, CLIENT_PROFILE_FILE);
-        try {
-          const content = await fsp.readFile(profilePath, 'utf8');
-          parsed = parseClientProfileContent(content);
-        } catch {
-          parsed = null;
-        }
-      }
-
-      return {
-        id: row.id,
-        name: row.display_name,
-        noteCount: Number(row.noteCount || 0),
-        profileTags: parsed?.clientTags || [],
-        sidebarTags: parsed?.sidebarTags || [],
-        archived: Boolean(row.archived),
-        archivedAt: parseDate(row.archived_at),
-        color: parsed?.clientColor || ''
-      };
-    }));
-
-    return enriched;
-  });
-
-  ipcMain.handle('app:get-client-profile', async (_event, payload) => {
-    return getClientProfile(payload || {});
-  });
-
-  ipcMain.handle('app:save-client-profile', async (_event, payload) => {
-    return saveClientProfile(payload || {});
-  });
-
-  ipcMain.handle('app:remove-profile-tag', async (_event, payload) => {
-    return removeProfileTag(payload || {});
-  });
-
-  ipcMain.handle('app:get-tag-categories', async () => {
-    requireDb();
-    return getTagCategoriesConfig();
-  });
-
-  ipcMain.handle('app:save-tag-categories', async (_event, payload) => {
-    requireDb();
-    return saveTagCategoriesConfig(payload || {});
-  });
-
-  ipcMain.handle('app:get-tags', async () => {
-    requireDb();
-    return db
-      .prepare(
-        `SELECT t.name AS name, COUNT(DISTINCT nt.note_id) AS noteCount
-         FROM tags t
-         LEFT JOIN note_tags nt ON nt.tag_id = t.id
-         GROUP BY t.id
-         HAVING COUNT(DISTINCT nt.note_id) > 0
-         ORDER BY LOWER(t.name) ASC`
-      )
-      .all();
-  });
-
-  ipcMain.handle('app:get-notes', async (_event, filters = {}) => {
-    requireDb();
-    const where = [];
-    const params = [];
-    const includeArchivedClient = Boolean(filters?.includeArchivedClient);
-
-    where.push("LOWER(REPLACE(n.path, '\\', '/')) NOT LIKE ?");
-    params.push(`%/${CLIENT_PROFILE_FILE.toLowerCase()}`);
-
-    if (filters.clientId) {
-      where.push(
-        includeArchivedClient
-          ? 'EXISTS (SELECT 1 FROM note_clients x WHERE x.note_id = n.id AND x.client_id = ?)'
-          : `EXISTS (
-              SELECT 1
-              FROM note_clients x
-              JOIN clients cx ON cx.id = x.client_id
-              WHERE x.note_id = n.id AND x.client_id = ? AND COALESCE(cx.archived, 0) = 0
-            )`
-      );
-      params.push(Number(filters.clientId));
-    } else {
-      where.push(
-        `NOT EXISTS (
-          SELECT 1
-          FROM note_clients x
-          JOIN clients cx ON cx.id = x.client_id
-          WHERE x.note_id = n.id AND COALESCE(cx.archived, 0) = 1
-        )`
-      );
-    }
-
-    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-
-    return db
-      .prepare(
-        `SELECT
-          n.id,
-          n.path,
-          n.title,
-          n.date,
-          n.updated_at,
-          COALESCE(GROUP_CONCAT(DISTINCT c.display_name), '') AS client_names,
-          COALESCE(GROUP_CONCAT(DISTINCT t.name), '') AS tags
-         FROM notes n
-         LEFT JOIN note_clients nc ON nc.note_id = n.id
-         LEFT JOIN clients c ON c.id = nc.client_id
-         LEFT JOIN note_tags nt ON nt.note_id = n.id
-         LEFT JOIN tags t ON t.id = nt.tag_id
-         ${whereSql}
-         GROUP BY n.id
-         ORDER BY COALESCE(n.date, n.updated_at) DESC, n.updated_at DESC`
-      )
-      .all(...params)
-      .map((row) => ({
-        id: row.id,
-        path: row.path,
-        title: row.title,
-        date: row.date,
-        updatedAt: row.updated_at,
-        clients: row.client_names ? row.client_names.split(',').filter(Boolean) : [],
-        tags: row.tags ? row.tags.split(',').filter(Boolean) : []
-      }));
-  });
-
-  ipcMain.handle('app:get-note', async (_event, noteId) => {
-    requireDb();
-    const row = db
-      .prepare(
-        `SELECT n.id, n.path, n.title, n.date, n.raw_text,
-          COALESCE(GROUP_CONCAT(DISTINCT c.display_name), '') AS client_names,
-          COALESCE(GROUP_CONCAT(DISTINCT t.name), '') AS tags
-         FROM notes n
-         LEFT JOIN note_clients nc ON nc.note_id = n.id
-         LEFT JOIN clients c ON c.id = nc.client_id
-         LEFT JOIN note_tags nt ON nt.note_id = n.id
-         LEFT JOIN tags t ON t.id = nt.tag_id
-         WHERE n.id = ?
-         GROUP BY n.id`
-      )
-      .get(Number(noteId));
-
-    if (!row) {
-      return null;
-    }
-
-    const chunks = db
-      .prepare('SELECT id, chunk_index, start_offset, end_offset, content FROM chunks WHERE note_id = ? ORDER BY chunk_index ASC')
-      .all(Number(noteId));
-
     return {
-      id: row.id,
-      path: row.path,
-      title: row.title,
-      date: row.date,
-      text: row.raw_text,
-      clients: row.client_names ? row.client_names.split(',').filter(Boolean) : [],
-      tags: row.tags ? row.tags.split(',').filter(Boolean) : [],
-      chunks
+      ...getAppSettings(),
+      vaultFolder: await ensureVaultRootFolder()
     };
   });
 
-  ipcMain.handle('app:search', async (_event, payload) => {
-    requireDb();
-    return runSearch(payload);
-  });
-
-  ipcMain.handle('app:create-note', async (_event, payload) => {
-    return createNote(payload || {});
-  });
-
-  ipcMain.handle('app:create-client', async (_event, payload) => {
-    return createClient(payload || {});
-  });
-
-  ipcMain.handle('app:set-client-archived', async (_event, payload) => {
-    return setClientArchived(payload || {});
-  });
-
-  ipcMain.handle('app:update-note', async (_event, payload) => {
-    return updateNote(payload || {});
-  });
-
-  ipcMain.handle('app:delete-note', async (_event, payload) => {
-    return deleteNote(payload || {});
-  });
-
-  ipcMain.handle('app:check-for-updates', async () => {
-    return checkForUpdates();
-  });
-
-  ipcMain.handle('app:open-external', async (_event, url) => {
-    const target = String(url || '').trim();
-    if (!/^https?:\/\//i.test(target)) {
-      throw new Error('Invalid URL.');
-    }
-
-    await shell.openExternal(target);
-    return true;
-  });
-
-  ipcMain.handle('app:set-zoom', async (event, payload) => {
-    const requested = Number(payload?.factor);
-    const factor = Number.isFinite(requested)
-      ? Math.max(0.8, Math.min(1.4, requested))
-      : 1;
-    event.sender.setZoomFactor(factor);
-    return { factor };
-  });
-
-  ipcMain.handle('app:ask', async (event, payload) => {
-    requireDb();
-    const requestId = String(payload?.requestId || '').trim();
-    return runAsk(payload, {
-      onStreamEvent: (streamEvent) => {
-        if (!requestId || event.sender.isDestroyed()) {
-          return;
-        }
-        event.sender.send('app:llm-stream', { requestId, ...streamEvent });
-      }
-    });
-  });
-
-  ipcMain.handle('app:summarize', async (event, payload) => {
-    requireDb();
-    const requestId = String(payload?.requestId || '').trim();
-    return runSummarize(payload, {
-      onStreamEvent: (streamEvent) => {
-        if (!requestId || event.sender.isDestroyed()) {
-          return;
-        }
-        event.sender.send('app:llm-stream', { requestId, ...streamEvent });
-      }
-    });
-  });
-
-  ipcMain.handle('app:reveal-in-finder', async (_event, noteId) => {
-    requireDb();
-    const row = db.prepare('SELECT path FROM notes WHERE id = ?').get(Number(noteId));
-    if (!row) {
-      return false;
-    }
-
-    shell.showItemInFolder(row.path);
-    return true;
-  });
+  ipcMain.handle('app:select-vault-folder', async () => selectVaultFolder());
+  ipcMain.handle('app:select-intake-files', async () => selectIntakeFiles());
+  ipcMain.handle('app:generate-client-baseline', async (_event, payload) => generateClientBaseline(payload || {}));
+  ipcMain.handle('app:accept-client-baseline', async (_event, payload) => acceptClientBaseline(payload || {}));
+  ipcMain.handle('app:update-client-section', async (_event, payload) => updateClientSection(payload || {}));
+  ipcMain.handle('app:undo-client-section', async (_event, payload) => undoClientSection(payload || {}));
+  ipcMain.handle('app:update-client-from-note', async (_event, payload) => updateClientFromNote(payload || {}));
+  ipcMain.handle('app:get-clients', async () => getClients());
+  ipcMain.handle('app:get-client-detail', async (_event, payload) => getClientDetail(payload || {}));
+  ipcMain.handle('app:reveal-vault', async () => revealVault());
 }
 
-async function bootstrap() {
+app.whenReady().then(async () => {
+  ensureDb();
+  await ensureVaultRootFolder();
   setupIpc();
-  ensureDbSafe();
-  setDockIconIfAvailable();
   createWindow();
-
-  const settings = getAppSettings();
-  startWatching(settings.rootFolder);
-
-  if (settings.rootFolder && ensureDbSafe()) {
-    runIndex('startup').catch(() => {});
-  } else {
-    updateStatus({ message: 'Select a root notes folder to start indexing.' });
-  }
-}
-
-app.whenReady().then(bootstrap);
-
-process.on('unhandledRejection', (reason) => {
-  const message = reason instanceof Error ? reason.message : String(reason);
-  updateStatus({
-    message: 'Unexpected background error.',
-    lastError: message
-  });
 });
 
 app.on('window-all-closed', () => {
-  if (watcher) {
-    watcher.close();
-  }
-
   if (process.platform !== 'darwin') {
     app.quit();
   }

@@ -4,484 +4,235 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CoachNotes</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
-    />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div id="appShell" class="app-shell">
+    <div class="app-shell">
       <header class="topbar">
-        <div>
+        <div class="brand-block">
           <h1>CoachNotes</h1>
-          <p id="statusLine">Initializing...</p>
+          <p id="statusLine">Starting...</p>
         </div>
         <div class="topbar-actions">
-          <button id="newNoteBtn" class="btn btn-primary">New Note</button>
-          <button id="newClientBtn" class="btn btn-ghost">New Client</button>
-          <div id="textSizeGroup" class="text-size" role="radiogroup" aria-label="Text size">
-            <input id="textSizeSmall" class="text-size-input" type="radio" name="textSize" value="small" />
-            <label for="textSizeSmall" class="text-size-option" title="Small text">A-</label>
-            <input id="textSizeMedium" class="text-size-input" type="radio" name="textSize" value="medium" checked />
-            <label for="textSizeMedium" class="text-size-option" title="Medium text">A</label>
-            <input id="textSizeLarge" class="text-size-input" type="radio" name="textSize" value="large" />
-            <label for="textSizeLarge" class="text-size-option" title="Large text">A+</label>
-          </div>
-          <div id="themeModeGroup" class="theme-mode" role="radiogroup" aria-label="Theme mode">
-            <input id="themeModeLight" class="theme-mode-input" type="radio" name="themeMode" value="light" checked />
-            <label for="themeModeLight" class="theme-mode-option" title="Light mode">☀</label>
-            <input id="themeModeDark" class="theme-mode-input" type="radio" name="themeMode" value="dark" />
-            <label for="themeModeDark" class="theme-mode-option" title="Dark mode">☾</label>
-          </div>
-          <div class="menu-wrap">
-            <button id="moreMenuBtn" class="btn btn-ghost" type="button" aria-expanded="false" aria-haspopup="menu">More</button>
-            <div id="moreMenu" class="menu-popover" role="menu" hidden>
-              <button id="settingsBtn" class="menu-item" type="button" role="menuitem">Settings</button>
-              <button id="editTagsBtn" class="menu-item" type="button" role="menuitem">Edit Tags</button>
-              <button id="helpBtn" class="menu-item" type="button" role="menuitem">Help</button>
-              <button id="checkUpdatesBtn" class="menu-item" type="button" role="menuitem">Check Updates</button>
-            </div>
-          </div>
+          <button id="onboardBtn" class="btn btn-primary" type="button">Onboard New Client</button>
+          <button id="loadSampleBtn" class="btn btn-ghost" type="button">Load Test Client</button>
+          <button id="settingsBtn" class="btn btn-ghost" type="button">Settings</button>
         </div>
       </header>
 
-      <div class="content-grid">
-        <aside id="clientsSidebar" class="sidebar card">
-          <div id="clientsHeader" class="sidebar-head sidebar-head-clickable" role="button" tabindex="0" aria-expanded="true">
-            <h2 id="clientsHeaderLabel" class="collapsible-label">clients</h2>
-            <div class="row-inline">
-              <button id="allClientsBtn" class="btn btn-tiny">All</button>
-              <button id="archivedClientsBtn" class="btn btn-tiny" type="button" aria-pressed="false">Archived</button>
-              <button id="clientsToggleBtn" class="btn btn-tiny icon-btn" type="button" aria-expanded="true" title="Hide clients">◀</button>
+      <main class="workspace">
+        <aside class="client-rail">
+          <div class="rail-head">
+            <div>
+              <p class="section-kicker">Clients</p>
+              <h2>Accepted Baselines</h2>
             </div>
           </div>
-          <div id="clientsPanelBody">
-            <div id="clientTagFiltersWrap" class="client-tag-filters" hidden>
-              <div class="client-tag-filters-head">
-                <span>Filter by tag</span>
-                <button id="clearClientTagFiltersBtn" class="btn btn-tiny" type="button">Clear</button>
-              </div>
-              <div id="clientTagFilters" class="client-tag-filter-chips"></div>
-            </div>
-            <ul id="clientsList" class="list"></ul>
+          <div id="clientList" class="client-list"></div>
+          <div class="rail-foot">
+            <button id="revealVaultBtn" class="btn btn-subtle" type="button">Open Vault</button>
           </div>
         </aside>
 
-        <section class="main-pane">
-          <div class="card search-card">
-            <div id="queryModeGroup" class="mode-selector" role="radiogroup" aria-label="Query mode">
-              <input id="modeSearch" class="mode-selector-input" type="radio" name="queryMode" value="search" checked />
-              <label for="modeSearch" class="mode-selector-option">Search</label>
-              <input id="modeAsk" class="mode-selector-input" type="radio" name="queryMode" value="ask" />
-              <label for="modeAsk" class="mode-selector-option">Ask</label>
-              <input id="modeSummarize" class="mode-selector-input" type="radio" name="queryMode" value="summarize" />
-              <label for="modeSummarize" class="mode-selector-option">Summarize</label>
-            </div>
-            <div class="query-row">
-              <input id="queryInput" type="text" placeholder="Search notes (e.g. knee pain progression)" />
-              <select id="scopeSelect">
-                <option value="all">All Clients</option>
-                <option value="client">This Client</option>
-              </select>
-              <button id="goBtn" class="btn btn-primary">Search</button>
-            </div>
-            <details class="advanced-panel">
-              <summary>Advanced</summary>
-              <div class="advanced-grid">
-                <label for="depthPresetSelect">Depth preset</label>
-                <select id="depthPresetSelect">
-                  <option value="fast">Fast (5)</option>
-                  <option value="standard" selected>Standard (8)</option>
-                  <option value="deep">Deep (12)</option>
-                  <option value="custom">Custom</option>
-                </select>
-                <label for="topKInput">AI source depth</label>
-                <input id="topKInput" type="number" min="3" max="12" value="8" />
-                <label for="relevanceModeSelect">Relevance</label>
-                <select id="relevanceModeSelect">
-                  <option value="narrow">Narrow</option>
-                  <option value="default" selected>Default</option>
-                  <option value="wide">Wide</option>
-                </select>
-                <label for="summaryModeSelect">Summary style</label>
-                <select id="summaryModeSelect">
-                  <option value="search_results" selected>General notes</option>
-                  <option value="coaching_conversation">Coaching conversation (transcripts)</option>
-                </select>
+        <section class="main-surface">
+          <section id="intakePanel" class="intake-panel" aria-labelledby="intakeTitle">
+            <div class="surface-head">
+              <div>
+                <p class="section-kicker">Client Intake</p>
+                <h2 id="intakeTitle">Turn messy client context into a live profile.</h2>
+                <p>Paste or import what you have for one client. CoachNotes saves the raw sources locally, structures the profile, and opens the rendered dashboard for editing.</p>
               </div>
-              <p class="advanced-note">Presets update source depth automatically. Relevance applies to Search, Ask, and Summarize. Coaching conversation style summarizes only the selected note.</p>
+              <div class="surface-actions">
+                <button id="resetIntakeBtn" class="btn btn-ghost" type="button">Reset</button>
+                <button id="runIntakeBtn" class="btn btn-primary" type="button">Run Intake</button>
+              </div>
+            </div>
+
+            <div class="intake-grid">
+              <label>
+                Client name
+                <input id="clientNameInput" type="text" placeholder="Maya Thompson" autocomplete="off" />
+              </label>
+              <label>
+                Program context
+                <input id="programInput" type="text" placeholder="Optional: track, cohort, week, special context" />
+              </label>
+              <label class="span-all">
+                Coach note for this pass
+                <textarea id="coachNoteInput" rows="3" placeholder="Optional: anything the AI should pay attention to or treat cautiously."></textarea>
+              </label>
+            </div>
+
+            <div class="source-toolbar">
+              <div>
+                <p class="section-kicker">Raw Sources</p>
+                <p class="helper-copy">Use annotations only when they add context. Do not tag manually.</p>
+              </div>
+              <div class="source-actions">
+                <button id="importFilesBtn" class="btn btn-ghost" type="button">Import Files</button>
+                <button id="addSourceBtn" class="btn btn-ghost" type="button">Add Paste</button>
+                <button id="clearSourcesBtn" class="btn btn-subtle" type="button">Clear</button>
+              </div>
+            </div>
+
+            <div class="source-composer">
+              <label>
+                Source type
+                <select id="sourceTypeInput">
+                  <option value="notes">Notes</option>
+                  <option value="everfit">Everfit</option>
+                  <option value="chatgpt">ChatGPT thread</option>
+                  <option value="transcript">Transcript</option>
+                  <option value="check-in">Check-in</option>
+                  <option value="message">Message</option>
+                  <option value="manual">Manual summary</option>
+                  <option value="other">Other</option>
+                </select>
+              </label>
+              <label>
+                Title
+                <input id="sourceTitleInput" type="text" placeholder="Weekly check-ins, transcript, message thread" />
+              </label>
+              <label>
+                Date
+                <input id="sourceDateInput" type="date" />
+              </label>
+              <label class="span-all">
+                Annotation
+                <input id="sourceAnnotationInput" type="text" placeholder="Optional: recent, client self-report, old context, verify before using" />
+              </label>
+              <label class="span-all">
+                Paste text
+                <textarea id="sourceTextInput" rows="9" placeholder="Paste client context here."></textarea>
+              </label>
+            </div>
+
+            <div id="sourceList" class="source-list"></div>
+          </section>
+
+          <section id="reviewPanel" class="review-panel" hidden>
+            <div class="surface-head compact">
+              <div>
+                <p class="section-kicker">Review</p>
+                <h2>Proposed Baseline</h2>
+                <p id="reviewMeta">Edit anything that is wrong before accepting.</p>
+              </div>
+              <button id="acceptBaselineBtn" class="btn btn-primary" type="button">Accept Baseline</button>
+            </div>
+            <div id="baselineFields" class="baseline-fields"></div>
+            <details class="json-panel">
+              <summary>Structured JSON</summary>
+              <textarea id="baselineJsonInput" rows="12" spellcheck="false"></textarea>
             </details>
-          </div>
+          </section>
 
-          <div id="qaContextCard" class="card qa-context-card" hidden>
-            <div id="qaContextHeader" class="qa-context-head answer-head-clickable" role="button" tabindex="0" aria-expanded="true">
-              <div class="qa-context-title-wrap">
-                <h3 id="qaContextClientName" class="qa-context-client-name">Selected client</h3>
+          <section id="clientDetailPanel" class="client-detail-panel" hidden>
+            <div class="surface-head compact">
+              <div>
+                <p class="section-kicker">Client Baseline</p>
+                <h2 id="detailClientName">Client</h2>
+                <p id="detailMeta"></p>
               </div>
-              <button id="qaContextToggleBtn" class="btn btn-tiny" type="button" aria-expanded="true">Collapse</button>
+              <button id="addNoteBtn" class="btn btn-primary" type="button">Add Note</button>
             </div>
-            <div id="qaContextBody" class="qa-context-body">
-              <div class="qa-context-row">
-                <span class="qa-context-label">Tags</span>
-                <div id="qaContextTags" class="qa-context-tags"></div>
-              </div>
-              <div class="qa-context-row">
-                <span class="qa-context-label">Coach Notes</span>
-                <div id="qaContextCoachNotes" class="qa-context-notes"></div>
-              </div>
-              <div class="qa-context-grid">
-                <div>
-                  <p class="qa-context-label">Top Priorities</p>
-                  <ul id="qaContextTopPriorities" class="qa-context-list"></ul>
-                </div>
-                <div>
-                  <p class="qa-context-label">Exercise At-a-Glance</p>
-                  <ul id="qaContextExercise" class="qa-context-list"></ul>
-                </div>
-                <div>
-                  <p class="qa-context-label">Ongoing Medical</p>
-                  <ul id="qaContextMedical" class="qa-context-list"></ul>
-                </div>
-                <div>
-                  <p class="qa-context-label">Acute Injuries</p>
-                  <ul id="qaContextAcute" class="qa-context-list"></ul>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div id="answerCard" class="card answer-card is-collapsed">
-            <div id="answerHeader" class="answer-head answer-head-clickable" role="button" tabindex="0" aria-expanded="false">
-              <div class="answer-title-group">
-                <h2>Answer / Summary</h2>
-                <p id="answerContext" class="answer-context" hidden></p>
-              </div>
-              <div class="row-inline answer-actions">
-                <div id="answerActionGroup" class="row-inline" hidden>
-                  <button id="answerBackBtn" class="btn btn-tiny" disabled>Back</button>
-                  <button id="answerForwardBtn" class="btn btn-tiny" disabled>Forward</button>
-                  <button id="copyAnswerBtn" class="btn btn-tiny" disabled>Copy answer</button>
-                  <button id="saveAnswerBtn" class="btn btn-tiny" disabled>Save as Note</button>
-                </div>
-                <button id="answerToggleBtn" class="btn btn-tiny" type="button" aria-expanded="false">Open</button>
-              </div>
-            </div>
-            <div id="answerPanelBody" class="answer-panel-body">
-              <div id="answerText" class="answer-text">Run Ask or Summarize to generate grounded output with citations.</div>
-            </div>
-          </div>
-
-          <div class="split-grid">
-            <div class="card results-card">
-              <h2 id="resultsTitle">Notes</h2>
-              <ul id="resultsList" class="list results"></ul>
-            </div>
-
-            <div class="card detail-card">
-              <div class="detail-head">
-                <div>
-                  <h2 id="noteTitle">No note selected</h2>
-                  <p id="noteMeta"></p>
-                </div>
-                <div class="row-inline">
-                  <button id="renderedViewBtn" class="btn btn-tiny">Rendered</button>
-                  <button id="rawViewBtn" class="btn btn-tiny">Raw</button>
-                  <button id="editNoteBtn" class="btn btn-tiny" disabled>Edit Note</button>
-                  <button id="deleteNoteBtn" class="btn btn-tiny btn-danger" disabled>Delete</button>
-                  <button id="revealBtn" class="btn btn-tiny" disabled>Reveal in Finder</button>
-                </div>
-              </div>
-              <div id="noteBody" class="note-body note-body-raw"></div>
-            </div>
-          </div>
+            <div id="detailContent" class="detail-content"></div>
+          </section>
         </section>
-      </div>
+      </main>
     </div>
 
-    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-
     <dialog id="settingsDialog">
-      <form method="dialog" id="settingsForm" class="settings-form">
+      <form method="dialog" id="settingsForm" class="dialog-form">
         <h2>Settings</h2>
         <label>
-          Root Notes Folder
-          <div class="row-inline">
-            <input id="rootFolderInput" type="text" placeholder="/Users/.../Notes" />
-            <button type="button" id="browseBtn" class="btn btn-tiny">Browse</button>
+          Local vault
+          <div class="input-row">
+            <input id="vaultInput" type="text" placeholder="/Users/.../CoachNotes Vault" />
+            <button id="chooseVaultBtn" class="btn btn-subtle" type="button">Choose</button>
           </div>
         </label>
         <label>
-          Proxy Base URL
-          <input id="proxyUrlInput" type="url" placeholder="https://your-proxy.vercel.app" />
+          Proxy base URL
+          <input id="proxyInput" type="url" placeholder="https://your-proxy.vercel.app" />
         </label>
         <label>
-          Invite Token
+          Invite token
           <input id="tokenInput" type="password" placeholder="Paste invite token" />
         </label>
-        <div class="settings-maintenance">
-          <p><strong>Maintenance:</strong> Rebuild Index only when notes look out of sync after major moves/imports.</p>
-          <button type="button" id="reindexBtn" class="btn btn-ghost">Rebuild Index</button>
-        </div>
-        <div class="row-inline actions">
-          <button type="button" id="cancelSettingsBtn" class="btn btn-ghost">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save & Reindex</button>
+        <div class="dialog-actions">
+          <button id="cancelSettingsBtn" class="btn btn-ghost" type="button">Cancel</button>
+          <button class="btn btn-primary" type="submit">Save</button>
         </div>
       </form>
     </dialog>
 
-    <dialog id="newNoteDialog">
-      <form method="dialog" id="newNoteForm" class="settings-form">
-        <h2>New Note</h2>
+    <dialog id="editSectionDialog">
+      <form method="dialog" id="editSectionForm" class="dialog-form">
+        <h2 id="editSectionTitle">Edit Section</h2>
+        <p id="editSectionHelp" class="dialog-help">Coach edits are treated as source-of-truth dashboard updates and can be undone by section.</p>
         <label>
-          Title
-          <input id="newNoteTitleInput" type="text" placeholder="Session check-in" required />
+          Content
+          <textarea id="editSectionInput" rows="10" spellcheck="true"></textarea>
         </label>
-        <label>
-          Date
-          <input id="newNoteDateInput" type="date" />
-        </label>
-        <label>
-          Client
-          <select id="newNoteClientSelect"></select>
-        </label>
-        <label>
-          Tags (comma separated)
-          <input id="newNoteTagsInput" type="text" placeholder="knee, rehab, progression" list="tagSuggestions" />
-        </label>
-        <datalist id="tagSuggestions"></datalist>
-        <label>
-          Body
-          <textarea id="newNoteBodyInput" rows="10" placeholder="Type plain text or markdown. Markdown is optional."></textarea>
-        </label>
-        <div class="row-inline actions">
-          <button type="button" id="cancelNewNoteBtn" class="btn btn-ghost">Cancel</button>
-          <button type="submit" class="btn btn-primary">Create Note</button>
+        <div class="dialog-actions">
+          <button id="cancelEditSectionBtn" class="btn btn-ghost" type="button">Cancel</button>
+          <button class="btn btn-primary" type="submit">Save Section</button>
         </div>
       </form>
     </dialog>
 
-    <dialog id="clientProfileDialog">
-      <form method="dialog" id="clientProfileForm" class="settings-form">
-        <h2 id="profileDialogTitle">Client Profile</h2>
-        <div class="profile-head-row">
-          <p id="profileClientName" class="profile-client-name">Select a client in the left sidebar, then open Profile.</p>
-          <div class="profile-color-control">
-            <button id="profileColorToggleBtn" class="profile-color-toggle" type="button" aria-expanded="false" title="Change client color"></button>
-            <div id="profileColorPopover" class="profile-popover" hidden>
-              <div id="profileColorPalette" class="profile-color-palette"></div>
-              <button id="clearProfileColorBtn" class="btn btn-tiny" type="button">Default</button>
-            </div>
-          </div>
-        </div>
-        <p id="profileUpdatedAt" class="profile-updated"></p>
-        <p id="profileDisabled" class="advanced-note">Choose a client in the left sidebar to edit profile details.</p>
-        <div id="profileFormWrap" class="profile-grid" hidden>
+    <dialog id="addNoteDialog">
+      <form method="dialog" id="addNoteForm" class="dialog-form note-dialog-form">
+        <h2 id="addNoteTitle">Add Client Note</h2>
+        <p class="dialog-help">Add a new message, transcript, check-in, or coach note. CoachNotes will save the raw source locally and update the dashboard using the current baseline plus this new context.</p>
+        <div class="source-composer note-composer">
           <label>
-            Top Priorities (max 3)
-            <textarea id="profileTopInput" rows="4" placeholder="One item per line"></textarea>
-          </label>
-          <div class="profile-tag-section">
-            <div class="profile-tag-section-head">
-              <span>Client Tags</span>
-              <button id="profileTagsToggleBtn" class="btn btn-tiny" type="button" aria-expanded="false">Manage</button>
-            </div>
-            <div id="profileClientTagsList" class="profile-tags-list"></div>
-            <div id="profileTagEditor" class="profile-tag-editor" hidden>
-              <div class="profile-tag-picker-row">
-                <select id="profileTagPicker">
-                  <option value="" selected>Select tag...</option>
-                  <option value="__new__">Add tag...</option>
-                </select>
-                <button id="profileOpenNewTagBtn" class="btn btn-tiny" type="button">New</button>
-              </div>
-              <div id="profileNewTagRow" class="profile-new-tag-row" hidden>
-                <input id="profileNewTagInput" type="text" placeholder="New tag name" />
-                <select id="profileNewTagCategorySelect">
-                  <option value="">Choose category...</option>
-                  <option value="__new__">Create category...</option>
-                </select>
-                <button id="profileConfirmNewTagBtn" class="btn btn-tiny" type="button">Add</button>
-                <button id="profileCancelNewTagBtn" class="btn btn-tiny" type="button">Cancel</button>
-              </div>
-              <div id="profileNewCategoryRow" class="profile-new-category-row" hidden>
-                <input id="profileNewCategoryNameInput" type="text" placeholder="Category name" />
-                <input id="profileNewCategoryColorInput" type="color" value="#64748b" aria-label="Category color" />
-              </div>
-            </div>
-            <div class="profile-sidebar-tag-section">
-              <div class="profile-tag-section-head">
-                <span>Client List Tags</span>
-              </div>
-              <div id="profileSidebarTagsList" class="profile-sidebar-tags"></div>
-              <p class="advanced-note">Choose which tags appear in the client list card.</p>
-            </div>
-          </div>
-          <label class="profile-span-2">
-            Coach Notes (shown on main page)
-            <textarea id="profileCoachNotesInput" rows="4" placeholder="Communication preferences, reminders, and client-specific context"></textarea>
+            Source type
+            <select id="noteSourceTypeInput">
+              <option value="notes">Notes</option>
+              <option value="everfit">Everfit</option>
+              <option value="chatgpt">ChatGPT thread</option>
+              <option value="transcript">Transcript</option>
+              <option value="check-in">Check-in</option>
+              <option value="message">Message</option>
+              <option value="manual">Manual summary</option>
+              <option value="other">Other</option>
+            </select>
           </label>
           <label>
-            Ongoing Medical Considerations
-            <textarea id="profileMedicalInput" rows="4" placeholder="One item per line"></textarea>
+            Title
+            <input id="noteTitleInput" type="text" placeholder="New check-in, call transcript, message thread" />
           </label>
           <label>
-            Acute Injuries
-            <textarea id="profileAcuteInput" rows="4" placeholder="One item per line"></textarea>
+            Date
+            <input id="noteDateInput" type="date" />
           </label>
-          <label>
-            Exercise At-a-Glance Notes
-            <textarea id="profileExerciseInput" rows="4" placeholder="One item per line"></textarea>
+          <label class="span-all">
+            Annotation
+            <input id="noteAnnotationInput" type="text" placeholder="Optional: what should the AI pay attention to?" />
           </label>
-          <label>
-            Completed Focus Areas
-            <textarea id="profileCompletedInput" rows="4" placeholder="One item per line"></textarea>
-          </label>
-          <label>
-            Future Focus Areas
-            <textarea id="profileFutureInput" rows="4" placeholder="One item per line"></textarea>
+          <label class="span-all">
+            Paste note
+            <textarea id="noteTextInput" rows="8" placeholder="Paste the new source text here."></textarea>
           </label>
         </div>
-        <div class="row-inline actions">
-          <button type="button" id="archiveClientBtn" class="btn btn-ghost">Archive Client</button>
-          <button type="button" id="cancelProfileBtn" class="btn btn-ghost">Cancel</button>
-          <button type="button" id="saveProfileBtn" class="btn btn-primary">Save &amp; Close</button>
+        <div class="note-dialog-actions">
+          <button id="importNoteFilesBtn" class="btn btn-ghost" type="button">Import Files</button>
+          <button id="clearNoteSourcesBtn" class="btn btn-subtle" type="button">Clear Sources</button>
+        </div>
+        <div id="noteSourceList" class="source-list"></div>
+        <div class="dialog-actions">
+          <button id="cancelAddNoteBtn" class="btn btn-ghost" type="button">Cancel</button>
+          <button class="btn btn-primary" type="submit">Update Dashboard</button>
         </div>
       </form>
     </dialog>
 
-    <dialog id="newClientDialog">
-      <form method="dialog" id="newClientForm" class="settings-form">
-        <h2>New Client</h2>
-        <label>
-          Client Name
-          <input id="newClientNameInput" type="text" placeholder="Sarah Mitchell" required />
-        </label>
-        <p class="advanced-note">This creates a client folder under your root notes folder.</p>
-        <div class="row-inline actions">
-          <button type="button" id="cancelNewClientBtn" class="btn btn-ghost">Cancel</button>
-          <button type="submit" class="btn btn-primary">Create Client</button>
-        </div>
-      </form>
-    </dialog>
-
-    <dialog id="saveAnswerDialog">
-      <form method="dialog" id="saveAnswerForm" class="settings-form">
-        <h2>Save AI Output</h2>
-        <label>
-          Client
-          <select id="saveAnswerClientSelect" required></select>
-        </label>
-        <label>
-          Title
-          <input id="saveAnswerTitleInput" type="text" placeholder="Q&A: ... or Summary: ..." required />
-        </label>
-        <p class="advanced-note">This creates a new markdown note in the selected client's folder.</p>
-        <div class="row-inline actions">
-          <button type="button" id="cancelSaveAnswerBtn" class="btn btn-ghost">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save Note</button>
-        </div>
-      </form>
-    </dialog>
-
-    <dialog id="editTagsDialog">
-      <form method="dialog" id="editTagsForm" class="settings-form">
-        <h2>Edit Tags</h2>
-        <p class="advanced-note">Assign tags to categories with colors. Deleting a tag removes it from all client profiles.</p>
-        <div class="edit-tags-section">
-          <h3>Categories</h3>
-          <div id="tagCategoriesEditorList" class="tag-categories-editor-list"></div>
-          <div class="tag-category-new-row">
-            <input id="newTagCategoryNameInput" type="text" placeholder="New category name" />
-            <input id="newTagCategoryColorInput" type="color" value="#64748b" aria-label="New category color" />
-            <button id="addTagCategoryBtn" class="btn btn-tiny" type="button">Add Category</button>
-          </div>
-        </div>
-        <div class="edit-tags-section">
-          <h3>Tag Assignments</h3>
-          <div id="tagAssignmentsList" class="tag-assignments-list"></div>
-        </div>
-        <div class="row-inline actions">
-          <button type="button" id="cancelEditTagsBtn" class="btn btn-ghost">Cancel</button>
-          <button type="submit" id="saveTagCategoriesBtn" class="btn btn-primary">Save Changes</button>
-        </div>
-      </form>
-    </dialog>
-
-    <dialog id="editNoteDialog">
-      <form method="dialog" id="editNoteForm" class="settings-form">
-        <h2>Edit Note</h2>
-        <label>
-          Title
-          <input id="editNoteTitleInput" type="text" required />
-        </label>
-        <label>
-          Date
-          <input id="editNoteDateInput" type="date" />
-        </label>
-        <label>
-          Client
-          <select id="editNoteClientSelect"></select>
-        </label>
-        <label>
-          Tags (comma separated)
-          <input id="editNoteTagsInput" type="text" placeholder="knee, rehab, progression" list="tagSuggestions" />
-        </label>
-        <label>
-          Body
-          <textarea id="editNoteBodyInput" rows="12"></textarea>
-        </label>
-        <div class="row-inline actions">
-          <button type="button" id="cancelEditNoteBtn" class="btn btn-ghost">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save Changes</button>
-        </div>
-      </form>
-    </dialog>
-
-    <dialog id="helpDialog">
-      <form method="dialog" class="settings-form" id="helpForm">
-        <h2>CoachNotes Help</h2>
-        <div class="help-content">
-          <p><strong>1. First-time setup</strong></p>
-          <p>Open <strong>Settings</strong>, choose your Root Notes Folder, set Proxy Base URL, and paste your Invite Token. Then click <strong>Save &amp; Reindex</strong>.</p>
-
-          <p><strong>2. Supported file types</strong></p>
-          <p><code>.md</code>, <code>.txt</code>, <code>.markdown</code>, and <code>.pdf</code> are indexed.</p>
-          <p>Unsupported file types are ignored and shown in the status line.</p>
-
-          <p><strong>3. Everfit exports</strong></p>
-          <p>If your notes are exported as PDF, place them in your notes folder and use <strong>Settings → Rebuild Index</strong>.</p>
-          <p>For best search quality, keep one client per folder when possible.</p>
-
-          <p><strong>4. Creating notes in app</strong></p>
-          <p>Use <strong>New Note</strong> to create markdown files with client, date, tags, and body.</p>
-          <p>Use <strong>New Client</strong> to create client folders without using Finder.</p>
-
-          <p><strong>5. Editing and deleting notes</strong></p>
-          <p>Use <strong>Edit Note</strong> to update a selected note. <strong>Delete</strong> moves the file into <code>Deleted Notes/</code> under your root folder.</p>
-
-          <p><strong>6. Search and Ask</strong></p>
-          <p>Search finds relevant chunks. Ask/Summarize use retrieved sources and provide clickable citations.</p>
-          <p>Ask is currently single-turn: include full context in each question instead of "do that".</p>
-        </div>
-        <div class="row-inline actions">
-          <button type="button" id="closeHelpBtn" class="btn btn-primary">Close</button>
-        </div>
-      </form>
-    </dialog>
-
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <div id="busyOverlay" class="busy-overlay" hidden>
-      <div class="busy-card">
-        <div class="busy-spinner" aria-hidden="true"></div>
-        <p id="busyMessage">Working...</p>
-        <div id="busyProgressWrap" class="busy-progress" hidden>
-          <div class="busy-progress-track">
-            <div id="busyProgressBar" class="busy-progress-bar"></div>
-          </div>
-          <p id="busyProgressText" class="busy-progress-text">0/0 notes</p>
-        </div>
+      <div class="busy-box">
+        <div class="spinner" aria-hidden="true"></div>
+        <p id="busyText">Working...</p>
       </div>
     </div>
 

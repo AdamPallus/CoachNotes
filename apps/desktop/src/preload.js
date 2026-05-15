@@ -1,39 +1,16 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('coachNotes', {
-  getSettings: () => ipcRenderer.invoke('app:get-settings'),
+  getState: () => ipcRenderer.invoke('app:get-state'),
   saveSettings: (payload) => ipcRenderer.invoke('app:save-settings', payload),
-  selectRootFolder: () => ipcRenderer.invoke('app:select-root-folder'),
-  reindex: () => ipcRenderer.invoke('app:reindex'),
+  selectVaultFolder: () => ipcRenderer.invoke('app:select-vault-folder'),
+  selectIntakeFiles: () => ipcRenderer.invoke('app:select-intake-files'),
+  generateClientBaseline: (payload) => ipcRenderer.invoke('app:generate-client-baseline', payload),
+  acceptClientBaseline: (payload) => ipcRenderer.invoke('app:accept-client-baseline', payload),
+  updateClientSection: (payload) => ipcRenderer.invoke('app:update-client-section', payload),
+  undoClientSection: (payload) => ipcRenderer.invoke('app:undo-client-section', payload),
+  updateClientFromNote: (payload) => ipcRenderer.invoke('app:update-client-from-note', payload),
   getClients: () => ipcRenderer.invoke('app:get-clients'),
-  getClientProfile: (payload) => ipcRenderer.invoke('app:get-client-profile', payload),
-  saveClientProfile: (payload) => ipcRenderer.invoke('app:save-client-profile', payload),
-  removeProfileTag: (payload) => ipcRenderer.invoke('app:remove-profile-tag', payload),
-  getTagCategories: () => ipcRenderer.invoke('app:get-tag-categories'),
-  saveTagCategories: (payload) => ipcRenderer.invoke('app:save-tag-categories', payload),
-  getTags: () => ipcRenderer.invoke('app:get-tags'),
-  getNotes: (filters) => ipcRenderer.invoke('app:get-notes', filters),
-  getNote: (noteId) => ipcRenderer.invoke('app:get-note', noteId),
-  createNote: (payload) => ipcRenderer.invoke('app:create-note', payload),
-  createClient: (payload) => ipcRenderer.invoke('app:create-client', payload),
-  setClientArchived: (payload) => ipcRenderer.invoke('app:set-client-archived', payload),
-  updateNote: (payload) => ipcRenderer.invoke('app:update-note', payload),
-  deleteNote: (payload) => ipcRenderer.invoke('app:delete-note', payload),
-  checkForUpdates: () => ipcRenderer.invoke('app:check-for-updates'),
-  openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
-  setZoom: (payload) => ipcRenderer.invoke('app:set-zoom', payload),
-  search: (payload) => ipcRenderer.invoke('app:search', payload),
-  ask: (payload) => ipcRenderer.invoke('app:ask', payload),
-  summarize: (payload) => ipcRenderer.invoke('app:summarize', payload),
-  revealInFinder: (noteId) => ipcRenderer.invoke('app:reveal-in-finder', noteId),
-  onLlmStream: (handler) => {
-    const wrapped = (_event, value) => handler(value);
-    ipcRenderer.on('app:llm-stream', wrapped);
-    return () => ipcRenderer.off('app:llm-stream', wrapped);
-  },
-  onStatus: (handler) => {
-    const wrapped = (_event, value) => handler(value);
-    ipcRenderer.on('app:status', wrapped);
-    return () => ipcRenderer.off('app:status', wrapped);
-  }
+  getClientDetail: (payload) => ipcRenderer.invoke('app:get-client-detail', payload),
+  revealVault: () => ipcRenderer.invoke('app:reveal-vault')
 });

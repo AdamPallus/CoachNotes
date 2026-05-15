@@ -5,11 +5,13 @@ const rateWindowMs = 60 * 1000;
 const rateState = new Map();
 
 const DEFAULT_EMBED_MODEL = 'text-embedding-3-small';
-const DEFAULT_LLM_MODEL = 'gpt-5-mini';
+const DEFAULT_LLM_MODEL = 'gpt-5.4-mini';
 const MAX_EMBED_ITEMS = 32;
 const MAX_EMBED_TOTAL_CHARS = 120000;
 const MAX_SOURCES = 12;
 const MAX_SOURCES_TOTAL_CHARS = 90000;
+const MAX_WORKFLOW_SOURCES = 24;
+const MAX_WORKFLOW_TOTAL_CHARS = 240000;
 const DEFAULT_OPENAI_TIMEOUT_MS = 95 * 1000;
 const MAX_OPENAI_TIMEOUT_MS = 115 * 1000;
 
@@ -170,6 +172,39 @@ function validateAnswerLikeSources(sources) {
   return null;
 }
 
+function validateWorkflowSources(sources) {
+  if (!Array.isArray(sources) || sources.length === 0) {
+    return 'sources[] is required.';
+  }
+
+  if (sources.length > MAX_WORKFLOW_SOURCES) {
+    return `Too many sources. Max ${MAX_WORKFLOW_SOURCES}.`;
+  }
+
+  let totalChars = 0;
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') {
+      return 'Each source must be an object.';
+    }
+
+    if (typeof source.source_id !== 'string' || !source.source_id.trim()) {
+      return 'Each source requires source_id.';
+    }
+
+    if (typeof source.text !== 'string' || !source.text.trim()) {
+      return 'Each source requires text.';
+    }
+
+    totalChars += source.text.length;
+  }
+
+  if (totalChars > MAX_WORKFLOW_TOTAL_CHARS) {
+    return `Total source text too large. Max ${MAX_WORKFLOW_TOTAL_CHARS} chars.`;
+  }
+
+  return null;
+}
+
 function allowModel(requested, defaultModel, envKey) {
   const allow = new Set(
     [process.env[envKey], defaultModel]
@@ -239,17 +274,42 @@ function splitBullets(text) {
     .slice(0, 8);
 }
 
+function extractResponseOutputText(response) {
+  if (!response || typeof response !== 'object') {
+    return '';
+  }
+
+  if (typeof response.output_text === 'string' && response.output_text) {
+    return response.output_text;
+  }
+
+  const output = Array.isArray(response.output) ? response.output : [];
+  const parts = [];
+  for (const item of output) {
+    const content = Array.isArray(item?.content) ? item.content : [];
+    for (const row of content) {
+      if (row?.type === 'output_text' && typeof row.text === 'string' && row.text) {
+        parts.push(row.text);
+      }
+    }
+  }
+
+  return parts.join('');
+}
+
 module.exports = {
   DEFAULT_EMBED_MODEL,
   DEFAULT_LLM_MODEL,
   authAndRateLimit,
   allowModel,
   collectCitations,
+  extractResponseOutputText,
   getOpenAIClient,
   getOpenAITimeoutMs,
   json,
   splitBullets,
   withTimeout,
   validateAnswerLikeSources,
-  validateEmbeddingRequest
+  validateEmbeddingRequest,
+  validateWorkflowSources
 };

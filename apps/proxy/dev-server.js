@@ -3,6 +3,7 @@ const health = require('./api/health');
 const embed = require('./api/embed');
 const answer = require('./api/answer');
 const summarize = require('./api/summarize');
+const workflow = require('./api/workflow');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -11,6 +12,7 @@ app.get('/health', health);
 app.post('/embed', embed);
 app.post('/answer', answer);
 app.post('/summarize', summarize);
+app.post('/workflow', workflow);
 app.options('/*rest', (_req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type');
