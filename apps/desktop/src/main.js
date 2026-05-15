@@ -233,6 +233,27 @@ function getSetting(key, fallback = '') {
   return row?.value ?? fallback;
 }
 
+function normalizeProxyBaseUrl(value) {
+  const trimmed = String(value || '').trim().replace(/\/+$/, '');
+  if (!trimmed) {
+    return '';
+  }
+
+  if (/^http:\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::|\/|$)/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (/^http:\/\//i.test(trimmed)) {
+    return `https://${trimmed.slice('http://'.length)}`;
+  }
+
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return `https://${trimmed}`;
+  }
+
+  return trimmed;
+}
+
 function getInviteToken() {
   const result = spawnSync(
     'security',
@@ -264,7 +285,7 @@ function setInviteToken(token) {
 function getAppSettings() {
   return {
     vaultFolder: getSetting('vaultFolder', ''),
-    proxyBaseUrl: getSetting('proxyBaseUrl', DEFAULT_PROXY_URL),
+    proxyBaseUrl: normalizeProxyBaseUrl(getSetting('proxyBaseUrl', DEFAULT_PROXY_URL)),
     inviteToken: getInviteToken()
   };
 }
@@ -284,7 +305,7 @@ async function ensureVaultRootFolder() {
 }
 
 async function callProxy(endpoint, payload, settings = getAppSettings()) {
-  const baseUrl = String(settings.proxyBaseUrl || '').trim().replace(/\/$/, '');
+  const baseUrl = normalizeProxyBaseUrl(settings.proxyBaseUrl || '');
   const token = String(settings.inviteToken || '').trim();
   if (!baseUrl || !token) {
     throw new Error('Proxy URL or invite token is missing in Settings.');
@@ -1074,7 +1095,7 @@ function setupIpc() {
 
   ipcMain.handle('app:save-settings', async (_event, payload) => {
     const vaultFolder = String(payload?.vaultFolder || '').trim();
-    const proxyBaseUrl = String(payload?.proxyBaseUrl || '').trim();
+    const proxyBaseUrl = normalizeProxyBaseUrl(payload?.proxyBaseUrl || '');
     if (vaultFolder) {
       await fsp.mkdir(vaultFolder, { recursive: true });
       setSetting('vaultFolder', vaultFolder);
