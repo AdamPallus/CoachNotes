@@ -5,9 +5,11 @@
     }
   },
   "rewrites": [
+    { "source": "/", "destination": "/api/index" },
     { "source": "/health", "destination": "/api/health" },
     { "source": "/embed", "destination": "/api/embed" },
     { "source": "/answer", "destination": "/api/answer" },
-    { "source": "/summarize", "destination": "/api/summarize" }
+    { "source": "/summarize", "destination": "/api/summarize" },
+    { "source": "/workflow", "destination": "/api/workflow" }
   ]
 }

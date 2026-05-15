@@ -1,4 +1,5 @@
 const express = require('express');
+const index = require('./api/index');
 const health = require('./api/health');
 const embed = require('./api/embed');
 const answer = require('./api/answer');
@@ -8,6 +9,7 @@ const workflow = require('./api/workflow');
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 
+app.get('/', index);
 app.get('/health', health);
 app.post('/embed', embed);
 app.post('/answer', answer);

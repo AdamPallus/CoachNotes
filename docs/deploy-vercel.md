@@ -27,7 +27,7 @@ git push -u origin main
 - `INVITE_TOKENS`: one or more comma-separated tokens (example: `tokenA,tokenB`)
 - `RATE_LIMIT_PER_MIN`: `60`
 - `EMBED_MODEL_ALLOWLIST`: `text-embedding-3-small`
-- `LLM_MODEL_ALLOWLIST`: `gpt-5-mini`
+- `LLM_MODEL_ALLOWLIST`: `gpt-5.4-mini`
 
 ## 4) Deploy
 
@@ -56,10 +56,10 @@ If you get `NOT_FOUND`, check these two things:
 Auth-protected routes:
 
 ```bash
-curl -X POST https://<project-name>.vercel.app/embed \
+curl -X POST https://<project-name>.vercel.app/workflow \
   -H "Authorization: Bearer <one-token-from-INVITE_TOKENS>" \
   -H "Content-Type: application/json" \
-  -d '{"model":"text-embedding-3-small","inputs":[{"id":"q1","text":"hello"}]}'
+  -d '{"workflow":"client_intake_baseline","client":{"name":"Test Client"},"sources":[{"source_id":"test_1","title":"Test note","source_type":"notes","text":"Client wants a simple plan."}]}'
 ```
 
 ## 6) Point desktop app to Vercel
@@ -67,4 +67,4 @@ curl -X POST https://<project-name>.vercel.app/embed \
 In CoachNotes desktop Settings:
 - `Proxy Base URL` => `https://<project-name>.vercel.app`
 - `Invite Token` => token from `INVITE_TOKENS`
-- Save + Reindex
+- Save, then run intake or add a note.

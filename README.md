@@ -1,77 +1,81 @@
 # CoachNotes
 
-CoachNotes is a local macOS notes app for health coaches with:
-- File-based note browsing (`.md`, `.txt`, `.markdown`, `.pdf`)
-- In-app note creation (client + tags + note body)
-- Local SQLite indexing + chunking
-- Local semantic retrieval over stored embeddings
-- Grounded Q&A and summaries with source citations
-- In-app Help panel for setup and usage guidance
-- Manual `Check Updates` button backed by GitHub Releases
-- Thin Vercel proxy for OpenAI embeddings + answers
+CoachNotes is a local-first macOS app for health coaches. The desktop app stores client source material locally, turns messy notes into an editable client dashboard, and uses a small hosted proxy for AI workflows.
 
-## Project Layout
+Current focus:
 
-- `apps/desktop`: Electron desktop app (local DB, indexing, search, UI)
-- `apps/proxy`: Vercel-ready API (`/health`, `/embed`, `/answer`, `/summarize`)
+- Onboard one client at a time from pasted text or imported files.
+- Save raw client sources locally.
+- Generate a structured client profile with source-linked dashboard sections.
+- Edit dashboard sections directly, with per-section undo.
+- Add new notes later and let AI update the existing dashboard.
+- Track coach to-dos, flags, goals/values, coaching plan/approach, progress, engagement, resources, and coaching-domain threads.
+
+## Architecture
+
+- `apps/desktop`: Electron macOS desktop app with local SQLite storage and a local vault.
+- `apps/proxy`: Vercel API proxy for OpenAI requests.
+- `docs`: deployment and release notes.
+
+The desktop app owns the local data. The proxy receives only the context needed for the AI operation being run.
 
 ## Requirements
 
-- Node.js 20+
-- npm 10+
-- macOS (desktop app uses Keychain via `security` CLI)
-- OpenAI API key for proxy server
+- macOS for the desktop app.
+- Node.js 20+ and npm 10+ for development.
+- An OpenAI API key for the proxy.
+- An invite token configured both in the proxy environment and the desktop app settings.
 
-## Local Setup
+## Local Development
+
+Install dependencies:
 
 ```bash
 npm install
 ```
 
-### 1) Run proxy locally
+Run the proxy:
 
 ```bash
 cp apps/proxy/.env.example apps/proxy/.env
-# fill OPENAI_API_KEY and INVITE_TOKENS
+# Fill OPENAI_API_KEY and INVITE_TOKENS in apps/proxy/.env
 cd apps/proxy
 set -a; source .env; set +a
 npm run dev
 ```
 
-Proxy runs at `http://localhost:3001`.
-
-### 2) Run desktop app
-
-In a new terminal:
+Run the desktop app in another terminal:
 
 ```bash
 npm run dev:desktop
 ```
 
-In app settings:
-- Set `Root Notes Folder`
-- Set `Proxy Base URL` (`http://localhost:3001` local or Vercel URL)
-- Set `Invite Token` to one value from `INVITE_TOKENS`
+In CoachNotes settings, set:
 
-Then click `Save & Reindex`.
+- Proxy base URL: `http://localhost:3001` for local development, or the Vercel deployment URL for production.
+- Invite token: one value from `INVITE_TOKENS`.
 
-## Proxy API Contract
+## Proxy API
 
-- `GET /health` => `{ "ok": true }`
-- `POST /embed` with `{ model, inputs: [{ id, text }] }`
-- `POST /answer` with `{ model, question, instructions?, sources[] }`
-- `POST /summarize` with `{ model, mode, sources[] }`
+Public:
 
-All protected by `Authorization: Bearer <INVITE_TOKEN>`.
+- `GET /`
+- `GET /health`
 
-## Deploy Proxy to Vercel
+Authenticated with `Authorization: Bearer <INVITE_TOKEN>`:
 
-See `docs/deploy-vercel.md`.
+- `POST /workflow`
+- `POST /embed`
+- `POST /answer`
+- `POST /summarize`
 
-## User Guide
+The current desktop intake and note-update flows use `/workflow`.
 
-See `/Users/pallusa/projects/CoachNotes/docs/user-guide.md` for first-run onboarding, client mapping rules, and demo notes setup.
+## Deployment
 
-## Desktop Releases
+- Vercel proxy deployment: [docs/deploy-vercel.md](docs/deploy-vercel.md)
+- Desktop release flow: [docs/release-desktop.md](docs/release-desktop.md)
 
-See `/Users/pallusa/projects/CoachNotes/docs/release-desktop.md` for GitHub Actions build + release tagging flow.
+## Release Notes
+
+Desktop builds are currently unsigned and distributed through GitHub Releases. macOS may require a first-run trust override.

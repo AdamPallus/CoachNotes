@@ -2,7 +2,7 @@
 
 ## What is configured
 
-- GitHub Actions workflow: `/Users/pallusa/projects/CoachNotes/.github/workflows/desktop-release.yml`
+- GitHub Actions workflow: `.github/workflows/desktop-release.yml`
 - Builds unsigned macOS artifacts on:
   - tag push: `v*` (creates GitHub Release + uploads assets)
   - manual workflow run (uploads workflow artifacts)
@@ -11,14 +11,13 @@
 ## Release process
 
 1. Ensure desktop version is bumped in:
-   - `/Users/pallusa/projects/CoachNotes/apps/desktop/package.json` (`version`)
+   - `apps/desktop/package.json` (`version`)
 2. Commit and push.
 3. Create and push a version tag matching that version:
 
 ```bash
-cd /Users/pallusa/projects/CoachNotes
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 4. Wait for workflow `Desktop Release` to finish.
