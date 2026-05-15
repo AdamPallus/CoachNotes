@@ -15,7 +15,6 @@
         </div>
         <div class="topbar-actions">
           <button id="onboardBtn" class="btn btn-primary" type="button">Onboard New Client</button>
-          <button id="loadSampleBtn" class="btn btn-ghost" type="button">Load Test Client</button>
           <button id="settingsBtn" class="btn btn-ghost" type="button">Settings</button>
         </div>
       </header>
@@ -25,7 +24,7 @@
           <div class="rail-head">
             <div>
               <p class="section-kicker">Clients</p>
-              <h2>Accepted Baselines</h2>
+              <h2>Client Profiles</h2>
             </div>
           </div>
           <div id="clientList" class="client-list"></div>
@@ -40,7 +39,7 @@
               <div>
                 <p class="section-kicker">Client Intake</p>
                 <h2 id="intakeTitle">Turn messy client context into a live profile.</h2>
-                <p>Paste or import what you have for one client. CoachNotes saves the raw sources locally, structures the profile, and opens the rendered dashboard for editing.</p>
+                <p>Paste or import what you have for one client. CoachNotes saves the raw sources locally, structures the current dashboard, and opens the rendered profile for editing.</p>
               </div>
               <div class="surface-actions">
                 <button id="resetIntakeBtn" class="btn btn-ghost" type="button">Reset</button>
@@ -129,11 +128,14 @@
           <section id="clientDetailPanel" class="client-detail-panel" hidden>
             <div class="surface-head compact">
               <div>
-                <p class="section-kicker">Client Baseline</p>
+                <p class="section-kicker">Client Profile</p>
                 <h2 id="detailClientName">Client</h2>
                 <p id="detailMeta"></p>
               </div>
-              <button id="addNoteBtn" class="btn btn-primary" type="button">Add Note</button>
+              <div class="surface-actions">
+                <button id="deleteClientBtn" class="btn btn-danger" type="button">Delete Client</button>
+                <button id="addNoteBtn" class="btn btn-primary" type="button">Add Note</button>
+              </div>
             </div>
             <div id="detailContent" class="detail-content"></div>
           </section>

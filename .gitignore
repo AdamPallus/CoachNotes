@@ -8,3 +8,6 @@ apps/desktop/dist
 output
 apps/desktop/build/icon.iconset
 docs/demo-notes/
+demo-data/
+demo-recordings/
+demo-screenshots/

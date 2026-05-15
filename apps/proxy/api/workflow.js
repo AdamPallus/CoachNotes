@@ -109,49 +109,97 @@ function renderClientIntakePrompt(body) {
     '',
     'Create this exact JSON object:',
     JSON.stringify({
-      schemaVersion: 'client_baseline.v1',
-      overview: 'short plain-language client snapshot',
-      programContext: {
-        track: '',
-        cohortTiming: '',
+      schemaVersion: 'client_baseline.v2',
+      clientProfile: {
+        age: '',
+        location: '',
+        curriculum: '',
+        trainingProgram: '',
         programWeek: '',
         notes: ''
       },
-      currentGoals: ['goal'],
-      currentPriorities: ['priority'],
-      activeConstraints: [
+      overview: 'short current-state client snapshot',
+      coachTasks: [
         {
           title: '',
-          details: '',
-          status: 'active | improving | resolved | unknown',
-          startedAt: '',
-          reviewBy: '',
+          details: 'specific to-do, action item, or follow-up for the coach',
+          status: 'open | done | needs_review | unknown',
+          dueOrReviewBy: '',
           evidenceIds: ['source_id']
         }
       ],
-      injuriesLimitations: [
+      flags: [
         {
           title: '',
+          category: 'injury | vacation | red_flag | medical_concern | surgery_procedure | life_event | other',
           details: '',
-          currentStatus: '',
-          evidenceIds: ['source_id']
-        }
-      ],
-      medicalScopeFlags: [
-        {
-          title: '',
-          details: '',
+          status: 'active | improving | resolved | historical | unknown',
           urgency: 'low | medium | high | unknown',
           evidenceIds: ['source_id']
         }
       ],
-      habitsBehaviors: ['behavior pattern'],
-      motivationValues: ['motivator or value'],
-      preferences: ['preference'],
-      communicationNotes: ['communication note'],
-      wins: ['win or progress signal'],
-      challenges: ['challenge'],
-      openLoops: ['follow-up or unresolved question'],
+      goalsValues: [
+        {
+          title: '',
+          details: 'current goal, value, future-self statement, or vision statement',
+          evidenceIds: ['source_id']
+        }
+      ],
+      coachingPlanApproach: [
+        {
+          title: '',
+          details: 'agreed coaching approach, planned habit/skill focus, commitment, or future commitment expected to move the needle on the client goals',
+          timing: 'now | future | paused | unknown',
+          evidenceIds: ['source_id']
+        }
+      ],
+      progressTracking: [
+        {
+          title: '',
+          details: 'skills practice, workout completion, strength progression, difficulty, load, or other compliance signal',
+          status: 'mastered | improving | inconsistent | difficult | unknown',
+          evidenceIds: ['source_id']
+        }
+      ],
+      engagementNotes: [
+        {
+          title: '',
+          details: 'how the client is engaging: Zoom, text, instant message, check-ins, responsiveness, tone, or cadence',
+          evidenceIds: ['source_id']
+        }
+      ],
+      nutritionThreads: [
+        {
+          title: '',
+          details: 'common thread around what is difficult or mastered in nutrition',
+          status: 'mastered | difficult | improving | watch | unknown',
+          evidenceIds: ['source_id']
+        }
+      ],
+      mindsetThreads: [
+        {
+          title: '',
+          details: 'common thread around what is difficult or mastered in mindset',
+          status: 'mastered | difficult | improving | watch | unknown',
+          evidenceIds: ['source_id']
+        }
+      ],
+      exerciseThreads: [
+        {
+          title: '',
+          details: 'common thread around workouts, alterations, limitations, strength progression, or exercise considerations',
+          status: 'mastered | difficult | improving | watch | unknown',
+          evidenceIds: ['source_id']
+        }
+      ],
+      resourcesShared: [
+        {
+          title: '',
+          details: 'resource shared with the client and why it matters',
+          date: '',
+          evidenceIds: ['source_id']
+        }
+      ],
       suggestedTags: ['tag'],
       timeline: [
         {
@@ -168,6 +216,12 @@ function renderClientIntakePrompt(body) {
     'Rules:',
     '- Keep arrays focused. Prefer 3-8 items per section unless the source clearly supports more.',
     '- Use evidenceIds to point back to source_id values. Empty evidenceIds are allowed only for coach-provided anchors.',
+    '- Flags should include injuries, vacations, red flags, medical concerns, surgeries/procedures, and major life events. Do not put ordinary preferences in flags.',
+    '- For coachingPlanApproach, include only things the coach and client have agreed to try, commit to, revisit, or use later to move the client toward their goals.',
+    '- Do not put generic goals in coachingPlanApproach unless there is a concrete agreed approach, habit, skill practice, plan constraint, commitment, or future commitment attached.',
+    '- For nutritionThreads, mindsetThreads, and exerciseThreads, distinguish mastered/comfortable patterns from difficult patterns when evidence supports it.',
+    '- For progressTracking, include skills practice compliance, workout completion, strength/difficulty/load progression, and client engagement only when available.',
+    '- For resourcesShared, include resources already shared with the client, not resources the coach might want to create.',
     '- Use empty strings or empty arrays for missing fields.',
     '- Current state must favor recent evidence. If old and recent sources conflict, note that in confidenceNotes.',
     '',
@@ -203,11 +257,11 @@ function renderClientUpdatePrompt(body) {
     '',
     'Return this exact JSON object:',
     JSON.stringify({
-      schemaVersion: 'client_update.v1',
+      schemaVersion: 'client_update.v2',
       updateSummary: '1-2 concise sentences explaining what changed and why it matters to the coach.',
       changes: [
         {
-          sectionKey: 'activeConstraints',
+          sectionKey: 'flags',
           action: 'add | update | resolve | no_change | needs_review',
           summary: '',
           reason: '',
@@ -215,26 +269,26 @@ function renderClientUpdatePrompt(body) {
         }
       ],
       updatedBaseline: {
-        schemaVersion: 'client_baseline.v1',
-        overview: 'updated client snapshot',
-        programContext: {
-          track: '',
-          cohortTiming: '',
+        schemaVersion: 'client_baseline.v2',
+        clientProfile: {
+          age: '',
+          location: '',
+          curriculum: '',
+          trainingProgram: '',
           programWeek: '',
           notes: ''
         },
-        currentGoals: ['goal'],
-        currentPriorities: ['priority'],
-        activeConstraints: ['constraint with citation markers or objects with evidenceIds'],
-        injuriesLimitations: ['injury or limitation'],
-        medicalScopeFlags: ['scope flag'],
-        habitsBehaviors: ['behavior pattern'],
-        motivationValues: ['motivator or value'],
-        preferences: ['preference'],
-        communicationNotes: ['communication note'],
-        wins: ['win or progress signal'],
-        challenges: ['challenge'],
-        openLoops: ['follow-up or unresolved question'],
+        overview: 'updated current-state client snapshot',
+        coachTasks: ['coach to-do or action item'],
+        flags: ['injury, vacation, red flag, medical concern, surgery/procedure, life event, or other flag'],
+        goalsValues: ['current goal, value, future-self statement, or vision statement'],
+        coachingPlanApproach: ['agreed approach, planned habit/skill focus, current commitment, or future commitment expected to move goals forward'],
+        progressTracking: ['skills practice, workout completion, strength progression, difficulty, load, compliance, or engagement signal'],
+        engagementNotes: ['Zoom, text, instant message, check-in, responsiveness, tone, or cadence note'],
+        nutritionThreads: ['nutrition common thread: mastered, difficult, improving, watch, or unknown'],
+        mindsetThreads: ['mindset common thread: mastered, difficult, improving, watch, or unknown'],
+        exerciseThreads: ['exercise common thread: mastered, difficult, improving, watch, or unknown'],
+        resourcesShared: ['resource already shared with the client'],
         suggestedTags: ['tag'],
         timeline: ['dated event'],
         missingInfo: ['important missing context'],
@@ -244,12 +298,17 @@ function renderClientUpdatePrompt(body) {
     '',
     'Rules:',
     '- Preserve existing baseline content unless the new source gives a clear reason to change it.',
-    '- Keep the same baseline schema and include all baseline sections in updatedBaseline.',
+    '- Return updatedBaseline in the v2 schema shown above and include all v2 baseline sections.',
     '- Keep arrays focused. Prefer editing or appending specific items instead of rewriting whole sections.',
     '- Cite new evidence using evidenceIds objects or bracket markers like [source_id].',
     '- Do not cite the current baseline as evidence. It is coach context, not a source note.',
+    '- Treat coach-entered currentBaseline fields as source of truth. Add new source evidence without erasing coach edits.',
+    '- Flags should include injuries, vacations, red flags, medical concerns, surgeries/procedures, and major life events. Do not put ordinary preferences in flags.',
+    '- For coachingPlanApproach, update agreed coaching approach, current commitments, planned habit/skill focus, and future commitments when new evidence supports it.',
+    '- For nutritionThreads, mindsetThreads, and exerciseThreads, update common threads around what is difficult and what has been mastered.',
+    '- For progressTracking, update skills practice compliance, workout completion, strength/difficulty/load progression, and client engagement when new evidence supports it.',
     '- updateSummary should name the most important updated sections and stay under 45 words.',
-    '- If the new source suggests a coach should verify something, put it in openLoops, missingInfo, or confidenceNotes.',
+    '- If the new source suggests a coach should verify something, put it in coachTasks, missingInfo, or confidenceNotes.',
     '',
     'New sources:',
     sourceBlocks

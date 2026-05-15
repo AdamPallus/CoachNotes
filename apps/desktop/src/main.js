@@ -14,20 +14,18 @@ const MAX_WORKFLOW_CHARS = 220000;
 const SUPPORTED_IMPORT_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.pdf', '.csv', '.json']);
 const APP_NAME = app.isPackaged ? 'CoachNotes' : 'CoachNotes Dev';
 const BASELINE_SECTION_KEYS = new Set([
+  'clientProfile',
   'overview',
-  'programContext',
-  'currentGoals',
-  'currentPriorities',
-  'activeConstraints',
-  'injuriesLimitations',
-  'medicalScopeFlags',
-  'habitsBehaviors',
-  'motivationValues',
-  'preferences',
-  'communicationNotes',
-  'wins',
-  'challenges',
-  'openLoops',
+  'coachTasks',
+  'flags',
+  'goalsValues',
+  'coachingPlanApproach',
+  'progressTracking',
+  'engagementNotes',
+  'nutritionThreads',
+  'mindsetThreads',
+  'exerciseThreads',
+  'resourcesShared',
   'suggestedTags',
   'timeline',
   'missingInfo',
@@ -653,6 +651,8 @@ function getClients() {
   ).all().map((row) => {
     const structured = parseJsonObject(row.structuredJson);
     const sourceIds = parseJsonArray(row.sourceIdsJson);
+    const flags = Array.isArray(structured.flags) ? structured.flags : [];
+    const tasks = Array.isArray(structured.coachTasks) ? structured.coachTasks : [];
     return {
       id: row.id,
       name: row.name,
@@ -662,10 +662,31 @@ function getClients() {
       sourceCount: sourceIds.length || Number(row.sourceCount || 0),
       summary: String(structured.overview || '').slice(0, 180),
       tags: normalizeArray(structured.suggestedTags || [], 8),
-      activeConstraintCount: Array.isArray(structured.activeConstraints) ? structured.activeConstraints.length : 0,
-      openLoopCount: Array.isArray(structured.openLoops) ? structured.openLoops.length : 0
+      flagCount: flags.length,
+      taskCount: tasks.length
     };
   });
+}
+
+function deleteClient(payload) {
+  requireDb();
+  const clientId = Number(payload?.clientId);
+  if (!Number.isFinite(clientId)) {
+    throw new Error('clientId is required.');
+  }
+
+  const row = db.prepare('SELECT id, display_name AS name FROM clients WHERE id = ?').get(clientId);
+  if (!row) {
+    throw new Error('Client not found.');
+  }
+
+  const result = db.prepare('DELETE FROM clients WHERE id = ?').run(clientId);
+  return {
+    deleted: result.changes > 0,
+    clientId: row.id,
+    name: row.name,
+    clients: getClients()
+  };
 }
 
 function updateClientSection(payload) {
@@ -1077,6 +1098,7 @@ function setupIpc() {
   ipcMain.handle('app:update-client-section', async (_event, payload) => updateClientSection(payload || {}));
   ipcMain.handle('app:undo-client-section', async (_event, payload) => undoClientSection(payload || {}));
   ipcMain.handle('app:update-client-from-note', async (_event, payload) => updateClientFromNote(payload || {}));
+  ipcMain.handle('app:delete-client', async (_event, payload) => deleteClient(payload || {}));
   ipcMain.handle('app:get-clients', async () => getClients());
   ipcMain.handle('app:get-client-detail', async (_event, payload) => getClientDetail(payload || {}));
   ipcMain.handle('app:reveal-vault', async () => revealVault());

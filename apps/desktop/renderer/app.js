@@ -14,20 +14,18 @@ const state = {
 };
 
 const baselineSections = [
-  { key: 'overview', label: 'Snapshot', type: 'text', rows: 4 },
-  { key: 'programContext', label: 'Program Context', type: 'object', rows: 4 },
-  { key: 'currentGoals', label: 'Current Goals', type: 'list', rows: 4 },
-  { key: 'currentPriorities', label: 'Current Priorities', type: 'list', rows: 4 },
-  { key: 'activeConstraints', label: 'Active Constraints', type: 'list', rows: 5 },
-  { key: 'injuriesLimitations', label: 'Injuries / Limitations', type: 'list', rows: 5 },
-  { key: 'medicalScopeFlags', label: 'Medical / Scope Flags', type: 'list', rows: 4 },
-  { key: 'habitsBehaviors', label: 'Habits / Behaviors', type: 'list', rows: 4 },
-  { key: 'motivationValues', label: 'Motivation / Values', type: 'list', rows: 4 },
-  { key: 'preferences', label: 'Preferences', type: 'list', rows: 4 },
-  { key: 'communicationNotes', label: 'Communication Notes', type: 'list', rows: 4 },
-  { key: 'wins', label: 'Wins', type: 'list', rows: 4 },
-  { key: 'challenges', label: 'Challenges', type: 'list', rows: 4 },
-  { key: 'openLoops', label: 'Open Loops', type: 'list', rows: 4 },
+  { key: 'clientProfile', label: 'Client Profile', type: 'object', rows: 6 },
+  { key: 'overview', label: 'Current Baseline Snapshot', type: 'text', rows: 4 },
+  { key: 'coachTasks', label: 'Coach To-Dos / Action Items', type: 'list', rows: 5 },
+  { key: 'flags', label: 'Flags', type: 'list', rows: 6 },
+  { key: 'goalsValues', label: 'Goals / Values', type: 'list', rows: 5 },
+  { key: 'coachingPlanApproach', label: 'Coaching Plan / Approach', type: 'list', rows: 5 },
+  { key: 'progressTracking', label: 'Progress Tracking', type: 'list', rows: 5 },
+  { key: 'engagementNotes', label: 'Engagement', type: 'list', rows: 4 },
+  { key: 'nutritionThreads', label: 'Nutrition', type: 'list', rows: 5 },
+  { key: 'mindsetThreads', label: 'Mindset', type: 'list', rows: 5 },
+  { key: 'exerciseThreads', label: 'Exercise', type: 'list', rows: 5 },
+  { key: 'resourcesShared', label: 'Resources', type: 'list', rows: 4 },
   { key: 'suggestedTags', label: 'Suggested Tags', type: 'tags', rows: 3 },
   { key: 'timeline', label: 'Timeline', type: 'list', rows: 6 },
   { key: 'missingInfo', label: 'Missing Info', type: 'list', rows: 4 },
@@ -37,7 +35,6 @@ const baselineSections = [
 const els = {
   statusLine: document.getElementById('statusLine'),
   onboardBtn: document.getElementById('onboardBtn'),
-  loadSampleBtn: document.getElementById('loadSampleBtn'),
   settingsBtn: document.getElementById('settingsBtn'),
   clientList: document.getElementById('clientList'),
   revealVaultBtn: document.getElementById('revealVaultBtn'),
@@ -66,6 +63,7 @@ const els = {
   detailMeta: document.getElementById('detailMeta'),
   detailContent: document.getElementById('detailContent'),
   addNoteBtn: document.getElementById('addNoteBtn'),
+  deleteClientBtn: document.getElementById('deleteClientBtn'),
   editSectionDialog: document.getElementById('editSectionDialog'),
   editSectionForm: document.getElementById('editSectionForm'),
   editSectionTitle: document.getElementById('editSectionTitle'),
@@ -244,6 +242,45 @@ function renderEvidenceText(value, sourceLookup, evidenceIds = []) {
   return html;
 }
 
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function compactObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => {
+      if (Array.isArray(entry)) {
+        return entry.length > 0;
+      }
+      return String(entry ?? '').trim();
+    })
+  );
+}
+
+function buildDashboardModel(structured = {}) {
+  return {
+    clientProfile: compactObject(structured.clientProfile || {}),
+    overview: structured.overview || '',
+    coachTasks: asArray(structured.coachTasks),
+    flags: asArray(structured.flags),
+    goalsValues: asArray(structured.goalsValues),
+    coachingPlanApproach: asArray(structured.coachingPlanApproach),
+    progressTracking: asArray(structured.progressTracking),
+    engagementNotes: asArray(structured.engagementNotes),
+    nutritionThreads: asArray(structured.nutritionThreads),
+    mindsetThreads: asArray(structured.mindsetThreads),
+    exerciseThreads: asArray(structured.exerciseThreads),
+    resourcesShared: asArray(structured.resourcesShared),
+    suggestedTags: asArray(structured.suggestedTags),
+    timeline: asArray(structured.timeline),
+    missingInfo: asArray(structured.missingInfo),
+    confidenceNotes: asArray(structured.confidenceNotes)
+  };
+}
+
 function normalizeDetailItem(item) {
   if (typeof item === 'string') {
     return { title: '', detail: item, evidenceIds: [] };
@@ -251,15 +288,29 @@ function normalizeDetailItem(item) {
   if (!item || typeof item !== 'object') {
     return { title: '', detail: '', evidenceIds: [] };
   }
-  const title = item.title || item.label || item.date || '';
-  const detail = item.details || item.currentStatus || item.status || item.urgency || item.summary || '';
+  const title = item.title || item.label || item.resource || item.name || item.date || '';
+  const detail = item.details || item.currentStatus || item.status || item.urgency || item.summary || item.note || item.notes || '';
   const fallback = Object.entries(item)
-    .filter(([key]) => !['title', 'label', 'date', 'details', 'currentStatus', 'status', 'urgency', 'summary', 'evidenceIds'].includes(key))
+    .filter(([key]) => ![
+      'title',
+      'label',
+      'resource',
+      'name',
+      'date',
+      'details',
+      'currentStatus',
+      'status',
+      'urgency',
+      'summary',
+      'note',
+      'notes',
+      'evidenceIds'
+    ].includes(key))
     .map(([key, entry]) => `${key}: ${entry}`)
     .join(' · ');
   return {
     title,
-    detail: detail || fallback,
+    detail: [detail, fallback].filter(Boolean).join(' · '),
     evidenceIds: Array.isArray(item.evidenceIds) ? item.evidenceIds : []
   };
 }
@@ -464,62 +515,6 @@ function openAddNoteDialog() {
   els.noteTextInput.focus();
 }
 
-function loadSampleData() {
-  resetIntake();
-  els.clientNameInput.value = 'Jordan Ellis';
-  els.programInput.value = 'Strength and nutrition coaching, week 4, travel-heavy work schedule, shoulder-friendly training modifications';
-  els.coachNoteInput.value = 'Watch shoulder symptoms, inconsistent meals during travel, and desire for a simple plan. Use coach-first language and ask for clarification where the data is thin.';
-  addSources([
-    {
-      title: 'Everfit weekly check-ins',
-      sourceType: 'everfit',
-      sourceDate: '2026-05-06',
-      annotation: 'Recent check-ins copied from Everfit.',
-      rawText: `Week 2 check-in: Jordan completed 2 of 4 planned strength sessions and got 7,200 average daily steps. Energy was 7/10 on days with lunch, 4/10 on travel days. He wrote that hotel workouts feel "annoying but doable" if they are under 25 minutes. Shoulder discomfort was 2/10 during pressing and 0/10 afterward.
-
-Week 3 check-in: Completed 3 strength sessions, including one band-only hotel workout. Jordan skipped overhead presses after feeling a pinch in the front of the right shoulder. He substituted incline push-ups and rows without pain. Biggest win: "I packed protein snacks and did not get stuck eating airport pretzels for dinner." Biggest challenge: late client dinners and two nights of poor sleep.
-
-Week 4 check-in: Jordan reports shoulder is calm with rows, carries, lower-body work, and incline push-ups, but overhead movement still feels uncertain. He wants a plan that keeps him progressing without making the shoulder a whole project. He asked whether he should cut carbs on travel days because he is less active.`
-    },
-    {
-      title: 'Client message thread',
-      sourceType: 'message',
-      sourceDate: '2026-05-10',
-      annotation: 'Messages Liz would normally paste into ChatGPT.',
-      rawText: `Jordan: Next week is Denver Monday to Thursday and I probably have dinner events every night. I can use the hotel gym in the morning if it is simple. I just do not want to make my shoulder worse before the company golf thing.
-
-Coach: We can build a travel version around what you can repeat without turning the trip into a fitness project.
-
-Jordan: That sounds perfect. I care more about staying consistent than crushing it. Also if there is a low-effort way to handle dinner without being weird at work events, that would help.`
-    },
-    {
-      title: 'EchoScribe call transcript excerpt',
-      sourceType: 'transcript',
-      sourceDate: '2026-04-29',
-      annotation: 'Short excerpt from a coaching call.',
-      rawText: `Coach: When you picture this working in real life, what has changed?
-
-Jordan: I am not starting over every Monday. I can travel, go to dinners, and still feel like I am the kind of person who trains.
-
-Coach: So consistency and identity matter more than a perfect week.
-
-Jordan: Exactly. I need the minimum version written down. If the plan is vague, I negotiate with myself and skip it.
-
-Coach: What has been getting in the way?
-
-Jordan: Travel, work dinners, and shoulder uncertainty. If something hurts I freeze up and do nothing because I do not know what is safe.`
-    },
-    {
-      title: 'Coach planning note',
-      sourceType: 'manual',
-      sourceDate: '2026-05-01',
-      annotation: 'Internal coach note before the next monthly review.',
-      rawText: `Jordan responds well to short explanations and dislikes being micromanaged. He likes "default meals" and simple decision rules. Current focus: maintain training during travel, protect shoulder while symptoms settle, and avoid skipping meals until late dinners. Consider asking whether shoulder has been evaluated if symptoms persist or increase. Avoid turning travel dinners into strict food rules; he is worried about looking difficult in work settings.`
-    }
-  ]);
-  showToast('Test client loaded. Run intake when you want to try it.');
-}
-
 function formatValue(value, type) {
   if (type === 'text') {
     return String(value || '');
@@ -686,7 +681,7 @@ function renderClients() {
     const tags = (client.tags || []).slice(0, 3).map((tag) => `<span>${escapeHtml(tag)}</span>`).join('');
     button.innerHTML = `
       <strong>${escapeHtml(client.name)}</strong>
-      <em>${client.sourceCount} sources • ${client.activeConstraintCount} constraints • ${client.openLoopCount} open loops</em>
+      <em>${client.sourceCount} sources • ${client.flagCount || 0} flags • ${client.taskCount || 0} to-dos</em>
       ${tags ? `<div class="tag-strip">${tags}</div>` : ''}
     `;
     button.addEventListener('click', () => selectClient(client.id));
@@ -766,11 +761,12 @@ function renderDetailList(title, value, sourceLookup, options = {}) {
   `;
 }
 
-function renderObjectSection(title, value, sourceLookup) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+function renderObjectSection(title, value, sourceLookup, options = {}) {
+  const sectionKey = options.sectionKey || 'clientProfile';
+  if ((!value || typeof value !== 'object' || Array.isArray(value)) && !sectionKey) {
     return '';
   }
-  const entries = Object.entries(value);
+  const entries = Object.entries(compactObject(value));
   const rows = entries.length ? entries.map(([key, entry]) => `
     <div class="object-row">
       <span>${escapeHtml(key)}</span>
@@ -778,10 +774,10 @@ function renderObjectSection(title, value, sourceLookup) {
     </div>
   `).join('') : '<p class="empty-section-copy">No entries yet.</p>';
   return `
-    <section class="detail-section compact-list ${sectionWasUpdated('programContext') ? 'is-recently-updated' : ''}">
+    <section class="detail-section compact-list ${options.tone || ''} ${sectionWasUpdated(sectionKey) ? 'is-recently-updated' : ''}">
       <div class="section-title-row">
         <h3>${escapeHtml(title)}</h3>
-        ${renderSectionActions('programContext')}
+        ${renderSectionActions(sectionKey)}
       </div>
       ${rows}
     </section>
@@ -831,16 +827,17 @@ function renderSourceDrawer(source) {
 function renderClientDetail(detail) {
   state.selectedClientDetail = detail;
   const structured = detail?.baseline?.structured || {};
+  const dashboard = buildDashboardModel(structured);
   const sources = detail?.sources || [];
   const sourceLookup = buildSourceLookup(sources);
   els.detailClientName.textContent = detail?.client?.name || 'Client';
   els.detailMeta.textContent = `${sources.length} raw sources • accepted ${formatDate(detail?.baseline?.acceptedAt) || 'recently'}`;
 
-  const tags = Array.isArray(structured.suggestedTags) && structured.suggestedTags.length
-    ? `<div class="detail-tags">${structured.suggestedTags.map((tag) => `<span>${renderEvidenceText(tag, sourceLookup)}</span>`).join('')}</div>`
+  const tags = dashboard.suggestedTags.length
+    ? `<div class="detail-tags">${dashboard.suggestedTags.map((tag) => `<span>${renderEvidenceText(tag, sourceLookup)}</span>`).join('')}</div>`
     : '';
-  const attentionCount = (Array.isArray(structured.activeConstraints) ? structured.activeConstraints.length : 0)
-    + (Array.isArray(structured.medicalScopeFlags) ? structured.medicalScopeFlags.length : 0);
+  const taskCount = dashboard.coachTasks.length;
+  const flagCount = dashboard.flags.length;
   const sourceDrawers = sources.map((source, index) => renderSourceDrawer({
     ...source,
     displayNumber: index + 1
@@ -849,68 +846,84 @@ function renderClientDetail(detail) {
   els.detailContent.innerHTML = `
     ${renderUpdateNotice(detail)}
 
-    <section class="detail-overview dashboard-hero ${sectionWasUpdated('overview') || sectionWasUpdated('suggestedTags') ? 'is-recently-updated' : ''}">
+    <section class="detail-overview dashboard-hero ${sectionWasUpdated('overview') || sectionWasUpdated('clientProfile') || sectionWasUpdated('suggestedTags') ? 'is-recently-updated' : ''}">
       <div>
         <div class="section-title-row hero-title-row">
-          <p class="section-kicker">Current Baseline</p>
+          <p class="section-kicker">Current Snapshot</p>
           ${renderSectionActions('overview')}
         </div>
-        <p class="overview-copy">${renderEvidenceText(structured.overview || 'No overview captured yet.', sourceLookup)}</p>
+        <p class="overview-copy">${renderEvidenceText(dashboard.overview || 'No overview captured yet.', sourceLookup)}</p>
         <div class="tag-block">
           ${tags}
           ${renderSectionActions('suggestedTags')}
         </div>
       </div>
-      <div class="metric-stack">
+      <div class="metric-stack hero-stack">
         ${renderDetailMetric('Sources', sources.length)}
-        ${renderDetailMetric('Open Loops', Array.isArray(structured.openLoops) ? structured.openLoops.length : 0, 'warm')}
-        ${renderDetailMetric('Attention Areas', attentionCount, attentionCount ? 'alert' : '')}
+        ${renderDetailMetric('To-Dos', taskCount, taskCount ? 'warm' : '')}
+        ${renderDetailMetric('Flags', flagCount, flagCount ? 'alert' : '')}
       </div>
     </section>
+
+    <div class="dashboard-band">
+      <div class="band-head">
+        <span>Client Profile</span>
+        <strong>Name, age, location, curriculum, and training context</strong>
+      </div>
+      <div class="detail-grid">
+        ${renderObjectSection('Profile Basics', dashboard.clientProfile, sourceLookup, { sectionKey: 'clientProfile' })}
+        ${renderDetailList('Goals / Values', dashboard.goalsValues, sourceLookup, { sectionKey: 'goalsValues' })}
+        ${renderDetailList('Coaching Plan / Approach', dashboard.coachingPlanApproach, sourceLookup, { wide: true, sectionKey: 'coachingPlanApproach' })}
+      </div>
+    </div>
 
     <div class="dashboard-band attention-band">
       <div class="band-head">
         <span>Needs Attention</span>
-        <strong>Constraints, scope flags, and unanswered items</strong>
+        <strong>Client to-dos, flags, and current follow-up items</strong>
       </div>
       <div class="detail-grid">
-        ${renderDetailList('Active Constraints', structured.activeConstraints, sourceLookup, { tone: 'priority', sectionKey: 'activeConstraints' })}
-        ${renderDetailList('Injuries / Limitations', structured.injuriesLimitations, sourceLookup, { sectionKey: 'injuriesLimitations' })}
-        ${renderDetailList('Medical / Scope Flags', structured.medicalScopeFlags, sourceLookup, { tone: 'scope', sectionKey: 'medicalScopeFlags' })}
-        ${renderDetailList('Open Loops', structured.openLoops, sourceLookup, { tone: 'priority', sectionKey: 'openLoops' })}
+        ${renderDetailList('Coach To-Dos / Action Items', dashboard.coachTasks, sourceLookup, { tone: 'priority', sectionKey: 'coachTasks' })}
+        ${renderDetailList('Flags', dashboard.flags, sourceLookup, { tone: flagCount ? 'scope' : '', sectionKey: 'flags' })}
+        ${renderDetailList('Missing Info', dashboard.missingInfo, sourceLookup, { sectionKey: 'missingInfo' })}
       </div>
     </div>
 
     <div class="dashboard-band">
       <div class="band-head">
-        <span>Coaching Profile</span>
-        <strong>What should shape messages and plans</strong>
+        <span>Progress</span>
+        <strong>Compliance, workout completion, strength progression, and engagement</strong>
       </div>
       <div class="detail-grid">
-        ${renderObjectSection('Program Context', structured.programContext || {}, sourceLookup)}
-        ${renderDetailList('Current Goals', structured.currentGoals, sourceLookup, { sectionKey: 'currentGoals' })}
-        ${renderDetailList('Current Priorities', structured.currentPriorities, sourceLookup, { sectionKey: 'currentPriorities' })}
-        ${renderDetailList('Motivation / Values', structured.motivationValues, sourceLookup, { sectionKey: 'motivationValues' })}
-        ${renderDetailList('Preferences', structured.preferences, sourceLookup, { sectionKey: 'preferences' })}
-        ${renderDetailList('Communication Notes', structured.communicationNotes, sourceLookup, { sectionKey: 'communicationNotes' })}
+        ${renderDetailList('Progress Tracking', dashboard.progressTracking, sourceLookup, { sectionKey: 'progressTracking' })}
+        ${renderDetailList('Engagement', dashboard.engagementNotes, sourceLookup, { sectionKey: 'engagementNotes' })}
+        ${renderDetailList('Resources Shared', dashboard.resourcesShared, sourceLookup, { sectionKey: 'resourcesShared' })}
+      </div>
+    </div>
+
+    <div class="dashboard-band domain-band">
+      <div class="band-head">
+        <span>Coaching Domains</span>
+        <strong>Common threads around what is difficult and what has been mastered</strong>
+      </div>
+      <div class="detail-grid three-up">
+        ${renderDetailList('Nutrition', dashboard.nutritionThreads, sourceLookup, { sectionKey: 'nutritionThreads' })}
+        ${renderDetailList('Mindset', dashboard.mindsetThreads, sourceLookup, { sectionKey: 'mindsetThreads' })}
+        ${renderDetailList('Exercise', dashboard.exerciseThreads, sourceLookup, { sectionKey: 'exerciseThreads' })}
       </div>
     </div>
 
     <div class="dashboard-band">
       <div class="band-head">
-        <span>Progress + Patterns</span>
-        <strong>Wins, friction, habits, and confidence notes</strong>
+        <span>Notes + History</span>
+        <strong>Source-linked history and evidence quality</strong>
       </div>
       <div class="detail-grid">
-        ${renderDetailList('Wins', structured.wins, sourceLookup, { sectionKey: 'wins' })}
-        ${renderDetailList('Challenges', structured.challenges, sourceLookup, { sectionKey: 'challenges' })}
-        ${renderDetailList('Habits / Behaviors', structured.habitsBehaviors, sourceLookup, { sectionKey: 'habitsBehaviors' })}
-        ${renderDetailList('Missing Info', structured.missingInfo, sourceLookup, { sectionKey: 'missingInfo' })}
-        ${renderDetailList('Confidence Notes', structured.confidenceNotes, sourceLookup, { wide: true, sectionKey: 'confidenceNotes' })}
+        ${renderDetailList('Confidence Notes', dashboard.confidenceNotes, sourceLookup, { sectionKey: 'confidenceNotes' })}
       </div>
     </div>
 
-    ${renderTimeline(structured.timeline, sourceLookup)}
+    ${renderTimeline(dashboard.timeline, sourceLookup)}
 
     <section class="source-summary">
       <div class="source-summary-head">
@@ -925,6 +938,7 @@ function renderClientDetail(detail) {
 function openEditSection(sectionKey) {
   const config = getSectionConfig(sectionKey);
   const structured = state.selectedClientDetail?.baseline?.structured || {};
+  const dashboard = buildDashboardModel(structured);
   state.editSectionKey = sectionKey;
   els.editSectionTitle.textContent = `Edit ${config.label}`;
   els.editSectionHelp.textContent = config.type === 'text'
@@ -933,7 +947,10 @@ function openEditSection(sectionKey) {
     ? 'Use one key: value pair per line. This coach edit becomes part of the client profile and can be undone.'
     : 'Use one item per line for lists and tags. Keep citation markers if you want existing evidence popovers to stay attached.';
   els.editSectionInput.rows = Math.max(config.rows || 6, 7);
-  els.editSectionInput.value = formatValue(structured[sectionKey], config.type);
+  els.editSectionInput.value = formatValue(
+    Object.prototype.hasOwnProperty.call(structured, sectionKey) ? structured[sectionKey] : dashboard[sectionKey],
+    config.type
+  );
   els.editSectionDialog.showModal();
   els.editSectionInput.focus();
 }
@@ -1066,6 +1083,40 @@ async function loadClients() {
     els.clientDetailPanel.hidden = true;
   }
   renderClients();
+  updateStatusLine();
+}
+
+async function deleteSelectedClient() {
+  const client = state.selectedClientDetail?.client;
+  if (!client?.id) {
+    showToast('Select a client before deleting.', 'error');
+    return;
+  }
+
+  const confirmed = window.confirm(`Delete ${client.name} from CoachNotes?\n\nThis removes the local profile, sources, dashboard history, and undo history from the app database. Exported vault files are left on disk.`);
+  if (!confirmed) {
+    return;
+  }
+
+  setBusy(true, 'Deleting client...');
+  try {
+    await window.coachNotes.deleteClient({ clientId: client.id });
+    state.selectedClientId = null;
+    state.selectedClientDetail = null;
+    state.lastUpdateNotice = null;
+    await loadClients();
+    if (state.clients.length) {
+      await selectClient(state.clients[0].id);
+    } else {
+      resetIntake({ keepMode: true });
+      setViewMode('intake');
+    }
+    showToast(`${client.name} deleted.`);
+  } catch (error) {
+    showToast(`Delete failed: ${error.message}`, 'error');
+  } finally {
+    setBusy(false);
+  }
 }
 
 function openSettings() {
@@ -1116,9 +1167,9 @@ async function init() {
   }
 
   els.onboardBtn.addEventListener('click', startOnboarding);
-  els.loadSampleBtn.addEventListener('click', loadSampleData);
   els.settingsBtn.addEventListener('click', openSettings);
   els.addNoteBtn.addEventListener('click', openAddNoteDialog);
+  els.deleteClientBtn.addEventListener('click', deleteSelectedClient);
   els.revealVaultBtn.addEventListener('click', async () => {
     await window.coachNotes.revealVault();
   });

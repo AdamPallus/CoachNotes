@@ -181,6 +181,17 @@ textarea:focus {
   color: var(--muted);
 }
 
+.btn-danger {
+  background: rgba(255, 250, 241, 0.72);
+  border-color: rgba(148, 59, 50, 0.34);
+  color: var(--danger);
+}
+
+.btn-danger:hover {
+  background: var(--clay-soft);
+  border-color: rgba(148, 59, 50, 0.54);
+}
+
 .workspace {
   min-height: 0;
   display: grid;
@@ -441,7 +452,7 @@ label,
 
 .baseline-field:first-child,
 .baseline-field:nth-child(2),
-.baseline-field:nth-child(16) {
+.baseline-field:nth-child(14) {
   grid-column: 1 / -1;
 }
 
@@ -510,7 +521,7 @@ label,
 
 .dashboard-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 210px;
+  grid-template-columns: minmax(0, 1fr) 190px;
   gap: 20px;
   align-items: stretch;
   padding: 22px;
@@ -654,6 +665,10 @@ label,
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.detail-grid.three-up {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .detail-section {
