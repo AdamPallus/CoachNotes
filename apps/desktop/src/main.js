@@ -13,6 +13,45 @@ const CLIENT_IMPORTS_DIRNAME = 'Raw Imports';
 const MAX_WORKFLOW_CHARS = 220000;
 const SUPPORTED_IMPORT_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.pdf', '.csv', '.json']);
 const APP_NAME = app.isPackaged ? 'CoachNotes' : 'CoachNotes Dev';
+const ASK_MAX_SOURCES = 12;
+const ASK_MAX_TOTAL_CHARS = 84000;
+const ASK_STOP_WORDS = new Set([
+  'about',
+  'after',
+  'again',
+  'also',
+  'based',
+  'before',
+  'client',
+  'could',
+  'draft',
+  'from',
+  'have',
+  'into',
+  'last',
+  'message',
+  'note',
+  'notes',
+  'please',
+  'recent',
+  'should',
+  'that',
+  'their',
+  'there',
+  'these',
+  'thing',
+  'this',
+  'three',
+  'using',
+  'want',
+  'week',
+  'weeks',
+  'what',
+  'when',
+  'with',
+  'would',
+  'write'
+]);
 const BASELINE_SECTION_KEYS = new Set([
   'clientProfile',
   'overview',
@@ -31,6 +70,18 @@ const BASELINE_SECTION_KEYS = new Set([
   'missingInfo',
   'confidenceNotes'
 ]);
+const PLANNING_SECTION_KEYS = new Set(['coachTasks', 'goalsValues']);
+const PLANNING_METADATA_KEYS = ['priority', 'planningStatus'];
+const CLIENT_PROFILE_METADATA_KEYS = [
+  'curriculumType',
+  'programType',
+  'cohort',
+  'programFormat',
+  'primaryTrainingGoal',
+  'contraindications',
+  'programStartDate',
+  'programWeek'
+];
 
 app.setName(APP_NAME);
 if (!app.isPackaged) {
@@ -584,6 +635,109 @@ function jsonValuesEqual(left, right) {
   return stringifyJsonValue(left) === stringifyJsonValue(right);
 }
 
+function normalizePlanningMatchText(item) {
+  if (typeof item === 'string') {
+    return sanitizeName(item).toLowerCase();
+  }
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    return '';
+  }
+  return [
+    item.title,
+    item.label,
+    item.name,
+    item.details,
+    item.currentStatus,
+    item.summary,
+    item.note,
+    item.notes
+  ].map((value) => sanitizeName(value))
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function extractPlanningMetadata(item) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    return {};
+  }
+  return Object.fromEntries(
+    PLANNING_METADATA_KEYS
+      .filter((key) => String(item[key] || '').trim())
+      .map((key) => [key, item[key]])
+  );
+}
+
+function applyPlanningMetadata(item, metadata) {
+  if (!metadata || !Object.keys(metadata).length) {
+    return item;
+  }
+  const next = item && typeof item === 'object' && !Array.isArray(item)
+    ? { ...item }
+    : { details: String(item || '') };
+  return { ...next, ...metadata };
+}
+
+function preservePlanningMetadata(currentStructured, nextStructured) {
+  const output = { ...nextStructured };
+  for (const sectionKey of PLANNING_SECTION_KEYS) {
+    const currentItems = Array.isArray(currentStructured?.[sectionKey]) ? currentStructured[sectionKey] : [];
+    const nextItems = Array.isArray(nextStructured?.[sectionKey]) ? nextStructured[sectionKey] : [];
+    if (!currentItems.length || !nextItems.length) {
+      continue;
+    }
+
+    const metadataByText = new Map();
+    currentItems.forEach((item) => {
+      const metadata = extractPlanningMetadata(item);
+      const textKey = normalizePlanningMatchText(item);
+      if (textKey && Object.keys(metadata).length) {
+        metadataByText.set(textKey, metadata);
+      }
+    });
+    if (!metadataByText.size) {
+      continue;
+    }
+
+    output[sectionKey] = nextItems.map((item) => {
+      const textKey = normalizePlanningMatchText(item);
+      return applyPlanningMetadata(item, metadataByText.get(textKey));
+    });
+  }
+  return output;
+}
+
+function extractClientProfileMetadata(profile) {
+  if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
+    return {};
+  }
+  return Object.fromEntries(
+    CLIENT_PROFILE_METADATA_KEYS
+      .filter((key) => {
+        const value = profile[key];
+        return Array.isArray(value) ? value.length : String(value || '').trim();
+      })
+      .map((key) => [key, profile[key]])
+  );
+}
+
+function preserveClientProfileMetadata(currentStructured, nextStructured) {
+  const metadata = extractClientProfileMetadata(currentStructured?.clientProfile);
+  if (!Object.keys(metadata).length) {
+    return nextStructured;
+  }
+  const nextProfile = nextStructured?.clientProfile && typeof nextStructured.clientProfile === 'object' && !Array.isArray(nextStructured.clientProfile)
+    ? nextStructured.clientProfile
+    : {};
+  return {
+    ...nextStructured,
+    clientProfile: {
+      ...nextProfile,
+      ...metadata
+    }
+  };
+}
+
 function assertBaselineSectionKey(sectionKey) {
   const key = String(sectionKey || '').trim();
   if (!BASELINE_SECTION_KEYS.has(key)) {
@@ -840,10 +994,13 @@ async function updateClientFromNote(payload) {
   }
 
   const { updatedBaseline, changes, updateSummary } = extractUpdatedBaselineResponse(response, currentStructured);
-  const nextStructured = {
-    ...currentStructured,
-    ...updatedBaseline
-  };
+  const nextStructured = preserveClientProfileMetadata(
+    currentStructured,
+    preservePlanningMetadata(currentStructured, {
+      ...currentStructured,
+      ...updatedBaseline
+    })
+  );
   const changedSections = [...BASELINE_SECTION_KEYS].filter((sectionKey) => (
     Object.prototype.hasOwnProperty.call(nextStructured, sectionKey)
     && !jsonValuesEqual(currentStructured[sectionKey], nextStructured[sectionKey])
@@ -883,6 +1040,397 @@ async function updateClientFromNote(payload) {
     changedSections,
     updateSummary
   };
+}
+
+function normalizeAskChoice(value, allowedValues, fallback) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return allowedValues.has(normalized) ? normalized : fallback;
+}
+
+function askOutputLabel(outputType) {
+  if (outputType === 'session-prep') {
+    return 'Session prep';
+  }
+  if (outputType === 'general-answer') {
+    return 'General answer';
+  }
+  return 'Client message draft';
+}
+
+function askScopeLabel(scope) {
+  if (scope === 'dashboard') {
+    return 'Current dashboard only';
+  }
+  if (scope === 'all-sources') {
+    return 'All client sources';
+  }
+  return 'Recent notes + dashboard';
+}
+
+function askTimeWindowLabel(timeWindow) {
+  if (timeWindow === 'latest-note') {
+    return 'Latest note';
+  }
+  if (timeWindow === 'last-90-days') {
+    return 'Last 90 days';
+  }
+  if (timeWindow === 'all-time') {
+    return 'All time';
+  }
+  return 'Last 3 weeks';
+}
+
+function renderAskValue(value, depth = 0) {
+  if (value == null) {
+    return '';
+  }
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return sanitizeName(value);
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => renderAskValue(entry, depth + 1))
+      .filter(Boolean)
+      .map((entry) => `- ${entry}`)
+      .join('\n');
+  }
+  if (typeof value === 'object') {
+    const preferred = [
+      value.title,
+      value.label,
+      value.name,
+      value.date,
+      value.details,
+      value.currentStatus,
+      value.status,
+      value.summary,
+      value.note,
+      value.notes
+    ].map((entry) => sanitizeName(entry)).filter(Boolean);
+    if (preferred.length && depth > 0) {
+      return preferred.join(' - ');
+    }
+    return Object.entries(value)
+      .filter(([key]) => !['evidenceIds', 'priority', 'planningStatus'].includes(key))
+      .map(([key, entry]) => {
+        const rendered = renderAskValue(entry, depth + 1);
+        return rendered ? `${key}: ${rendered}` : '';
+      })
+      .filter(Boolean)
+      .join(depth > 0 ? ' | ' : '\n');
+  }
+  return '';
+}
+
+function buildDashboardAskText(clientName, structured = {}) {
+  const lines = [
+    `Client: ${clientName}`,
+    `Overview: ${sanitizeName(structured.overview || '')}`
+  ];
+  for (const sectionKey of BASELINE_SECTION_KEYS) {
+    if (sectionKey === 'overview') {
+      continue;
+    }
+    const value = structured[sectionKey];
+    const rendered = renderAskValue(value);
+    if (rendered) {
+      lines.push('', `${sectionKey}:`, rendered);
+    }
+  }
+  return normalizeTextContent(lines.join('\n')).slice(0, 18000);
+}
+
+function getAskSourceTime(source) {
+  const raw = source?.sourceDate || source?.createdAt || '';
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+}
+
+function getAskSourcesForClient(clientId, sourceIds = []) {
+  const activeIds = sourceIds.map((id) => Number(id)).filter(Number.isFinite);
+  const rows = activeIds.length
+    ? db.prepare(
+      `SELECT id, title, source_type AS sourceType, source_date AS sourceDate, annotation, original_path AS originalPath, vault_path AS vaultPath, raw_text AS rawText, created_at AS createdAt
+       FROM intake_sources
+       WHERE client_id = ? AND id IN (${activeIds.map(() => '?').join(', ')})
+       ORDER BY created_at DESC, id DESC`
+    ).all(clientId, ...activeIds)
+    : db.prepare(
+      `SELECT id, title, source_type AS sourceType, source_date AS sourceDate, annotation, original_path AS originalPath, vault_path AS vaultPath, raw_text AS rawText, created_at AS createdAt
+       FROM intake_sources
+       WHERE client_id = ?
+       ORDER BY created_at DESC, id DESC`
+    ).all(clientId);
+
+  return rows.map((source) => ({
+    ...source,
+    sourceId: `intake_source_${source.id}`,
+    rawText: normalizeTextContent(source.rawText || '')
+  }));
+}
+
+function filterAskSourcesByTimeWindow(sources, timeWindow) {
+  if (timeWindow === 'all-time') {
+    return sources;
+  }
+  const dated = [...sources].filter((source) => getAskSourceTime(source));
+  if (timeWindow === 'latest-note') {
+    const latest = dated.sort((left, right) => getAskSourceTime(right) - getAskSourceTime(left))[0];
+    return latest ? [latest] : [];
+  }
+  const days = timeWindow === 'last-90-days' ? 90 : 21;
+  const cutoff = Date.now() - days * 86400000;
+  return sources.filter((source) => getAskSourceTime(source) >= cutoff);
+}
+
+function tokenizeAskQuery(value) {
+  return normalizeTextContent(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !ASK_STOP_WORDS.has(token));
+}
+
+function scoreAskSource(source, tokens) {
+  const haystack = `${source.title || ''} ${source.annotation || ''} ${source.rawText || ''}`.toLowerCase();
+  let score = 0;
+  for (const token of tokens) {
+    const pattern = new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+    score += (haystack.match(pattern) || []).length;
+  }
+  return score;
+}
+
+function selectAskSources({ clientName, structured, sources, prompt, scope, timeWindow }) {
+  const selected = [{
+    chunk_id: 'dashboard_current',
+    title: 'Current dashboard',
+    date: '',
+    client_ids: [clientName],
+    text: buildDashboardAskText(clientName, structured),
+    sourceId: 'dashboard_current',
+    sourceType: 'dashboard',
+    displayTitle: 'Current dashboard'
+  }];
+
+  if (scope === 'dashboard') {
+    return selected;
+  }
+
+  const filtered = filterAskSourcesByTimeWindow(sources, timeWindow);
+  const tokens = tokenizeAskQuery(prompt);
+  const sorted = filtered
+    .map((source) => ({
+      source,
+      score: scoreAskSource(source, tokens),
+      time: getAskSourceTime(source)
+    }))
+    .sort((left, right) => (
+      right.score - left.score
+      || right.time - left.time
+      || Number(right.source.id) - Number(left.source.id)
+    ));
+  const limit = scope === 'all-sources' ? ASK_MAX_SOURCES - 1 : Math.min(8, ASK_MAX_SOURCES - 1);
+
+  for (const { source } of sorted.slice(0, limit)) {
+    selected.push({
+      chunk_id: source.sourceId,
+      title: source.title || 'Untitled source',
+      date: source.sourceDate || source.createdAt || '',
+      client_ids: [clientName],
+      text: source.rawText,
+      sourceId: source.sourceId,
+      sourceType: source.sourceType,
+      displayTitle: source.title || 'Untitled source'
+    });
+  }
+
+  return selected;
+}
+
+function fitAskSourcesForProxy(sources) {
+  let remaining = ASK_MAX_TOTAL_CHARS;
+  const output = [];
+  for (const source of sources.slice(0, ASK_MAX_SOURCES)) {
+    if (remaining <= 0) {
+      break;
+    }
+    const raw = normalizeTextContent(source.text || '');
+    if (!raw) {
+      continue;
+    }
+    const text = raw.length > remaining
+      ? `${raw.slice(0, Math.max(0, remaining - 120))}\n\n[Truncated by CoachNotes before ASK.]`
+      : raw;
+    remaining -= text.length;
+    output.push({
+      chunk_id: source.chunk_id,
+      title: source.title,
+      date: source.date,
+      client_ids: source.client_ids,
+      text
+    });
+  }
+  return output;
+}
+
+function buildAskInstructions({ outputType, scope, timeWindow }) {
+  const shared = [
+    `Output type: ${askOutputLabel(outputType)}.`,
+    `Context scope selected by coach: ${askScopeLabel(scope)}.`,
+    `Time window selected by coach: ${askTimeWindowLabel(timeWindow)}.`,
+    'Respect the selected context boundary. If the selected sources do not support the request, say what is missing.',
+    'Keep citations next to source-grounded claims.'
+  ];
+  if (outputType === 'client-message') {
+    shared.push(
+      'Write a client-ready message draft from the coach to the client.',
+      'Keep it practical, warm, and concise.',
+      'Do not include a subject line unless the coach asks for one.',
+      'Do not diagnose or overstate medical conclusions.'
+    );
+  } else if (outputType === 'session-prep') {
+    shared.push(
+      'Return concise session prep notes with headings: Focus, Recent Context, Watch-outs, Suggested Talking Points.',
+      'Prefer bullets that help the coach prepare quickly.'
+    );
+  } else {
+    shared.push('Answer the coach directly and keep it concise.');
+  }
+  return shared.join('\n');
+}
+
+async function askClient(payload) {
+  requireDb();
+  const settings = getAppSettings();
+  const clientId = Number(payload?.clientId);
+  if (!Number.isFinite(clientId)) {
+    throw new Error('clientId is required.');
+  }
+  const prompt = normalizeMultilineText(payload?.prompt || payload?.question || '', 4000);
+  if (!prompt) {
+    throw new Error('Ask request is required.');
+  }
+  const outputType = normalizeAskChoice(
+    payload?.outputType,
+    new Set(['client-message', 'session-prep', 'general-answer']),
+    'client-message'
+  );
+  const scope = normalizeAskChoice(
+    payload?.scope,
+    new Set(['dashboard', 'recent-notes', 'all-sources']),
+    'recent-notes'
+  );
+  const timeWindow = normalizeAskChoice(
+    payload?.timeWindow,
+    new Set(['latest-note', 'last-3-weeks', 'last-90-days', 'all-time']),
+    'last-3-weeks'
+  );
+  const row = getAcceptedBaselineRow(clientId);
+  if (!row) {
+    throw new Error('Accepted client baseline not found.');
+  }
+
+  const structured = parseJsonObject(row.structuredJson);
+  const allSources = getAskSourcesForClient(clientId, parseJsonArray(row.sourceIdsJson));
+  const selected = selectAskSources({
+    clientName: row.clientName,
+    structured,
+    sources: allSources,
+    prompt,
+    scope,
+    timeWindow
+  });
+  const sources = fitAskSourcesForProxy(selected);
+  if (!sources.length) {
+    throw new Error('No local context is available for this client.');
+  }
+
+  const response = await callProxy('/answer', {
+    model: DEFAULT_LLM_MODEL,
+    question: prompt,
+    instructions: buildAskInstructions({ outputType, scope, timeWindow }),
+    sources
+  }, settings);
+
+  return {
+    outputType,
+    outputLabel: askOutputLabel(outputType),
+    scope,
+    scopeLabel: askScopeLabel(scope),
+    timeWindow,
+    timeWindowLabel: askTimeWindowLabel(timeWindow),
+    question: prompt,
+    answer: response.answer || '',
+    citations: Array.isArray(response.citations) ? response.citations : [],
+    model: response.model || DEFAULT_LLM_MODEL,
+    selectedSources: selected.map((source, index) => ({
+      chunkId: source.chunk_id,
+      sourceId: source.sourceId,
+      title: source.displayTitle || source.title,
+      sourceType: source.sourceType || 'notes',
+      date: source.date || '',
+      displayNumber: index + 1
+    }))
+  };
+}
+
+async function saveAskResultAsNote(payload) {
+  requireDb();
+  const rootFolder = await ensureVaultRootFolder();
+  const clientId = Number(payload?.clientId);
+  if (!Number.isFinite(clientId)) {
+    throw new Error('clientId is required.');
+  }
+  const answer = normalizeMultilineText(payload?.answer || '', 16000);
+  if (!answer) {
+    throw new Error('Ask output is required.');
+  }
+  const row = getAcceptedBaselineRow(clientId);
+  if (!row) {
+    throw new Error('Accepted client baseline not found.');
+  }
+  const question = normalizeMultilineText(payload?.question || '', 4000);
+  const outputType = normalizeAskChoice(
+    payload?.outputType,
+    new Set(['client-message', 'session-prep', 'general-answer']),
+    'client-message'
+  );
+  const scopeLabel = askScopeLabel(normalizeAskChoice(payload?.scope, new Set(['dashboard', 'recent-notes', 'all-sources']), 'recent-notes'));
+  const timeWindowLabel = askTimeWindowLabel(normalizeAskChoice(payload?.timeWindow, new Set(['latest-note', 'last-3-weeks', 'last-90-days', 'all-time']), 'last-3-weeks'));
+  const createdDate = new Date().toISOString().slice(0, 10);
+  const rawText = normalizeTextContent([
+    `ASK output type: ${askOutputLabel(outputType)}`,
+    `Context: ${scopeLabel}`,
+    `Time window: ${timeWindowLabel}`,
+    '',
+    'Request:',
+    question,
+    '',
+    'Output:',
+    answer
+  ].join('\n'));
+  const savedSource = await saveIntakeSource({
+    clientId,
+    clientName: row.clientName,
+    rootFolder,
+    source: {
+      title: sanitizeName(payload?.title || '') || `ASK ${askOutputLabel(outputType)}`,
+      sourceType: 'manual',
+      sourceDate: createdDate,
+      annotation: 'Generated by CoachNotes ASK. Review before treating as source-of-truth coaching context.',
+      originalPath: '',
+      rawText
+    }
+  });
+
+  const sourceIds = new Set(parseJsonArray(row.sourceIdsJson).map((id) => Number(id)).filter(Number.isFinite));
+  sourceIds.add(savedSource.id);
+  const updatedAt = nowIso();
+  db.prepare('UPDATE client_baselines SET source_ids_json = ?, updated_at = ? WHERE id = ?')
+    .run(JSON.stringify([...sourceIds]), updatedAt, row.baselineId);
+  return getClientDetail({ clientId });
 }
 
 function getClientDetail(payload) {
@@ -1119,6 +1667,8 @@ function setupIpc() {
   ipcMain.handle('app:update-client-section', async (_event, payload) => updateClientSection(payload || {}));
   ipcMain.handle('app:undo-client-section', async (_event, payload) => undoClientSection(payload || {}));
   ipcMain.handle('app:update-client-from-note', async (_event, payload) => updateClientFromNote(payload || {}));
+  ipcMain.handle('app:ask-client', async (_event, payload) => askClient(payload || {}));
+  ipcMain.handle('app:save-ask-result-as-note', async (_event, payload) => saveAskResultAsNote(payload || {}));
   ipcMain.handle('app:delete-client', async (_event, payload) => deleteClient(payload || {}));
   ipcMain.handle('app:get-clients', async () => getClients());
   ipcMain.handle('app:get-client-detail', async (_event, payload) => getClientDetail(payload || {}));

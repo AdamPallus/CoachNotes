@@ -134,6 +134,7 @@
               </div>
               <div class="surface-actions">
                 <button id="deleteClientBtn" class="btn btn-danger" type="button">Delete Client</button>
+                <button id="askClientBtn" class="btn btn-ghost" type="button">Ask</button>
                 <button id="addNoteBtn" class="btn btn-primary" type="button">Add Note</button>
               </div>
             </div>
@@ -179,6 +180,69 @@
         <div class="dialog-actions">
           <button id="cancelEditSectionBtn" class="btn btn-ghost" type="button">Cancel</button>
           <button class="btn btn-primary" type="submit">Save Section</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="askDialog">
+      <form method="dialog" id="askForm" class="dialog-form ask-dialog-form">
+        <h2 id="askTitle">Ask CoachNotes</h2>
+        <p class="dialog-help">Ask for an answer, client message draft, or session prep using this client’s saved context.</p>
+        <div class="ask-control-grid">
+          <label>
+            Output
+            <select id="askOutputTypeInput">
+              <option value="client-message">Client message draft</option>
+              <option value="session-prep">Session prep</option>
+              <option value="general-answer">General answer</option>
+            </select>
+          </label>
+          <label>
+            Context
+            <select id="askScopeInput">
+              <option value="recent-notes">Recent notes + dashboard</option>
+              <option value="dashboard">Current dashboard only</option>
+              <option value="all-sources">All client sources</option>
+            </select>
+          </label>
+          <label>
+            Time window
+            <select id="askTimeWindowInput">
+              <option value="last-3-weeks">Last 3 weeks</option>
+              <option value="latest-note">Latest note</option>
+              <option value="last-90-days">Last 90 days</option>
+              <option value="all-time">All time</option>
+            </select>
+          </label>
+        </div>
+        <label>
+          Request
+          <textarea id="askPromptInput" rows="5" placeholder="Based on the recent check-in, draft a message telling her..."></textarea>
+        </label>
+        <section id="askResultPanel" class="ask-result-panel" hidden>
+          <div class="ask-result-head">
+            <div>
+              <p class="section-kicker">Draft</p>
+              <strong id="askResultMeta">Ready</strong>
+            </div>
+            <div class="ask-result-actions">
+              <button id="copyAskResultBtn" class="btn btn-subtle" type="button">Copy</button>
+              <button id="saveAskResultBtn" class="btn btn-ghost" type="button">Save as Note</button>
+            </div>
+          </div>
+          <div id="askResultOutput" class="ask-result-output"></div>
+          <div id="askSourceList" class="ask-source-list"></div>
+        </section>
+        <div class="dialog-actions">
+          <button id="cancelAskBtn" class="btn btn-ghost" type="button">Cancel</button>
+          <button id="askSubmitBtn" class="btn btn-primary" type="submit">Ask</button>
+        </div>
+        <div id="askProcessing" class="ask-processing" role="status" aria-live="polite" hidden>
+          <div class="ask-processing-card">
+            <div class="spinner" aria-hidden="true"></div>
+            <strong id="askProcessingTitle">Asking CoachNotes...</strong>
+            <span id="askProcessingText">Using the selected client context.</span>
+          </div>
         </div>
       </form>
     </dialog>

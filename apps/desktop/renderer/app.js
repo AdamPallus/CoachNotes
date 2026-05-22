@@ -6,8 +6,13 @@ const state = {
   intakeSources: [],
   noteSources: [],
   viewMode: 'intake',
+  detailPage: 'snapshot',
   editSectionKey: '',
   lastUpdateNotice: null,
+  askResult: null,
+  askLoading: false,
+  planningHiddenStatuses: new Set(['completed', 'abandoned', 'outdated']),
+  expandedPlanningSections: new Set(),
   activeBaseline: null,
   baselineDraft: null,
   busyCount: 0
@@ -31,6 +36,121 @@ const baselineSections = [
   { key: 'missingInfo', label: 'Missing Info', type: 'list', rows: 4 },
   { key: 'confidenceNotes', label: 'Confidence Notes', type: 'list', rows: 4 }
 ];
+
+const prioritizableSections = new Set(['coachTasks', 'goalsValues']);
+const defaultHiddenPlanningStatuses = new Set(['completed', 'abandoned', 'outdated']);
+const closedPlanningStatuses = new Set(['completed', 'abandoned', 'outdated']);
+const planningHiddenStatusesStorageKey = 'coachnotes.planningHiddenStatuses.v1';
+
+const priorityOptions = [
+  { value: 'none', label: 'No priority', rank: 4, className: 'priority-none' },
+  { value: 'high', label: 'High', rank: 1, className: 'priority-high' },
+  { value: 'medium', label: 'Medium', rank: 2, className: 'priority-medium' },
+  { value: 'low', label: 'Low', rank: 3, className: 'priority-low' }
+];
+
+const planningStatusOptions = [
+  { value: 'active', label: 'In Progress', rank: 1, className: 'status-active' },
+  { value: 'recommended', label: 'Recommended', rank: 2, className: 'status-recommended' },
+  { value: 'future', label: 'Future', rank: 3, className: 'status-future' },
+  { value: 'completed', label: 'Completed', rank: 4, className: 'status-completed' },
+  { value: 'abandoned', label: 'Abandoned', rank: 5, className: 'status-abandoned' },
+  { value: 'outdated', label: 'Outdated', rank: 6, className: 'status-outdated' },
+  { value: 'needs-review', label: 'Needs Review', rank: 7, className: 'status-needs-review' }
+];
+
+const detailPages = [
+  { key: 'snapshot', label: 'Snapshot' },
+  { key: 'bio', label: 'Bio & Intake' },
+  { key: 'goals', label: 'Goals' },
+  { key: 'timeline', label: 'Timeline' },
+  { key: 'program', label: 'Program Changes' },
+  { key: 'progress', label: 'Progress' },
+  { key: 'notes', label: 'Session Notes' },
+  { key: 'resources', label: 'Resources' }
+];
+
+const profileSelectFields = [
+  {
+    key: 'curriculumType',
+    label: 'Curriculum',
+    chipLabel: 'Curriculum',
+    className: 'profile-chip-curriculum',
+    options: ['GGS Coaching', 'GLP-1', 'Menopause']
+  },
+  {
+    key: 'programType',
+    label: 'Program',
+    chipLabel: 'Program',
+    className: 'profile-chip-program',
+    options: [
+      'Fat Loss 3x',
+      'Fat Loss 4x',
+      'Strength Gain',
+      'Pull-Up Strength Gain',
+      'Muscle Gain',
+      'Dumbbells and Bands',
+      'Bodyweight and Bands',
+      'KB and Bands',
+      'Start Training',
+      'Prenatal',
+      'Postnatal',
+      'Longevity',
+      'Cardio',
+      'Mobility',
+      'Travel'
+    ]
+  },
+  {
+    key: 'cohort',
+    label: 'Cohort',
+    chipLabel: 'Cohort',
+    className: 'profile-chip-cohort',
+    options: ['January', 'April', 'July']
+  },
+  {
+    key: 'programFormat',
+    label: 'Program Format',
+    chipLabel: 'Format',
+    className: 'profile-chip-format',
+    options: ['Coach Assigned', 'On Demand', 'Workout Collections']
+  },
+  {
+    key: 'primaryTrainingGoal',
+    label: 'Primary Training Goal',
+    chipLabel: 'Goal',
+    className: 'profile-chip-goal',
+    options: ['Fat Loss', 'Body Recomposition', 'Strength Gain', 'Longevity', 'Bone Density', 'Muscle Maintenance']
+  }
+];
+
+const profileMultiSelectFields = [
+  {
+    key: 'contraindications',
+    label: 'Contraindications',
+    chipLabel: 'Contraindication',
+    className: 'profile-chip-contraindication',
+    options: [
+      'Osteopenia',
+      'Autoimmune Condition',
+      'Surgery',
+      'Perimenopause',
+      'Sleep Disorder',
+      'Eating Disorder'
+    ]
+  }
+];
+
+const profileControlKeys = new Set([
+  'curriculumType',
+  'programType',
+  'cohort',
+  'programFormat',
+  'primaryTrainingGoal',
+  'contraindications',
+  'programStartDate',
+  'programWeek'
+]);
 
 const els = {
   statusLine: document.getElementById('statusLine'),
@@ -62,8 +182,27 @@ const els = {
   detailClientName: document.getElementById('detailClientName'),
   detailMeta: document.getElementById('detailMeta'),
   detailContent: document.getElementById('detailContent'),
+  askClientBtn: document.getElementById('askClientBtn'),
   addNoteBtn: document.getElementById('addNoteBtn'),
   deleteClientBtn: document.getElementById('deleteClientBtn'),
+  askDialog: document.getElementById('askDialog'),
+  askForm: document.getElementById('askForm'),
+  askTitle: document.getElementById('askTitle'),
+  askOutputTypeInput: document.getElementById('askOutputTypeInput'),
+  askScopeInput: document.getElementById('askScopeInput'),
+  askTimeWindowInput: document.getElementById('askTimeWindowInput'),
+  askPromptInput: document.getElementById('askPromptInput'),
+  askResultPanel: document.getElementById('askResultPanel'),
+  askResultMeta: document.getElementById('askResultMeta'),
+  askResultOutput: document.getElementById('askResultOutput'),
+  askSourceList: document.getElementById('askSourceList'),
+  askSubmitBtn: document.getElementById('askSubmitBtn'),
+  askProcessing: document.getElementById('askProcessing'),
+  askProcessingTitle: document.getElementById('askProcessingTitle'),
+  askProcessingText: document.getElementById('askProcessingText'),
+  copyAskResultBtn: document.getElementById('copyAskResultBtn'),
+  saveAskResultBtn: document.getElementById('saveAskResultBtn'),
+  cancelAskBtn: document.getElementById('cancelAskBtn'),
   editSectionDialog: document.getElementById('editSectionDialog'),
   editSectionForm: document.getElementById('editSectionForm'),
   editSectionTitle: document.getElementById('editSectionTitle'),
@@ -246,6 +385,152 @@ function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function getPriorityOption(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return priorityOptions.find((option) => option.value === normalized) || priorityOptions[0];
+}
+
+function normalizePlanningStatus(value) {
+  const normalized = String(value || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+  if (['open', 'active', 'in-progress', 'inprogress'].includes(normalized)) {
+    return 'active';
+  }
+  if (['done', 'complete', 'completed'].includes(normalized)) {
+    return 'completed';
+  }
+  if (['coach-recommended', 'coach-recommendation', 'recommendation', 'recommended'].includes(normalized)) {
+    return 'recommended';
+  }
+  if (['needs-review', 'needs-reviewing', 'review'].includes(normalized)) {
+    return 'needs-review';
+  }
+  if (['future', 'later', 'someday'].includes(normalized)) {
+    return 'future';
+  }
+  if (['abandoned', 'dropped', 'stopped'].includes(normalized)) {
+    return 'abandoned';
+  }
+  if (['outdated', 'stale', 'obsolete'].includes(normalized)) {
+    return 'outdated';
+  }
+  return 'active';
+}
+
+function getPlanningStatusOption(item) {
+  const explicit = item && typeof item === 'object' && !Array.isArray(item)
+    ? item.planningStatus || item.status
+    : '';
+  const value = normalizePlanningStatus(explicit);
+  return planningStatusOptions.find((option) => option.value === value) || planningStatusOptions[0];
+}
+
+function isPrioritizableSection(sectionKey) {
+  return prioritizableSections.has(sectionKey);
+}
+
+function getPlanningHiddenStatuses() {
+  return state.planningHiddenStatuses instanceof Set
+    ? state.planningHiddenStatuses
+    : new Set(defaultHiddenPlanningStatuses);
+}
+
+function loadPlanningHiddenStatuses() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(planningHiddenStatusesStorageKey) || 'null');
+    if (Array.isArray(parsed)) {
+      const allowed = new Set(planningStatusOptions.map((option) => option.value));
+      const values = parsed.filter((value) => allowed.has(value));
+      state.planningHiddenStatuses = new Set(values);
+      return;
+    }
+  } catch {
+    // Ignore malformed local preferences and keep the release default.
+  }
+  state.planningHiddenStatuses = new Set(defaultHiddenPlanningStatuses);
+}
+
+function savePlanningHiddenStatuses() {
+  try {
+    localStorage.setItem(planningHiddenStatusesStorageKey, JSON.stringify([...getPlanningHiddenStatuses()]));
+  } catch {
+    // Local preference persistence is best-effort.
+  }
+}
+
+function isPlanningStatusHidden(statusValue) {
+  return getPlanningHiddenStatuses().has(statusValue);
+}
+
+function planningSectionExpansionKey(sectionKey) {
+  return sectionKey || 'planning';
+}
+
+function isPlanningSectionExpanded(sectionKey) {
+  return state.expandedPlanningSections.has(planningSectionExpansionKey(sectionKey));
+}
+
+function setPlanningSectionExpanded(sectionKey, expanded) {
+  const key = planningSectionExpansionKey(sectionKey);
+  if (expanded) {
+    state.expandedPlanningSections.add(key);
+  } else {
+    state.expandedPlanningSections.delete(key);
+  }
+}
+
+function getActiveDetailPage() {
+  return detailPages.some((page) => page.key === state.detailPage) ? state.detailPage : 'snapshot';
+}
+
+function toProfileArray(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeName(entry)).filter(Boolean);
+  }
+  return String(value || '')
+    .split(',')
+    .map((entry) => sanitizeName(entry))
+    .filter(Boolean);
+}
+
+function parseLocalDate(value) {
+  const match = String(value || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function calculateProgramWeek(startDateValue, now = new Date()) {
+  const startDate = parseLocalDate(startDateValue);
+  if (!startDate) {
+    return '';
+  }
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const start = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+  const dayDelta = Math.floor((today - start) / 86400000);
+  if (dayDelta < 0) {
+    return 'Starts soon';
+  }
+  return `Week ${Math.floor(dayDelta / 7) + 1}`;
+}
+
+function normalizeProfileSelectValue(profile, config) {
+  const explicit = sanitizeName(profile?.[config.key]);
+  if (explicit) {
+    return explicit;
+  }
+  const legacyValue = config.key === 'curriculumType'
+    ? sanitizeName(profile?.curriculum)
+    : config.key === 'programType'
+      ? sanitizeName(profile?.trainingProgram)
+      : '';
+  return config.options.find((option) => option.toLowerCase() === legacyValue.toLowerCase()) || '';
+}
+
+function getProgramWeek(profile = {}) {
+  return calculateProgramWeek(profile.programStartDate) || sanitizeName(profile.programWeek);
+}
+
 function compactObject(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
@@ -281,15 +566,35 @@ function buildDashboardModel(structured = {}) {
   };
 }
 
-function normalizeDetailItem(item) {
+function normalizeDetailItem(item, options = {}) {
   if (typeof item === 'string') {
-    return { title: '', detail: item, evidenceIds: [] };
+    return {
+      title: '',
+      detail: item,
+      evidenceIds: [],
+      priority: getPriorityOption('none'),
+      planningStatus: planningStatusOptions[0]
+    };
   }
   if (!item || typeof item !== 'object') {
-    return { title: '', detail: '', evidenceIds: [] };
+    return {
+      title: '',
+      detail: '',
+      evidenceIds: [],
+      priority: getPriorityOption('none'),
+      planningStatus: planningStatusOptions[0]
+    };
   }
+  const planningSection = isPrioritizableSection(options.sectionKey);
   const title = item.title || item.label || item.resource || item.name || item.date || '';
-  const detail = item.details || item.currentStatus || item.status || item.urgency || item.summary || item.note || item.notes || '';
+  const detail = item.details
+    || item.currentStatus
+    || (planningSection ? '' : item.status)
+    || item.urgency
+    || item.summary
+    || item.note
+    || item.notes
+    || '';
   const fallback = Object.entries(item)
     .filter(([key]) => ![
       'title',
@@ -300,6 +605,8 @@ function normalizeDetailItem(item) {
       'details',
       'currentStatus',
       'status',
+      'planningStatus',
+      'priority',
       'urgency',
       'summary',
       'note',
@@ -311,7 +618,9 @@ function normalizeDetailItem(item) {
   return {
     title,
     detail: [detail, fallback].filter(Boolean).join(' · '),
-    evidenceIds: Array.isArray(item.evidenceIds) ? item.evidenceIds : []
+    evidenceIds: Array.isArray(item.evidenceIds) ? item.evidenceIds : [],
+    priority: getPriorityOption(item.priority),
+    planningStatus: getPlanningStatusOption(item)
   };
 }
 
@@ -515,6 +824,281 @@ function openAddNoteDialog() {
   els.noteTextInput.focus();
 }
 
+function resetAskDialog() {
+  state.askResult = null;
+  setAskLoading(false);
+  els.askOutputTypeInput.value = 'client-message';
+  els.askScopeInput.value = 'recent-notes';
+  els.askTimeWindowInput.value = 'last-3-weeks';
+  els.askPromptInput.value = '';
+  els.askResultPanel.hidden = true;
+  els.askResultMeta.textContent = '';
+  els.askResultOutput.innerHTML = '';
+  els.askSourceList.innerHTML = '';
+}
+
+function openAskDialog() {
+  if (!state.selectedClientDetail?.client?.id) {
+    showToast('Select a client before using ASK.', 'error');
+    return;
+  }
+  resetAskDialog();
+  els.askTitle.textContent = `Ask about ${state.selectedClientDetail.client.name}`;
+  els.askDialog.showModal();
+  els.askPromptInput.focus();
+}
+
+function setAskLoading(on, message = 'Using the selected client context.') {
+  state.askLoading = Boolean(on);
+  els.askForm.classList.toggle('is-loading', state.askLoading);
+  els.askForm.setAttribute('aria-busy', state.askLoading ? 'true' : 'false');
+  els.askProcessing.hidden = !state.askLoading;
+  els.askProcessingText.textContent = message;
+  const controls = [
+    els.askOutputTypeInput,
+    els.askScopeInput,
+    els.askTimeWindowInput,
+    els.askPromptInput,
+    els.askSubmitBtn,
+    els.cancelAskBtn,
+    els.copyAskResultBtn,
+    els.saveAskResultBtn
+  ];
+  controls.forEach((control) => {
+    if (control) {
+      control.disabled = state.askLoading;
+    }
+  });
+}
+
+function renderAskCitationChip(chunkId, sourceLookup) {
+  const source = sourceLookup.get(String(chunkId || '').trim());
+  if (!source) {
+    return escapeHtml(`[c:${chunkId}]`);
+  }
+  return `<span class="ask-citation" title="${escapeHtml(source.title || chunkId)}">${escapeHtml(String(source.displayNumber || chunkId))}</span>`;
+}
+
+function renderAskInlineMarkdown(text, sourceLookup) {
+  const citationHtml = [];
+  let html = '';
+  const pattern = /\[c:\s*([^\]\s]+)\s*\]/g;
+  let cursor = 0;
+  let match = pattern.exec(text);
+  while (match) {
+    html += escapeHtml(text.slice(cursor, match.index));
+    const token = `@@ASK_CITATION_${citationHtml.length}@@`;
+    citationHtml.push(renderAskCitationChip(match[1], sourceLookup));
+    html += token;
+    cursor = match.index + match[0].length;
+    match = pattern.exec(text);
+  }
+  html += escapeHtml(text.slice(cursor));
+
+  html = html
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+
+  citationHtml.forEach((citation, index) => {
+    html = html.replaceAll(`@@ASK_CITATION_${index}@@`, citation);
+  });
+  return html;
+}
+
+function renderAskAnswerText(answer, sources = []) {
+  const sourceLookup = new Map((sources || []).map((source) => [String(source.chunkId || ''), source]));
+  const raw = String(answer || '').replace(/\r\n/g, '\n').trim();
+  if (!raw) {
+    return '<p>No answer returned.</p>';
+  }
+  const lines = raw.split('\n');
+  const blocks = [];
+  let paragraph = [];
+  let listType = '';
+
+  const flushParagraph = () => {
+    if (!paragraph.length) {
+      return;
+    }
+    blocks.push(`<p>${renderAskInlineMarkdown(paragraph.join(' '), sourceLookup)}</p>`);
+    paragraph = [];
+  };
+  const closeList = () => {
+    if (listType) {
+      blocks.push(`</${listType}>`);
+      listType = '';
+    }
+  };
+  const ensureList = (type) => {
+    flushParagraph();
+    if (listType && listType !== type) {
+      closeList();
+    }
+    if (!listType) {
+      listType = type;
+      blocks.push(`<${type}>`);
+    }
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushParagraph();
+      closeList();
+      continue;
+    }
+    const heading = trimmed.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      closeList();
+      blocks.push(`<h4>${renderAskInlineMarkdown(heading[2], sourceLookup)}</h4>`);
+      continue;
+    }
+    const bullet = trimmed.match(/^[-*]\s+(.+)$/);
+    if (bullet) {
+      ensureList('ul');
+      blocks.push(`<li>${renderAskInlineMarkdown(bullet[1], sourceLookup)}</li>`);
+      continue;
+    }
+    const numbered = trimmed.match(/^\d+[.)]\s+(.+)$/);
+    if (numbered) {
+      ensureList('ol');
+      blocks.push(`<li>${renderAskInlineMarkdown(numbered[1], sourceLookup)}</li>`);
+      continue;
+    }
+    if (listType && /^\s{2,}\S/.test(line)) {
+      blocks.push(`<li>${renderAskInlineMarkdown(trimmed, sourceLookup)}</li>`);
+      continue;
+    }
+    closeList();
+    paragraph.push(trimmed);
+  }
+  flushParagraph();
+  closeList();
+  return blocks.join('');
+}
+
+function renderAskSources(sources = []) {
+  if (!sources.length) {
+    return '';
+  }
+  return `
+    <div class="ask-source-head">Sources used</div>
+    ${sources.map((source) => `
+      <div class="ask-source-row">
+        <span>${escapeHtml(String(source.displayNumber || ''))}</span>
+        <div>
+          <strong>${escapeHtml(source.title || source.chunkId)}</strong>
+          <em>${escapeHtml([source.sourceType, formatDate(source.date)].filter(Boolean).join(' • '))}</em>
+        </div>
+      </div>
+    `).join('')}
+  `;
+}
+
+function renderAskResult(result) {
+  state.askResult = result;
+  els.askResultPanel.hidden = false;
+  els.askResultMeta.textContent = `${result.outputLabel || 'ASK'} • ${result.scopeLabel || 'selected context'} • ${result.timeWindowLabel || 'time window'}`;
+  els.askResultOutput.innerHTML = renderAskAnswerText(result.answer || '', result.selectedSources || []);
+  els.askSourceList.innerHTML = renderAskSources(result.selectedSources || []);
+}
+
+async function submitAsk(event) {
+  event.preventDefault();
+  const clientId = state.selectedClientDetail?.client?.id;
+  const prompt = String(els.askPromptInput.value || '').trim();
+  if (!clientId) {
+    showToast('Select a client before using ASK.', 'error');
+    return;
+  }
+  if (!prompt) {
+    showToast('Enter a request first.', 'error');
+    els.askPromptInput.focus();
+    return;
+  }
+
+  setAskLoading(true, 'Using the selected client context.');
+  try {
+    const result = await window.coachNotes.askClient({
+      clientId,
+      prompt,
+      outputType: els.askOutputTypeInput.value,
+      scope: els.askScopeInput.value,
+      timeWindow: els.askTimeWindowInput.value
+    });
+    renderAskResult(result);
+    showToast('ASK draft ready.');
+  } catch (error) {
+    showToast(`ASK failed: ${error.message}`, 'error');
+  } finally {
+    setAskLoading(false);
+  }
+}
+
+async function copyText(value) {
+  const text = String(value || '');
+  if (!text) {
+    return false;
+  }
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand('copy');
+  textarea.remove();
+  return copied;
+}
+
+async function copyAskResult() {
+  if (!state.askResult?.answer) {
+    showToast('Run ASK before copying.', 'error');
+    return;
+  }
+  try {
+    await copyText(state.askResult.answer);
+    showToast('ASK output copied.');
+  } catch (error) {
+    showToast(`Copy failed: ${error.message}`, 'error');
+  }
+}
+
+async function saveAskResultAsNote() {
+  if (!state.askResult?.answer || !state.selectedClientDetail?.client?.id) {
+    showToast('Run ASK before saving.', 'error');
+    return;
+  }
+  setBusy(true, 'Saving ASK note...');
+  try {
+    const detail = await window.coachNotes.saveAskResultAsNote({
+      clientId: state.selectedClientDetail.client.id,
+      title: `ASK ${state.askResult.outputLabel || 'Output'}`,
+      outputType: state.askResult.outputType,
+      scope: state.askResult.scope,
+      timeWindow: state.askResult.timeWindow,
+      question: state.askResult.question,
+      answer: state.askResult.answer
+    });
+    state.selectedClientDetail = detail;
+    await loadClients();
+    renderClientDetail(detail);
+    setViewMode('detail');
+    showToast('ASK output saved as a note.');
+  } catch (error) {
+    showToast(`Save failed: ${error.message}`, 'error');
+  } finally {
+    setBusy(false);
+  }
+}
+
 function formatValue(value, type) {
   if (type === 'text') {
     return String(value || '');
@@ -699,6 +1283,17 @@ function renderDetailMetric(label, value, tone = '') {
   `;
 }
 
+function countHighPriorityOpenItems(dashboard) {
+  return [...dashboard.coachTasks, ...dashboard.goalsValues].filter((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return false;
+    }
+    const priority = getPriorityOption(item.priority);
+    const status = getPlanningStatusOption(item);
+    return priority.value === 'high' && !['completed', 'abandoned', 'outdated'].includes(status.value);
+  }).length;
+}
+
 function renderSectionActions(sectionKey) {
   const undoCount = Number(state.selectedClientDetail?.undoCounts?.[sectionKey] || 0);
   return `
@@ -707,6 +1302,36 @@ function renderSectionActions(sectionKey) {
       <button class="section-link undo-section" type="button" data-section-key="${escapeHtml(sectionKey)}" ${undoCount ? '' : 'disabled'}>
         Undo${undoCount ? ` ${undoCount}` : ''}
       </button>
+    </div>
+  `;
+}
+
+function renderPlanningVisibilityMenu() {
+  const hiddenStatuses = getPlanningHiddenStatuses();
+  return `
+    <details class="planning-visibility-menu">
+      <summary>Hide statuses</summary>
+      <div class="planning-visibility-options">
+        ${planningStatusOptions.map((option) => `
+          <label>
+            <input
+              type="checkbox"
+              data-planning-hidden-status="${escapeHtml(option.value)}"
+              ${hiddenStatuses.has(option.value) ? 'checked' : ''}
+            />
+            <span>${escapeHtml(option.label)}</span>
+          </label>
+        `).join('')}
+      </div>
+    </details>
+  `;
+}
+
+function renderSectionTitleActions(sectionKey, planningSection) {
+  return `
+    <div class="section-title-actions">
+      ${planningSection ? renderPlanningVisibilityMenu() : ''}
+      ${renderSectionActions(sectionKey)}
     </div>
   `;
 }
@@ -739,22 +1364,214 @@ function renderUpdateNotice(detail) {
   `;
 }
 
+function renderDetailPageTabs(activePage) {
+  return `
+    <nav class="detail-page-tabs" aria-label="Client profile sections">
+      ${detailPages.map((page) => `
+        <button class="detail-page-tab ${page.key === activePage ? 'active' : ''}" type="button" data-detail-page="${escapeHtml(page.key)}">
+          ${escapeHtml(page.label)}
+        </button>
+      `).join('')}
+    </nav>
+  `;
+}
+
+function renderProfileReferenceChips(profile = {}) {
+  const chips = [];
+  const programWeek = getProgramWeek(profile);
+  if (programWeek) {
+    chips.push({ label: programWeek, className: 'profile-chip-week' });
+  }
+  for (const config of profileSelectFields) {
+    const value = normalizeProfileSelectValue(profile, config);
+    if (value) {
+      chips.push({ label: `${config.chipLabel}: ${value}`, className: config.className });
+    }
+  }
+  for (const config of profileMultiSelectFields) {
+    for (const value of toProfileArray(profile[config.key])) {
+      chips.push({ label: value, className: config.className });
+    }
+  }
+  if (!chips.length) {
+    return '';
+  }
+  return `
+    <div class="profile-chip-strip">
+      ${chips.map((chip) => `<span class="profile-chip ${escapeHtml(chip.className)}">${escapeHtml(chip.label)}</span>`).join('')}
+    </div>
+  `;
+}
+
+function renderProfileSelectOptions(options, selectedValue) {
+  return [
+    '<option value="">Not set</option>',
+    ...options.map((option) => `<option value="${escapeHtml(option)}" ${option === selectedValue ? 'selected' : ''}>${escapeHtml(option)}</option>`)
+  ].join('');
+}
+
+function renderClientProfileControls(profile = {}) {
+  const selectControls = profileSelectFields.map((config) => {
+    const value = normalizeProfileSelectValue(profile, config);
+    return `
+      <label>
+        ${escapeHtml(config.label)}
+        <select data-profile-field="${escapeHtml(config.key)}">
+          ${renderProfileSelectOptions(config.options, value)}
+        </select>
+      </label>
+    `;
+  }).join('');
+
+  const multiControls = profileMultiSelectFields.map((config) => {
+    const values = new Set(toProfileArray(profile[config.key]));
+    return `
+      <label>
+        ${escapeHtml(config.label)}
+        <select multiple size="6" data-profile-field="${escapeHtml(config.key)}" data-profile-multiple="true">
+          ${config.options.map((option) => `<option value="${escapeHtml(option)}" ${values.has(option) ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('')}
+        </select>
+      </label>
+    `;
+  }).join('');
+
+  return `
+    <div class="profile-control-panel">
+      <div class="profile-control-head">
+        <strong>Program Settings</strong>
+        <span>Most fields are single-select; contraindications can have multiple selections. Selected values appear on Snapshot.</span>
+      </div>
+      <div class="profile-control-grid">
+        ${selectControls}
+        <label>
+          Training program start date
+          <input type="date" value="${escapeHtml(profile.programStartDate || '')}" data-profile-field="programStartDate" />
+        </label>
+        <div class="computed-week">
+          <span>Program Week</span>
+          <strong>${escapeHtml(getProgramWeek(profile) || 'Not set')}</strong>
+        </div>
+        ${multiControls}
+      </div>
+    </div>
+  `;
+}
+
+function sortPlanningRows(rows) {
+  return [...rows].sort((left, right) => (
+    left.normalized.planningStatus.rank - right.normalized.planningStatus.rank
+    || left.normalized.priority.rank - right.normalized.priority.rank
+    || left.index - right.index
+  ));
+}
+
+function renderSelectOptions(options, selectedValue) {
+  return options.map((option) => `
+    <option value="${escapeHtml(option.value)}" ${option.value === selectedValue ? 'selected' : ''}>${escapeHtml(option.label)}</option>
+  `).join('');
+}
+
+function renderPlanningControls(sectionKey, itemIndex, normalized) {
+  return `
+    <div class="item-planning-controls">
+      <label>
+        <span>Priority</span>
+        <select data-planning-field="priority" data-section-key="${escapeHtml(sectionKey)}" data-item-index="${escapeHtml(String(itemIndex))}">
+          ${renderSelectOptions(priorityOptions, normalized.priority.value)}
+        </select>
+      </label>
+      <label>
+        <span>Status</span>
+        <select data-planning-field="planningStatus" data-section-key="${escapeHtml(sectionKey)}" data-item-index="${escapeHtml(String(itemIndex))}">
+          ${renderSelectOptions(planningStatusOptions, normalized.planningStatus.value)}
+        </select>
+      </label>
+    </div>
+  `;
+}
+
+function renderPlanningChips(normalized) {
+  const priorityChip = normalized.priority.value === 'none'
+    ? ''
+    : `<span class="planning-chip ${escapeHtml(normalized.priority.className)}">${escapeHtml(normalized.priority.label)}</span>`;
+  return `
+    <div class="planning-chip-row">
+      ${priorityChip}
+      <span class="planning-chip ${escapeHtml(normalized.planningStatus.className)}">${escapeHtml(normalized.planningStatus.label)}</span>
+    </div>
+  `;
+}
+
+function renderPlanningHiddenSummary(sectionKey, hiddenRows, expanded) {
+  const count = hiddenRows.length;
+  const hiddenStatusValues = new Set(hiddenRows.map(({ normalized }) => normalized.planningStatus.value));
+  const closedOnly = [...hiddenStatusValues].every((value) => closedPlanningStatuses.has(value));
+  const label = closedOnly ? 'closed' : 'filtered';
+  return `
+    <li class="planning-hidden-summary">
+      <span>${escapeHtml(String(count))} ${label} item${count === 1 ? '' : 's'} ${expanded ? 'shown' : 'hidden'}</span>
+      <button
+        class="section-link toggle-hidden-planning"
+        type="button"
+        data-section-key="${escapeHtml(sectionKey)}"
+        data-expanded="${expanded ? 'false' : 'true'}"
+      >
+        ${expanded ? 'Hide' : 'Show'}
+      </button>
+    </li>
+  `;
+}
+
 function renderDetailList(title, value, sourceLookup, options = {}) {
   const values = Array.isArray(value) ? value : [];
   if (!values.length && !options.sectionKey) {
     return '';
   }
-  const rows = values.length ? values.map((item) => {
-    const normalized = normalizeDetailItem(item);
+  const planningSection = isPrioritizableSection(options.sectionKey);
+  const rowModels = values.map((item, index) => ({
+    item,
+    index,
+    normalized: normalizeDetailItem(item, { sectionKey: options.sectionKey })
+  }));
+  const sortedRows = planningSection ? sortPlanningRows(rowModels) : rowModels;
+  const sectionExpanded = planningSection && isPlanningSectionExpanded(options.sectionKey);
+  const hiddenRows = planningSection
+    ? sortedRows.filter(({ normalized }) => isPlanningStatusHidden(normalized.planningStatus.value))
+    : [];
+  const visibleRows = planningSection && !sectionExpanded
+    ? sortedRows.filter(({ normalized }) => !isPlanningStatusHidden(normalized.planningStatus.value))
+    : sortedRows;
+  const renderedRows = visibleRows.map(({ index, normalized }) => {
     const titleHtml = normalized.title ? `<strong>${renderEvidenceText(normalized.title, sourceLookup, normalized.evidenceIds)}</strong>` : '';
     const detailHtml = normalized.detail ? `<span>${renderEvidenceText(normalized.detail, sourceLookup, normalized.evidenceIds)}</span>` : '';
-    return `<li>${titleHtml}${detailHtml}</li>`;
-  }).join('') : '<li><span>No entries yet.</span></li>';
+    const bodyHtml = titleHtml || detailHtml
+      ? `${titleHtml}${detailHtml}`
+      : '<span>No details captured yet.</span>';
+    if (!planningSection) {
+      return `<li>${bodyHtml}</li>`;
+    }
+    return `
+      <li class="planning-item ${escapeHtml(normalized.priority.className)} ${escapeHtml(normalized.planningStatus.className)}">
+        <div class="planning-item-body">
+          ${bodyHtml}
+          ${renderPlanningChips(normalized)}
+        </div>
+        ${renderPlanningControls(options.sectionKey, index, normalized)}
+      </li>
+    `;
+  }).join('');
+  const hiddenSummary = planningSection && hiddenRows.length
+    ? renderPlanningHiddenSummary(options.sectionKey, hiddenRows, sectionExpanded)
+    : '';
+  const emptyRow = !renderedRows && !hiddenSummary
+    ? '<li><span>No entries yet.</span></li>'
+    : '';
+  const rows = `${renderedRows}${hiddenSummary}${emptyRow}`;
   return `
-    <section class="${options.wide ? 'detail-section wide' : 'detail-section'} ${options.tone || ''} ${sectionWasUpdated(options.sectionKey) ? 'is-recently-updated' : ''}">
+    <section class="${options.wide ? 'detail-section wide' : 'detail-section'} ${planningSection ? 'prioritizable' : ''} ${options.tone || ''} ${sectionWasUpdated(options.sectionKey) ? 'is-recently-updated' : ''}">
       <div class="section-title-row">
         <h3>${escapeHtml(title)}</h3>
-        ${renderSectionActions(options.sectionKey)}
+        ${renderSectionTitleActions(options.sectionKey, planningSection)}
       </div>
       <ul>${rows}</ul>
     </section>
@@ -766,13 +1583,15 @@ function renderObjectSection(title, value, sourceLookup, options = {}) {
   if ((!value || typeof value !== 'object' || Array.isArray(value)) && !sectionKey) {
     return '';
   }
-  const entries = Object.entries(compactObject(value));
+  const entries = Object.entries(compactObject(value))
+    .filter(([key]) => sectionKey !== 'clientProfile' || !profileControlKeys.has(key));
   const rows = entries.length ? entries.map(([key, entry]) => `
     <div class="object-row">
       <span>${escapeHtml(key)}</span>
       <strong>${renderEvidenceText(entry, sourceLookup)}</strong>
     </div>
   `).join('') : '<p class="empty-section-copy">No entries yet.</p>';
+  const profileControls = sectionKey === 'clientProfile' ? renderClientProfileControls(value || {}) : '';
   return `
     <section class="detail-section compact-list ${options.tone || ''} ${sectionWasUpdated(sectionKey) ? 'is-recently-updated' : ''}">
       <div class="section-title-row">
@@ -780,6 +1599,7 @@ function renderObjectSection(title, value, sourceLookup, options = {}) {
         ${renderSectionActions(sectionKey)}
       </div>
       ${rows}
+      ${profileControls}
     </section>
   `;
 }
@@ -838,14 +1658,15 @@ function renderClientDetail(detail) {
     : '';
   const taskCount = dashboard.coachTasks.length;
   const flagCount = dashboard.flags.length;
+  const highPriorityCount = countHighPriorityOpenItems(dashboard);
   const sourceDrawers = sources.map((source, index) => renderSourceDrawer({
     ...source,
     displayNumber: index + 1
   })).join('');
+  const activePage = getActiveDetailPage();
+  const profileChips = renderProfileReferenceChips(dashboard.clientProfile);
 
-  els.detailContent.innerHTML = `
-    ${renderUpdateNotice(detail)}
-
+  const snapshotHero = `
     <section class="detail-overview dashboard-hero ${sectionWasUpdated('overview') || sectionWasUpdated('clientProfile') || sectionWasUpdated('suggestedTags') ? 'is-recently-updated' : ''}">
       <div>
         <div class="section-title-row hero-title-row">
@@ -854,6 +1675,7 @@ function renderClientDetail(detail) {
         </div>
         <p class="overview-copy">${renderEvidenceText(dashboard.overview || 'No overview captured yet.', sourceLookup)}</p>
         <div class="tag-block">
+          ${profileChips}
           ${tags}
           ${renderSectionActions('suggestedTags')}
         </div>
@@ -862,21 +1684,25 @@ function renderClientDetail(detail) {
         ${renderDetailMetric('Sources', sources.length)}
         ${renderDetailMetric('To-Dos', taskCount, taskCount ? 'warm' : '')}
         ${renderDetailMetric('Flags', flagCount, flagCount ? 'alert' : '')}
+        ${renderDetailMetric('High Priority', highPriorityCount, highPriorityCount ? 'priority-hot' : '')}
       </div>
     </section>
+  `;
 
+  const clientProfileBand = `
     <div class="dashboard-band">
       <div class="band-head">
         <span>Client Profile</span>
-        <strong>Name, age, location, curriculum, and training context</strong>
+        <strong>Name, location, curriculum, program, and intake context</strong>
       </div>
       <div class="detail-grid">
         ${renderObjectSection('Profile Basics', dashboard.clientProfile, sourceLookup, { sectionKey: 'clientProfile' })}
-        ${renderDetailList('Goals / Values', dashboard.goalsValues, sourceLookup, { sectionKey: 'goalsValues' })}
-        ${renderDetailList('Coaching Plan / Approach', dashboard.coachingPlanApproach, sourceLookup, { wide: true, sectionKey: 'coachingPlanApproach' })}
+        ${renderDetailList('Coaching Plan / Approach', dashboard.coachingPlanApproach, sourceLookup, { sectionKey: 'coachingPlanApproach' })}
       </div>
     </div>
+  `;
 
+  const attentionBand = `
     <div class="dashboard-band attention-band">
       <div class="band-head">
         <span>Needs Attention</span>
@@ -888,7 +1714,23 @@ function renderClientDetail(detail) {
         ${renderDetailList('Missing Info', dashboard.missingInfo, sourceLookup, { sectionKey: 'missingInfo' })}
       </div>
     </div>
+  `;
 
+  const goalsBand = `
+    <div class="dashboard-band">
+      <div class="band-head">
+        <span>Goals</span>
+        <strong>Long-term outcomes, values, and current action items</strong>
+      </div>
+      <div class="detail-grid">
+        ${renderDetailList('Goals / Values', dashboard.goalsValues, sourceLookup, { sectionKey: 'goalsValues' })}
+        ${renderDetailList('Coach To-Dos / Action Items', dashboard.coachTasks, sourceLookup, { tone: 'priority', sectionKey: 'coachTasks' })}
+        ${renderDetailList('Coaching Plan / Approach', dashboard.coachingPlanApproach, sourceLookup, { wide: true, sectionKey: 'coachingPlanApproach' })}
+      </div>
+    </div>
+  `;
+
+  const progressBand = `
     <div class="dashboard-band">
       <div class="band-head">
         <span>Progress</span>
@@ -897,34 +1739,49 @@ function renderClientDetail(detail) {
       <div class="detail-grid">
         ${renderDetailList('Progress Tracking', dashboard.progressTracking, sourceLookup, { sectionKey: 'progressTracking' })}
         ${renderDetailList('Engagement', dashboard.engagementNotes, sourceLookup, { sectionKey: 'engagementNotes' })}
-        ${renderDetailList('Resources Shared', dashboard.resourcesShared, sourceLookup, { sectionKey: 'resourcesShared' })}
-      </div>
-    </div>
-
-    <div class="dashboard-band domain-band">
-      <div class="band-head">
-        <span>Coaching Domains</span>
-        <strong>Common threads around what is difficult and what has been mastered</strong>
-      </div>
-      <div class="detail-grid three-up">
         ${renderDetailList('Nutrition', dashboard.nutritionThreads, sourceLookup, { sectionKey: 'nutritionThreads' })}
         ${renderDetailList('Mindset', dashboard.mindsetThreads, sourceLookup, { sectionKey: 'mindsetThreads' })}
         ${renderDetailList('Exercise', dashboard.exerciseThreads, sourceLookup, { sectionKey: 'exerciseThreads' })}
       </div>
     </div>
+  `;
 
+  const programBand = `
+    <div class="dashboard-band domain-band">
+      <div class="band-head">
+        <span>Program Changes</span>
+        <strong>Current approach, movement constraints, and decision memory seeds</strong>
+      </div>
+      <div class="detail-grid">
+        ${renderDetailList('Coaching Plan / Approach', dashboard.coachingPlanApproach, sourceLookup, { sectionKey: 'coachingPlanApproach' })}
+        ${renderDetailList('Exercise', dashboard.exerciseThreads, sourceLookup, { sectionKey: 'exerciseThreads' })}
+        ${renderDetailList('Flags', dashboard.flags, sourceLookup, { tone: flagCount ? 'scope' : '', sectionKey: 'flags' })}
+      </div>
+    </div>
+  `;
+
+  const resourcesBand = `
     <div class="dashboard-band">
       <div class="band-head">
-        <span>Notes + History</span>
+        <span>Resources</span>
+        <strong>Shared materials and education references</strong>
+      </div>
+      <div class="detail-grid">
+        ${renderDetailList('Resources Shared', dashboard.resourcesShared, sourceLookup, { sectionKey: 'resourcesShared' })}
+      </div>
+    </div>
+  `;
+
+  const notesBand = `
+    <div class="dashboard-band">
+      <div class="band-head">
+        <span>Session Notes</span>
         <strong>Source-linked history and evidence quality</strong>
       </div>
       <div class="detail-grid">
         ${renderDetailList('Confidence Notes', dashboard.confidenceNotes, sourceLookup, { sectionKey: 'confidenceNotes' })}
       </div>
     </div>
-
-    ${renderTimeline(dashboard.timeline, sourceLookup)}
-
     <section class="source-summary">
       <div class="source-summary-head">
         <h3>Raw Sources</h3>
@@ -932,6 +1789,26 @@ function renderClientDetail(detail) {
       </div>
       ${sourceDrawers || '<p>No sources found.</p>'}
     </section>
+  `;
+
+  const timelineBand = renderTimeline(dashboard.timeline, sourceLookup);
+  const pageContent = {
+    snapshot: `${snapshotHero}${attentionBand}`,
+    bio: clientProfileBand,
+    goals: goalsBand,
+    timeline: timelineBand,
+    program: programBand,
+    progress: progressBand,
+    notes: notesBand,
+    resources: `${resourcesBand}${notesBand}`
+  };
+
+  els.detailContent.innerHTML = `
+    ${renderUpdateNotice(detail)}
+    ${renderDetailPageTabs(activePage)}
+    <div class="detail-page-panel">
+      ${pageContent[activePage] || pageContent.snapshot}
+    </div>
   `;
 }
 
@@ -1011,6 +1888,114 @@ async function undoSection(sectionKey) {
   }
 }
 
+function applyPlanningPatch(item, patch) {
+  const next = item && typeof item === 'object' && !Array.isArray(item)
+    ? { ...item }
+    : { details: String(item || '') };
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
+    next.priority = getPriorityOption(patch.priority).value;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'planningStatus')) {
+    next.planningStatus = normalizePlanningStatus(patch.planningStatus);
+  }
+  return next;
+}
+
+async function savePlanningField(control) {
+  const sectionKey = control?.dataset?.sectionKey || '';
+  const field = control?.dataset?.planningField || '';
+  const itemIndex = Number(control?.dataset?.itemIndex);
+  if (!isPrioritizableSection(sectionKey) || !['priority', 'planningStatus'].includes(field) || !Number.isInteger(itemIndex)) {
+    return;
+  }
+  const clientId = state.selectedClientDetail?.client?.id;
+  const currentSection = state.selectedClientDetail?.baseline?.structured?.[sectionKey];
+  if (!clientId || !Array.isArray(currentSection) || itemIndex < 0 || itemIndex >= currentSection.length) {
+    return;
+  }
+
+  const patch = { [field]: control.value };
+  const nextSection = currentSection.map((item, index) => (
+    index === itemIndex ? applyPlanningPatch(item, patch) : item
+  ));
+  if (valuesEqual(currentSection, nextSection)) {
+    return;
+  }
+
+  setBusy(true, 'Saving priority...');
+  try {
+    const detail = await window.coachNotes.updateClientSection({
+      clientId,
+      sectionKey,
+      value: nextSection
+    });
+    state.selectedClientDetail = detail;
+    await loadClients();
+    renderClientDetail(detail);
+    setViewMode('detail');
+    showToast('Priority updated.');
+  } catch (error) {
+    renderClientDetail(state.selectedClientDetail);
+    showToast(`Priority save failed: ${error.message}`, 'error');
+  } finally {
+    setBusy(false);
+  }
+}
+
+function buildNextClientProfile(currentProfile, patch) {
+  const next = currentProfile && typeof currentProfile === 'object' && !Array.isArray(currentProfile)
+    ? { ...currentProfile }
+    : {};
+  Object.assign(next, patch);
+  const programWeek = calculateProgramWeek(next.programStartDate);
+  if (programWeek) {
+    next.programWeek = programWeek;
+  } else if (Object.prototype.hasOwnProperty.call(patch, 'programStartDate')) {
+    delete next.programWeek;
+  }
+  return next;
+}
+
+async function saveProfileField(control) {
+  const field = control?.dataset?.profileField || '';
+  if (!profileControlKeys.has(field)) {
+    return;
+  }
+  const clientId = state.selectedClientDetail?.client?.id;
+  const currentProfile = state.selectedClientDetail?.baseline?.structured?.clientProfile || {};
+  if (!clientId || typeof currentProfile !== 'object' || Array.isArray(currentProfile)) {
+    return;
+  }
+
+  const value = control.multiple
+    ? [...control.selectedOptions].map((option) => option.value).filter(Boolean)
+    : control.value;
+  const nextProfile = buildNextClientProfile(currentProfile, { [field]: value });
+  if (valuesEqual(currentProfile, nextProfile)) {
+    return;
+  }
+
+  setBusy(true, 'Saving profile settings...');
+  try {
+    const detail = await window.coachNotes.updateClientSection({
+      clientId,
+      sectionKey: 'clientProfile',
+      value: nextProfile
+    });
+    state.selectedClientDetail = detail;
+    await loadClients();
+    renderClientDetail(detail);
+    setViewMode('detail');
+    showToast('Profile settings updated.');
+  } catch (error) {
+    renderClientDetail(state.selectedClientDetail);
+    showToast(`Profile save failed: ${error.message}`, 'error');
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function submitAddedNote(event) {
   event.preventDefault();
   addPastedNoteSource({ silent: true });
@@ -1065,6 +2050,9 @@ async function selectClient(clientId) {
   setBusy(true, 'Loading client...');
   try {
     const detail = await window.coachNotes.getClientDetail({ clientId });
+    if (state.selectedClientId !== clientId) {
+      state.detailPage = 'snapshot';
+    }
     state.selectedClientId = clientId;
     renderClients();
     renderClientDetail(detail);
@@ -1146,6 +2134,7 @@ async function saveSettings(event) {
 }
 
 async function init() {
+  loadPlanningHiddenStatuses();
   setBusy(true, 'Opening CoachNotes...');
   try {
     const appState = await window.coachNotes.getState();
@@ -1168,6 +2157,7 @@ async function init() {
 
   els.onboardBtn.addEventListener('click', startOnboarding);
   els.settingsBtn.addEventListener('click', openSettings);
+  els.askClientBtn.addEventListener('click', openAskDialog);
   els.addNoteBtn.addEventListener('click', openAddNoteDialog);
   els.deleteClientBtn.addEventListener('click', deleteSelectedClient);
   els.revealVaultBtn.addEventListener('click', async () => {
@@ -1211,6 +2201,18 @@ async function init() {
       renderClientDetail(state.selectedClientDetail);
       return;
     }
+    const pageButton = event.target.closest('.detail-page-tab');
+    if (pageButton) {
+      state.detailPage = pageButton.dataset.detailPage || 'snapshot';
+      renderClientDetail(state.selectedClientDetail);
+      return;
+    }
+    const hiddenToggle = event.target.closest('.toggle-hidden-planning');
+    if (hiddenToggle) {
+      setPlanningSectionExpanded(hiddenToggle.dataset.sectionKey, hiddenToggle.dataset.expanded === 'true');
+      renderClientDetail(state.selectedClientDetail);
+      return;
+    }
     const editButton = event.target.closest('.edit-section');
     if (editButton) {
       openEditSection(editButton.dataset.sectionKey);
@@ -1219,6 +2221,32 @@ async function init() {
     const undoButton = event.target.closest('.undo-section');
     if (undoButton && !undoButton.disabled) {
       undoSection(undoButton.dataset.sectionKey);
+    }
+  });
+  els.detailContent.addEventListener('change', (event) => {
+    const hiddenStatusControl = event.target.closest('[data-planning-hidden-status]');
+    if (hiddenStatusControl) {
+      const hiddenStatuses = new Set(getPlanningHiddenStatuses());
+      const statusValue = hiddenStatusControl.dataset.planningHiddenStatus;
+      if (hiddenStatusControl.checked) {
+        hiddenStatuses.add(statusValue);
+      } else {
+        hiddenStatuses.delete(statusValue);
+      }
+      state.planningHiddenStatuses = hiddenStatuses;
+      state.expandedPlanningSections.clear();
+      savePlanningHiddenStatuses();
+      renderClientDetail(state.selectedClientDetail);
+      return;
+    }
+    const profileControl = event.target.closest('[data-profile-field]');
+    if (profileControl) {
+      saveProfileField(profileControl);
+      return;
+    }
+    const control = event.target.closest('[data-planning-field]');
+    if (control) {
+      savePlanningField(control);
     }
   });
   els.noteSourceList.addEventListener('click', (event) => {
@@ -1247,6 +2275,15 @@ async function init() {
   els.cancelSettingsBtn.addEventListener('click', () => els.settingsDialog.close());
   els.editSectionForm.addEventListener('submit', saveEditedSection);
   els.cancelEditSectionBtn.addEventListener('click', () => els.editSectionDialog.close());
+  els.askDialog.addEventListener('cancel', (event) => {
+    if (state.askLoading) {
+      event.preventDefault();
+    }
+  });
+  els.askForm.addEventListener('submit', submitAsk);
+  els.cancelAskBtn.addEventListener('click', () => els.askDialog.close());
+  els.copyAskResultBtn.addEventListener('click', copyAskResult);
+  els.saveAskResultBtn.addEventListener('click', saveAskResultAsNote);
   els.addNoteForm.addEventListener('submit', submitAddedNote);
   els.cancelAddNoteBtn.addEventListener('click', () => els.addNoteDialog.close());
   els.clearNoteSourcesBtn.addEventListener('click', () => {

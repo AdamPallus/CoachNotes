@@ -18,9 +18,10 @@ const systemPrompt = [
   'If you cannot provide a solid answer from the available notes, give a brief explanation of what is missing.',
   'Do not invent details, dates, or exercises.',
   'Avoid diagnosis language and summarize what the notes explicitly say.',
-  'Do not offer follow-up actions.',
+  'If the user asks for a draft or prep artifact, produce that artifact directly.',
+  'Do not offer unrelated follow-up actions.',
   'Do not ask follow-up questions.',
-  'End after the direct answer.'
+  'End after the requested answer or draft.'
 ].join(' ');
 
 function getAnswerMaxOutputTokens() {
