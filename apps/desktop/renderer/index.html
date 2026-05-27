@@ -147,21 +147,47 @@
     <dialog id="settingsDialog">
       <form method="dialog" id="settingsForm" class="dialog-form">
         <h2>Settings</h2>
-        <label>
-          Local vault
-          <div class="input-row">
-            <input id="vaultInput" type="text" placeholder="/Users/.../CoachNotes Vault" />
-            <button id="chooseVaultBtn" class="btn btn-subtle" type="button">Choose</button>
+        <section class="settings-section">
+          <div class="settings-section-head">
+            <strong>Connection</strong>
+            <span>Local storage and proxy access.</span>
           </div>
-        </label>
-        <label>
-          Proxy base URL
-          <input id="proxyInput" type="url" placeholder="https://your-proxy.vercel.app" />
-        </label>
-        <label>
-          Invite token
-          <input id="tokenInput" type="password" placeholder="Paste invite token" />
-        </label>
+          <label>
+            Local vault
+            <div class="input-row">
+              <input id="vaultInput" type="text" placeholder="/Users/.../CoachNotes Vault" />
+              <button id="chooseVaultBtn" class="btn btn-subtle" type="button">Choose</button>
+            </div>
+          </label>
+          <label>
+            Proxy base URL
+            <input id="proxyInput" type="url" placeholder="https://your-proxy.vercel.app" />
+          </label>
+          <label>
+            Invite token
+            <input id="tokenInput" type="password" placeholder="Paste invite token" />
+          </label>
+        </section>
+        <section class="settings-section">
+          <div class="settings-section-head">
+            <strong>Practice Template</strong>
+            <span>Guidance and default options used by intake, updates, ASK, and profile controls.</span>
+          </div>
+          <label>
+            Coaching approach
+            <textarea id="coachApproachInput" rows="4" placeholder="What this coach prioritizes when interpreting client notes."></textarea>
+          </label>
+          <label>
+            Message style
+            <textarea id="messageStyleInput" rows="4" placeholder="How client-facing drafts should sound."></textarea>
+          </label>
+          <label>
+            Curriculum/program notes
+            <textarea id="curriculumNotesInput" rows="4" placeholder="Optional curriculum, program, or practice-specific guidance."></textarea>
+          </label>
+          <div id="profileOptionsPanel" class="profile-options-panel"></div>
+          <button id="resetCoachTemplateBtn" class="btn btn-subtle" type="button">Restore Default Template</button>
+        </section>
         <div class="dialog-actions">
           <button id="cancelSettingsBtn" class="btn btn-ghost" type="button">Cancel</button>
           <button class="btn btn-primary" type="submit">Save</button>
@@ -202,7 +228,7 @@
             <select id="askScopeInput">
               <option value="recent-notes">Recent notes + dashboard</option>
               <option value="dashboard">Current dashboard only</option>
-              <option value="all-sources">All client sources</option>
+              <option value="all-sources">All sources for this client</option>
             </select>
           </label>
           <label>

@@ -18,6 +18,7 @@ const workflowPrompts = {
     'Prefer concise, evidence-linked observations over long prose.',
     'Build a current working dashboard, not an exhaustive archive of every historical goal or action plan.',
     'Combine duplicate or overlapping goals, habits, barriers, and action items into one clear item instead of listing each mention separately.',
+    'The overview/Snapshot is for quick human scanning: keep it brief, current, and distinct from the to-do lists below.',
     'Separate active constraints from historical context.',
     'Flag scope-of-practice concerns without diagnosing.',
     'Never invent dates, injuries, client preferences, program details, medications, or plans.',
@@ -31,6 +32,7 @@ const workflowPrompts = {
     'Do not remove or weaken coach-entered facts just because the new source does not mention them.',
     'Keep the dashboard concise and current. Do not let repeated historical mentions inflate the active lists.',
     'Combine duplicate or overlapping goals, habits, barriers, and action items instead of appending another similar item.',
+    'The overview/Snapshot is for quick human scanning: keep it brief, current, and distinct from the to-do lists below.',
     'Only change sections when the new source clearly adds, updates, resolves, or contradicts something.',
     'When the new source conflicts with the baseline, preserve the baseline and add a confidence note or open loop unless the source clearly resolves the older point.',
     'Every new or changed claim should cite the new source_id when possible.',
@@ -88,6 +90,58 @@ function parseStructuredOutput(text) {
   }
 }
 
+function normalizePromptText(value, maxLength = 6000) {
+  return String(value || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, maxLength);
+}
+
+function renderCoachTemplatePrompt(value) {
+  const template = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const guidance = template.guidance && typeof template.guidance === 'object' && !Array.isArray(template.guidance)
+    ? template.guidance
+    : {};
+  const lines = [];
+  const coachingApproach = normalizePromptText(guidance.coachingApproach, 4000);
+  const messageStyle = normalizePromptText(guidance.messageStyle, 4000);
+  const curriculumNotes = normalizePromptText(guidance.curriculumNotes, 6000);
+  if (coachingApproach) {
+    lines.push('coaching_approach:', coachingApproach);
+  }
+  if (messageStyle) {
+    lines.push('message_style:', messageStyle);
+  }
+  if (curriculumNotes) {
+    lines.push('curriculum_program_notes:', curriculumNotes);
+  }
+
+  const profileFields = [
+    ...(Array.isArray(template.profileSelectFields) ? template.profileSelectFields : []),
+    ...(Array.isArray(template.profileMultiSelectFields) ? template.profileMultiSelectFields : [])
+  ];
+  const renderedFields = profileFields
+    .filter((field) => field && typeof field === 'object' && !Array.isArray(field))
+    .map((field) => {
+      const label = normalizePromptText(field.label || field.key, 120);
+      const options = Array.isArray(field.options)
+        ? field.options.map((option) => normalizePromptText(option, 120)).filter(Boolean)
+        : [];
+      return label && options.length ? `- ${label}: ${options.join(', ')}` : '';
+    })
+    .filter(Boolean);
+  if (renderedFields.length) {
+    lines.push('profile_option_defaults:', ...renderedFields);
+  }
+
+  if (!lines.length) {
+    return 'No coach/practice template configured.';
+  }
+  return lines.join('\n');
+}
+
 function renderClientIntakePrompt(body) {
   const client = body.client && typeof body.client === 'object' ? body.client : {};
   const sourceBlocks = body.sources.map((source, index) => {
@@ -111,6 +165,9 @@ function renderClientIntakePrompt(body) {
     `program_context: ${client.programContext || '(not provided)'}`,
     `coach_notes: ${client.coachNotes || '(not provided)'}`,
     '',
+    'Coach/practice template:',
+    renderCoachTemplatePrompt(body.coachTemplate),
+    '',
     'Create this exact JSON object:',
     JSON.stringify({
       schemaVersion: 'client_baseline.v2',
@@ -129,12 +186,12 @@ function renderClientIntakePrompt(body) {
         programWeek: '',
         notes: ''
       },
-      overview: 'short current-state client snapshot',
+      overview: 'brief current-state Snapshot for coach scanning',
       coachTasks: [
         {
           title: '',
           details: 'specific to-do, action item, or follow-up for the coach',
-          status: 'open | done | needs_review | unknown',
+          status: 'open | blocked | done | needs_review | unknown',
           dueOrReviewBy: '',
           evidenceIds: ['source_id']
         }
@@ -225,6 +282,8 @@ function renderClientIntakePrompt(body) {
     }, null, 2),
     '',
     'Rules:',
+    '- Keep overview/Snapshot to 2-4 concise sentences. Emphasize current direction, current pain points, momentum, and ongoing considerations.',
+    '- Do not use overview/Snapshot to recap all history or repeat the same coach/client to-dos that appear in coachTasks or goalsValues.',
     '- Keep arrays focused. Prefer 3-6 high-signal items per section unless the source clearly supports more.',
     '- When a client has a lot of history, choose what matters now. Summarize older repeated themes instead of copying every goal, action plan, or check-in item.',
     '- Merge duplicates and near-duplicates across sources. If several notes say the same thing, write one combined item with multiple evidenceIds.',
@@ -237,6 +296,8 @@ function renderClientIntakePrompt(body) {
     '- For resourcesShared, include resources already shared with the client, not resources the coach might want to create.',
     '- Use empty strings or empty arrays for missing fields.',
     '- Current state must favor recent evidence. If old and recent sources conflict, note that in confidenceNotes.',
+    '- Use the coach/practice template for tone, prioritization, profile option labels, and coaching emphasis. It is not client evidence; client-specific claims still need source evidence.',
+    '- When profile values fit configured option labels, prefer those exact labels. If no configured option fits a source-supported fact, use the source-supported value rather than forcing a bad option.',
     '',
     'Sources:',
     sourceBlocks
@@ -264,6 +325,9 @@ function renderClientUpdatePrompt(body) {
     '',
     'Client:',
     `name: ${client.name || 'Unknown client'}`,
+    '',
+    'Coach/practice template:',
+    renderCoachTemplatePrompt(body.coachTemplate),
     '',
     'Current accepted baseline JSON:',
     JSON.stringify(currentBaseline, null, 2),
@@ -298,7 +362,7 @@ function renderClientUpdatePrompt(body) {
           programWeek: '',
           notes: ''
         },
-        overview: 'updated current-state client snapshot',
+        overview: 'brief updated current-state Snapshot for coach scanning',
         coachTasks: ['coach to-do or action item'],
         flags: ['injury, vacation, red flag, medical concern, surgery/procedure, life event, or other flag'],
         goalsValues: ['current goal, value, future-self statement, or vision statement'],
@@ -318,6 +382,8 @@ function renderClientUpdatePrompt(body) {
     '',
     'Rules:',
     '- Preserve existing baseline content unless the new source gives a clear reason to change it.',
+    '- Keep overview/Snapshot to 2-4 concise sentences. Emphasize current direction, current pain points, momentum, and ongoing considerations.',
+    '- Do not use overview/Snapshot to recap all history or repeat the same coach/client to-dos that appear in coachTasks or goalsValues.',
     '- Return updatedBaseline in the v2 schema shown above and include all v2 baseline sections.',
     '- Keep arrays focused. Prefer editing, merging, or appending specific items instead of rewriting whole sections.',
     '- If the new source repeats an existing goal, barrier, action plan, or status theme, update the existing item instead of adding a duplicate.',
@@ -330,6 +396,8 @@ function renderClientUpdatePrompt(body) {
     '- For progressTracking, update skills practice compliance, workout completion, strength/difficulty/load progression, and client engagement when new evidence supports it.',
     '- updateSummary should name the most important updated sections and stay under 45 words.',
     '- If the new source suggests a coach should verify something, put it in coachTasks, missingInfo, or confidenceNotes.',
+    '- Use the coach/practice template for tone, prioritization, profile option labels, and coaching emphasis. It is not client evidence; client-specific claims still need source evidence.',
+    '- When profile values fit configured option labels, prefer those exact labels. If no configured option fits a source-supported fact, use the source-supported value rather than forcing a bad option.',
     '',
     'New sources:',
     sourceBlocks

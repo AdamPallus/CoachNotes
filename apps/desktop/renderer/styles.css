@@ -861,6 +861,11 @@ label,
   border-left-color: #627b9b;
 }
 
+.planning-item.status-blocked {
+  border-left-color: #6f5968;
+  background: rgba(238, 229, 218, 0.72);
+}
+
 .planning-item.status-completed,
 .planning-item.status-abandoned,
 .planning-item.status-outdated {
@@ -946,6 +951,12 @@ label,
   color: #3e5368;
 }
 
+.planning-chip.status-blocked {
+  background: #eadde3;
+  border-color: rgba(111, 89, 104, 0.32);
+  color: #5b4654;
+}
+
 .planning-chip.status-completed {
   background: #e4eadf;
   color: #53614c;
@@ -1025,6 +1036,17 @@ label,
 .planning-visibility-options input {
   width: auto;
   margin: 0;
+}
+
+.missing-info-item {
+  gap: 7px !important;
+}
+
+.missing-info-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
 }
 
 .compact-list {
@@ -1259,6 +1281,41 @@ label,
   font-size: 12px;
 }
 
+.archive-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(170px, 220px) 92px;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 10px;
+  padding: 11px;
+  border: 1px solid rgba(221, 208, 189, 0.82);
+  border-radius: var(--radius);
+  background: rgba(255, 250, 241, 0.56);
+}
+
+.archive-filter-count {
+  min-height: 38px;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 250, 241, 0.78);
+}
+
+.archive-filter-count span {
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.archive-filter-count strong {
+  font-size: 16px;
+  line-height: 1;
+}
+
 .raw-source {
   border-top: 1px solid rgba(221, 208, 189, 0.8);
 }
@@ -1340,6 +1397,10 @@ dialog {
   background: var(--paper);
 }
 
+#settingsDialog {
+  width: min(900px, calc(100vw - 32px));
+}
+
 #addNoteDialog {
   width: min(860px, calc(100vw - 32px));
 }
@@ -1362,6 +1423,54 @@ dialog::backdrop {
   margin: -4px 0 0;
   color: var(--muted);
   line-height: 1.45;
+}
+
+.settings-section {
+  display: grid;
+  gap: 12px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-section:first-of-type {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.settings-section-head,
+.profile-options-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: baseline;
+}
+
+.settings-section-head strong,
+.profile-options-head strong {
+  font-size: 13px;
+}
+
+.settings-section-head span,
+.profile-options-head span {
+  color: var(--faint);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.profile-options-panel {
+  display: grid;
+  gap: 9px;
+}
+
+.profile-options-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.profile-options-grid textarea {
+  min-height: 118px;
+  font-size: 12px;
 }
 
 .note-dialog-form {
@@ -1645,7 +1754,11 @@ dialog::backdrop {
   .source-toolbar,
   .band-head,
   .source-summary-head,
-  .update-notice {
+  .update-notice,
+  .settings-section-head,
+  .profile-options-head,
+  .archive-filter-bar,
+  .profile-options-grid {
     display: grid;
     grid-template-columns: 1fr;
   }

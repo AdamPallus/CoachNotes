@@ -15,6 +15,7 @@ const SUPPORTED_IMPORT_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.pdf',
 const APP_NAME = app.isPackaged ? 'CoachNotes' : 'CoachNotes Dev';
 const ASK_MAX_SOURCES = 12;
 const ASK_MAX_TOTAL_CHARS = 84000;
+const COACH_TEMPLATE_SETTING_KEY = 'coachTemplate';
 const ASK_STOP_WORDS = new Set([
   'about',
   'after',
@@ -82,6 +83,89 @@ const CLIENT_PROFILE_METADATA_KEYS = [
   'programStartDate',
   'programWeek'
 ];
+const DEFAULT_COACH_TEMPLATE = {
+  schemaVersion: 'coach_template.v1',
+  guidance: {
+    coachingApproach: [
+      'Prioritize practical, evidence-linked coaching context that helps the coach decide what needs attention now.',
+      'Keep client dashboards concise and focused on current direction, pain points, momentum, commitments, and watch-outs.'
+    ].join('\n'),
+    messageStyle: [
+      'Client-facing drafts should be warm, direct, concise, and specific.',
+      'Avoid diagnosis language, overpromising, or adding details that are not supported by the client notes.'
+    ].join('\n'),
+    curriculumNotes: ''
+  },
+  profileSelectFields: [
+    {
+      key: 'curriculumType',
+      label: 'Curriculum',
+      chipLabel: 'Curriculum',
+      className: 'profile-chip-curriculum',
+      options: ['GGS Coaching', 'GLP-1', 'Menopause']
+    },
+    {
+      key: 'programType',
+      label: 'Program',
+      chipLabel: 'Program',
+      className: 'profile-chip-program',
+      options: [
+        'Fat Loss 3x',
+        'Fat Loss 4x',
+        'Strength Gain',
+        'Pull-Up Strength Gain',
+        'Muscle Gain',
+        'Dumbbells and Bands',
+        'Bodyweight and Bands',
+        'KB and Bands',
+        'Start Training',
+        'Prenatal',
+        'Postnatal',
+        'Longevity',
+        'Cardio',
+        'Mobility',
+        'Travel'
+      ]
+    },
+    {
+      key: 'cohort',
+      label: 'Cohort',
+      chipLabel: 'Cohort',
+      className: 'profile-chip-cohort',
+      options: ['January', 'April', 'July']
+    },
+    {
+      key: 'programFormat',
+      label: 'Program Format',
+      chipLabel: 'Format',
+      className: 'profile-chip-format',
+      options: ['Coach Assigned', 'On Demand', 'Workout Collections']
+    },
+    {
+      key: 'primaryTrainingGoal',
+      label: 'Primary Training Goal',
+      chipLabel: 'Goal',
+      className: 'profile-chip-goal',
+      options: ['Fat Loss', 'Body Recomposition', 'Strength Gain', 'Longevity', 'Bone Density', 'Muscle Maintenance']
+    }
+  ],
+  profileMultiSelectFields: [
+    {
+      key: 'contraindications',
+      label: 'Contraindications',
+      chipLabel: 'Contraindication',
+      className: 'profile-chip-contraindication',
+      options: [
+        'Osteopenia',
+        'Autoimmune Condition',
+        'Surgery',
+        'Perimenopause',
+        'Sleep Disorder',
+        'Eating Disorder'
+      ]
+    }
+  ]
+};
 
 app.setName(APP_NAME);
 if (!app.isPackaged) {
@@ -159,6 +243,77 @@ function normalizeArray(values, maxItems = 80) {
     }
   }
   return rows;
+}
+
+function cloneDefaultCoachTemplate() {
+  return JSON.parse(JSON.stringify(DEFAULT_COACH_TEMPLATE));
+}
+
+function normalizeTemplateFields(values, defaults) {
+  const byKey = new Map((Array.isArray(values) ? values : [])
+    .filter((field) => field && typeof field === 'object' && !Array.isArray(field))
+    .map((field) => [String(field.key || '').trim(), field]));
+
+  return defaults.map((defaultField) => {
+    const saved = byKey.get(defaultField.key) || {};
+    const options = normalizeArray(saved.options || defaultField.options, 80);
+    return {
+      ...defaultField,
+      options: options.length ? options : [...defaultField.options]
+    };
+  });
+}
+
+function normalizeCoachTemplate(value) {
+  const parsed = typeof value === 'string'
+    ? parseJsonObject(value)
+    : value && typeof value === 'object' && !Array.isArray(value)
+      ? value
+      : {};
+  const defaults = cloneDefaultCoachTemplate();
+  const guidance = parsed.guidance && typeof parsed.guidance === 'object' && !Array.isArray(parsed.guidance)
+    ? parsed.guidance
+    : {};
+
+  return {
+    schemaVersion: 'coach_template.v1',
+    guidance: {
+      coachingApproach: normalizeMultilineText(guidance.coachingApproach || defaults.guidance.coachingApproach, 4000),
+      messageStyle: normalizeMultilineText(guidance.messageStyle || defaults.guidance.messageStyle, 4000),
+      curriculumNotes: normalizeMultilineText(guidance.curriculumNotes || defaults.guidance.curriculumNotes, 6000)
+    },
+    profileSelectFields: normalizeTemplateFields(parsed.profileSelectFields, defaults.profileSelectFields),
+    profileMultiSelectFields: normalizeTemplateFields(parsed.profileMultiSelectFields, defaults.profileMultiSelectFields)
+  };
+}
+
+function getCoachTemplateSetting() {
+  return normalizeCoachTemplate(getSetting(COACH_TEMPLATE_SETTING_KEY, ''));
+}
+
+function renderCoachTemplateLines(coachTemplate) {
+  const template = normalizeCoachTemplate(coachTemplate);
+  const lines = [];
+  if (template.guidance.coachingApproach) {
+    lines.push('Coaching approach:', template.guidance.coachingApproach);
+  }
+  if (template.guidance.messageStyle) {
+    lines.push('Message style:', template.guidance.messageStyle);
+  }
+  if (template.guidance.curriculumNotes) {
+    lines.push('Curriculum/program notes:', template.guidance.curriculumNotes);
+  }
+  const profileFields = [...template.profileSelectFields, ...template.profileMultiSelectFields]
+    .map((field) => `${field.label}: ${field.options.join(', ')}`)
+    .filter(Boolean);
+  if (profileFields.length) {
+    lines.push('Profile option defaults:', ...profileFields);
+  }
+  return lines.join('\n');
+}
+
+function buildCoachTemplateForPrompt(coachTemplate) {
+  return normalizeCoachTemplate(coachTemplate);
 }
 
 function yamlQuote(value) {
@@ -337,7 +492,8 @@ function getAppSettings() {
   return {
     vaultFolder: getSetting('vaultFolder', ''),
     proxyBaseUrl: normalizeProxyBaseUrl(getSetting('proxyBaseUrl', DEFAULT_PROXY_URL)),
-    inviteToken: getInviteToken()
+    inviteToken: getInviteToken(),
+    coachTemplate: getCoachTemplateSetting()
   };
 }
 
@@ -554,6 +710,7 @@ async function generateClientBaseline(payload) {
         programContext: normalizeMultilineText(payload?.programContext || '', 2000),
         coachNotes: normalizeMultilineText(payload?.coachNotes || '', 2000)
       },
+      coachTemplate: buildCoachTemplateForPrompt(settings.coachTemplate),
       sources: buildWorkflowSourcePayload(savedSources)
     }, settings);
   } catch (error) {
@@ -897,6 +1054,49 @@ function updateClientSection(payload) {
   return getClientDetail({ clientId });
 }
 
+function updateClientSections(payload) {
+  requireDb();
+  const clientId = Number(payload?.clientId);
+  if (!Number.isFinite(clientId)) {
+    throw new Error('clientId is required.');
+  }
+  const updates = payload?.updates;
+  if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
+    throw new Error('updates object is required.');
+  }
+  const row = getAcceptedBaselineRow(clientId);
+  if (!row) {
+    throw new Error('Accepted client baseline not found.');
+  }
+
+  const structured = parseJsonObject(row.structuredJson);
+  const entries = Object.entries(updates).map(([sectionKey, value]) => ({
+    sectionKey: assertBaselineSectionKey(sectionKey),
+    value
+  })).filter(({ sectionKey, value }) => !jsonValuesEqual(structured[sectionKey], value));
+  if (!entries.length) {
+    return getClientDetail({ clientId });
+  }
+
+  const updatedAt = nowIso();
+  const saveUpdates = db.transaction(() => {
+    for (const { sectionKey, value } of entries) {
+      pushSectionUndo({
+        baselineId: row.baselineId,
+        sectionKey,
+        previousValue: structured[sectionKey],
+        currentValue: value,
+        reason: 'Coach dashboard edit'
+      });
+      structured[sectionKey] = value;
+    }
+    db.prepare('UPDATE client_baselines SET structured_json = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(structured), updatedAt, row.baselineId);
+  });
+  saveUpdates();
+  return getClientDetail({ clientId });
+}
+
 function undoClientSection(payload) {
   requireDb();
   const clientId = Number(payload?.clientId);
@@ -980,6 +1180,7 @@ async function updateClientFromNote(payload) {
       client: {
         name: row.clientName
       },
+      coachTemplate: buildCoachTemplateForPrompt(settings.coachTemplate),
       currentBaseline: currentStructured,
       sources: buildWorkflowSourcePayload(savedSources)
     }, settings);
@@ -1062,7 +1263,7 @@ function askScopeLabel(scope) {
     return 'Current dashboard only';
   }
   if (scope === 'all-sources') {
-    return 'All client sources';
+    return 'All sources for this client';
   }
   return 'Recent notes + dashboard';
 }
@@ -1275,7 +1476,7 @@ function fitAskSourcesForProxy(sources) {
   return output;
 }
 
-function buildAskInstructions({ outputType, scope, timeWindow }) {
+function buildAskInstructions({ outputType, scope, timeWindow, coachTemplate }) {
   const shared = [
     `Output type: ${askOutputLabel(outputType)}.`,
     `Context scope selected by coach: ${askScopeLabel(scope)}.`,
@@ -1297,6 +1498,15 @@ function buildAskInstructions({ outputType, scope, timeWindow }) {
     );
   } else {
     shared.push('Answer the coach directly and keep it concise.');
+  }
+  const coachGuidance = renderCoachTemplateLines(coachTemplate);
+  if (coachGuidance) {
+    shared.push(
+      '',
+      'Coach/practice guidance:',
+      coachGuidance,
+      'Use this guidance for tone, emphasis, profile option labels, and coaching priorities. Do not cite it as client evidence; client-specific claims still need the provided sources.'
+    );
   }
   return shared.join('\n');
 }
@@ -1350,7 +1560,12 @@ async function askClient(payload) {
   const response = await callProxy('/answer', {
     model: DEFAULT_LLM_MODEL,
     question: prompt,
-    instructions: buildAskInstructions({ outputType, scope, timeWindow }),
+    instructions: buildAskInstructions({
+      outputType,
+      scope,
+      timeWindow,
+      coachTemplate: settings.coachTemplate
+    }),
     sources
   }, settings);
 
@@ -1654,6 +1869,9 @@ function setupIpc() {
     if (Object.prototype.hasOwnProperty.call(payload || {}, 'inviteToken')) {
       setInviteToken(payload.inviteToken || '');
     }
+    if (Object.prototype.hasOwnProperty.call(payload || {}, 'coachTemplate')) {
+      setSetting(COACH_TEMPLATE_SETTING_KEY, JSON.stringify(normalizeCoachTemplate(payload.coachTemplate)));
+    }
     return {
       ...getAppSettings(),
       vaultFolder: await ensureVaultRootFolder()
@@ -1665,6 +1883,7 @@ function setupIpc() {
   ipcMain.handle('app:generate-client-baseline', async (_event, payload) => generateClientBaseline(payload || {}));
   ipcMain.handle('app:accept-client-baseline', async (_event, payload) => acceptClientBaseline(payload || {}));
   ipcMain.handle('app:update-client-section', async (_event, payload) => updateClientSection(payload || {}));
+  ipcMain.handle('app:update-client-sections', async (_event, payload) => updateClientSections(payload || {}));
   ipcMain.handle('app:undo-client-section', async (_event, payload) => undoClientSection(payload || {}));
   ipcMain.handle('app:update-client-from-note', async (_event, payload) => updateClientFromNote(payload || {}));
   ipcMain.handle('app:ask-client', async (_event, payload) => askClient(payload || {}));

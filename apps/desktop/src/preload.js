@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('coachNotes', {
   generateClientBaseline: (payload) => ipcRenderer.invoke('app:generate-client-baseline', payload),
   acceptClientBaseline: (payload) => ipcRenderer.invoke('app:accept-client-baseline', payload),
   updateClientSection: (payload) => ipcRenderer.invoke('app:update-client-section', payload),
+  updateClientSections: (payload) => ipcRenderer.invoke('app:update-client-sections', payload),
   undoClientSection: (payload) => ipcRenderer.invoke('app:undo-client-section', payload),
   updateClientFromNote: (payload) => ipcRenderer.invoke('app:update-client-from-note', payload),
   askClient: (payload) => ipcRenderer.invoke('app:ask-client', payload),

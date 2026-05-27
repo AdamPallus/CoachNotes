@@ -11,6 +11,8 @@ const state = {
   lastUpdateNotice: null,
   askResult: null,
   askLoading: false,
+  sessionNotesQuery: '',
+  sessionNotesType: 'all',
   planningHiddenStatuses: new Set(['completed', 'abandoned', 'outdated']),
   expandedPlanningSections: new Set(),
   activeBaseline: null,
@@ -53,15 +55,17 @@ const planningStatusOptions = [
   { value: 'active', label: 'In Progress', rank: 1, className: 'status-active' },
   { value: 'recommended', label: 'Recommended', rank: 2, className: 'status-recommended' },
   { value: 'future', label: 'Future', rank: 3, className: 'status-future' },
-  { value: 'completed', label: 'Completed', rank: 4, className: 'status-completed' },
-  { value: 'abandoned', label: 'Abandoned', rank: 5, className: 'status-abandoned' },
-  { value: 'outdated', label: 'Outdated', rank: 6, className: 'status-outdated' },
-  { value: 'needs-review', label: 'Needs Review', rank: 7, className: 'status-needs-review' }
+  { value: 'blocked', label: 'Blocked', rank: 4, className: 'status-blocked' },
+  { value: 'completed', label: 'Completed', rank: 5, className: 'status-completed' },
+  { value: 'abandoned', label: 'Abandoned', rank: 6, className: 'status-abandoned' },
+  { value: 'outdated', label: 'Outdated', rank: 7, className: 'status-outdated' },
+  { value: 'needs-review', label: 'Needs Review', rank: 8, className: 'status-needs-review' }
 ];
 
 const detailPages = [
   { key: 'snapshot', label: 'Snapshot' },
   { key: 'bio', label: 'Bio & Intake' },
+  { key: 'approach', label: 'Coaching Plan' },
   { key: 'goals', label: 'Goals' },
   { key: 'timeline', label: 'Timeline' },
   { key: 'program', label: 'Program Changes' },
@@ -70,76 +74,89 @@ const detailPages = [
   { key: 'resources', label: 'Resources' }
 ];
 
-const profileSelectFields = [
-  {
-    key: 'curriculumType',
-    label: 'Curriculum',
-    chipLabel: 'Curriculum',
-    className: 'profile-chip-curriculum',
-    options: ['GGS Coaching', 'GLP-1', 'Menopause']
+const defaultCoachTemplate = {
+  schemaVersion: 'coach_template.v1',
+  guidance: {
+    coachingApproach: [
+      'Prioritize practical, evidence-linked coaching context that helps the coach decide what needs attention now.',
+      'Keep client dashboards concise and focused on current direction, pain points, momentum, commitments, and watch-outs.'
+    ].join('\n'),
+    messageStyle: [
+      'Client-facing drafts should be warm, direct, concise, and specific.',
+      'Avoid diagnosis language, overpromising, or adding details that are not supported by the client notes.'
+    ].join('\n'),
+    curriculumNotes: ''
   },
-  {
-    key: 'programType',
-    label: 'Program',
-    chipLabel: 'Program',
-    className: 'profile-chip-program',
-    options: [
-      'Fat Loss 3x',
-      'Fat Loss 4x',
-      'Strength Gain',
-      'Pull-Up Strength Gain',
-      'Muscle Gain',
-      'Dumbbells and Bands',
-      'Bodyweight and Bands',
-      'KB and Bands',
-      'Start Training',
-      'Prenatal',
-      'Postnatal',
-      'Longevity',
-      'Cardio',
-      'Mobility',
-      'Travel'
-    ]
-  },
-  {
-    key: 'cohort',
-    label: 'Cohort',
-    chipLabel: 'Cohort',
-    className: 'profile-chip-cohort',
-    options: ['January', 'April', 'July']
-  },
-  {
-    key: 'programFormat',
-    label: 'Program Format',
-    chipLabel: 'Format',
-    className: 'profile-chip-format',
-    options: ['Coach Assigned', 'On Demand', 'Workout Collections']
-  },
-  {
-    key: 'primaryTrainingGoal',
-    label: 'Primary Training Goal',
-    chipLabel: 'Goal',
-    className: 'profile-chip-goal',
-    options: ['Fat Loss', 'Body Recomposition', 'Strength Gain', 'Longevity', 'Bone Density', 'Muscle Maintenance']
-  }
-];
-
-const profileMultiSelectFields = [
-  {
-    key: 'contraindications',
-    label: 'Contraindications',
-    chipLabel: 'Contraindication',
-    className: 'profile-chip-contraindication',
-    options: [
-      'Osteopenia',
-      'Autoimmune Condition',
-      'Surgery',
-      'Perimenopause',
-      'Sleep Disorder',
-      'Eating Disorder'
-    ]
-  }
-];
+  profileSelectFields: [
+    {
+      key: 'curriculumType',
+      label: 'Curriculum',
+      chipLabel: 'Curriculum',
+      className: 'profile-chip-curriculum',
+      options: ['GGS Coaching', 'GLP-1', 'Menopause']
+    },
+    {
+      key: 'programType',
+      label: 'Program',
+      chipLabel: 'Program',
+      className: 'profile-chip-program',
+      options: [
+        'Fat Loss 3x',
+        'Fat Loss 4x',
+        'Strength Gain',
+        'Pull-Up Strength Gain',
+        'Muscle Gain',
+        'Dumbbells and Bands',
+        'Bodyweight and Bands',
+        'KB and Bands',
+        'Start Training',
+        'Prenatal',
+        'Postnatal',
+        'Longevity',
+        'Cardio',
+        'Mobility',
+        'Travel'
+      ]
+    },
+    {
+      key: 'cohort',
+      label: 'Cohort',
+      chipLabel: 'Cohort',
+      className: 'profile-chip-cohort',
+      options: ['January', 'April', 'July']
+    },
+    {
+      key: 'programFormat',
+      label: 'Program Format',
+      chipLabel: 'Format',
+      className: 'profile-chip-format',
+      options: ['Coach Assigned', 'On Demand', 'Workout Collections']
+    },
+    {
+      key: 'primaryTrainingGoal',
+      label: 'Primary Training Goal',
+      chipLabel: 'Goal',
+      className: 'profile-chip-goal',
+      options: ['Fat Loss', 'Body Recomposition', 'Strength Gain', 'Longevity', 'Bone Density', 'Muscle Maintenance']
+    }
+  ],
+  profileMultiSelectFields: [
+    {
+      key: 'contraindications',
+      label: 'Contraindications',
+      chipLabel: 'Contraindication',
+      className: 'profile-chip-contraindication',
+      options: [
+        'Osteopenia',
+        'Autoimmune Condition',
+        'Surgery',
+        'Perimenopause',
+        'Sleep Disorder',
+        'Eating Disorder'
+      ]
+    }
+  ]
+};
 
 const profileControlKeys = new Set([
   'curriculumType',
@@ -227,6 +244,11 @@ const els = {
   chooseVaultBtn: document.getElementById('chooseVaultBtn'),
   proxyInput: document.getElementById('proxyInput'),
   tokenInput: document.getElementById('tokenInput'),
+  coachApproachInput: document.getElementById('coachApproachInput'),
+  messageStyleInput: document.getElementById('messageStyleInput'),
+  curriculumNotesInput: document.getElementById('curriculumNotesInput'),
+  profileOptionsPanel: document.getElementById('profileOptionsPanel'),
+  resetCoachTemplateBtn: document.getElementById('resetCoachTemplateBtn'),
   cancelSettingsBtn: document.getElementById('cancelSettingsBtn'),
   toast: document.getElementById('toast'),
   busyOverlay: document.getElementById('busyOverlay'),
@@ -407,6 +429,9 @@ function normalizePlanningStatus(value) {
   if (['future', 'later', 'someday'].includes(normalized)) {
     return 'future';
   }
+  if (['blocked', 'stalled', 'paused-by-circumstance', 'waiting', 'waiting-on-client', 'waiting-on-external'].includes(normalized)) {
+    return 'blocked';
+  }
   if (['abandoned', 'dropped', 'stopped'].includes(normalized)) {
     return 'abandoned';
   }
@@ -480,6 +505,70 @@ function setPlanningSectionExpanded(sectionKey, expanded) {
 
 function getActiveDetailPage() {
   return detailPages.some((page) => page.key === state.detailPage) ? state.detailPage : 'snapshot';
+}
+
+function cloneDefaultCoachTemplate() {
+  return JSON.parse(JSON.stringify(defaultCoachTemplate));
+}
+
+function parseOptionLines(value) {
+  const seen = new Set();
+  return String(value || '')
+    .split('\n')
+    .map((entry) => sanitizeName(entry))
+    .filter((entry) => {
+      const key = entry.toLowerCase();
+      if (!entry || seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+}
+
+function normalizeTemplateFields(values, defaults) {
+  const byKey = new Map((Array.isArray(values) ? values : [])
+    .filter((field) => field && typeof field === 'object' && !Array.isArray(field))
+    .map((field) => [String(field.key || '').trim(), field]));
+
+  return defaults.map((defaultField) => {
+    const saved = byKey.get(defaultField.key) || {};
+    const options = Array.isArray(saved.options) ? saved.options.map((option) => sanitizeName(option)).filter(Boolean) : [];
+    return {
+      ...defaultField,
+      options: options.length ? [...new Set(options)] : [...defaultField.options]
+    };
+  });
+}
+
+function normalizeCoachTemplate(value) {
+  const parsed = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const defaults = cloneDefaultCoachTemplate();
+  const guidance = parsed.guidance && typeof parsed.guidance === 'object' && !Array.isArray(parsed.guidance)
+    ? parsed.guidance
+    : {};
+  return {
+    schemaVersion: 'coach_template.v1',
+    guidance: {
+      coachingApproach: String(guidance.coachingApproach || defaults.guidance.coachingApproach).trim(),
+      messageStyle: String(guidance.messageStyle || defaults.guidance.messageStyle).trim(),
+      curriculumNotes: String(guidance.curriculumNotes || defaults.guidance.curriculumNotes).trim()
+    },
+    profileSelectFields: normalizeTemplateFields(parsed.profileSelectFields, defaults.profileSelectFields),
+    profileMultiSelectFields: normalizeTemplateFields(parsed.profileMultiSelectFields, defaults.profileMultiSelectFields)
+  };
+}
+
+function getCoachTemplate() {
+  return normalizeCoachTemplate(state.settings?.coachTemplate);
+}
+
+function getProfileSelectFields() {
+  return getCoachTemplate().profileSelectFields;
+}
+
+function getProfileMultiSelectFields() {
+  return getCoachTemplate().profileMultiSelectFields;
 }
 
 function toProfileArray(value) {
@@ -1382,13 +1471,13 @@ function renderProfileReferenceChips(profile = {}) {
   if (programWeek) {
     chips.push({ label: programWeek, className: 'profile-chip-week' });
   }
-  for (const config of profileSelectFields) {
+  for (const config of getProfileSelectFields()) {
     const value = normalizeProfileSelectValue(profile, config);
     if (value) {
       chips.push({ label: `${config.chipLabel}: ${value}`, className: config.className });
     }
   }
-  for (const config of profileMultiSelectFields) {
+  for (const config of getProfileMultiSelectFields()) {
     for (const value of toProfileArray(profile[config.key])) {
       chips.push({ label: value, className: config.className });
     }
@@ -1411,7 +1500,7 @@ function renderProfileSelectOptions(options, selectedValue) {
 }
 
 function renderClientProfileControls(profile = {}) {
-  const selectControls = profileSelectFields.map((config) => {
+  const selectControls = getProfileSelectFields().map((config) => {
     const value = normalizeProfileSelectValue(profile, config);
     return `
       <label>
@@ -1423,7 +1512,7 @@ function renderClientProfileControls(profile = {}) {
     `;
   }).join('');
 
-  const multiControls = profileMultiSelectFields.map((config) => {
+  const multiControls = getProfileMultiSelectFields().map((config) => {
     const values = new Set(toProfileArray(profile[config.key]));
     return `
       <label>
@@ -1502,6 +1591,29 @@ function renderPlanningChips(normalized) {
   `;
 }
 
+function renderMissingInfoActions(itemIndex) {
+  return `
+    <div class="missing-info-actions">
+      <button
+        class="section-link missing-info-action"
+        type="button"
+        data-missing-info-action="convert"
+        data-item-index="${escapeHtml(String(itemIndex))}"
+      >
+        Convert to to-do
+      </button>
+      <button
+        class="section-link missing-info-action"
+        type="button"
+        data-missing-info-action="resolve"
+        data-item-index="${escapeHtml(String(itemIndex))}"
+      >
+        Resolve
+      </button>
+    </div>
+  `;
+}
+
 function renderPlanningHiddenSummary(sectionKey, hiddenRows, expanded) {
   const count = hiddenRows.length;
   const hiddenStatusValues = new Set(hiddenRows.map(({ normalized }) => normalized.planningStatus.value));
@@ -1528,6 +1640,7 @@ function renderDetailList(title, value, sourceLookup, options = {}) {
     return '';
   }
   const planningSection = isPrioritizableSection(options.sectionKey);
+  const missingInfoSection = options.sectionKey === 'missingInfo';
   const rowModels = values.map((item, index) => ({
     item,
     index,
@@ -1547,6 +1660,14 @@ function renderDetailList(title, value, sourceLookup, options = {}) {
     const bodyHtml = titleHtml || detailHtml
       ? `${titleHtml}${detailHtml}`
       : '<span>No details captured yet.</span>';
+    if (missingInfoSection) {
+      return `
+        <li class="missing-info-item">
+          <div>${bodyHtml}</div>
+          ${renderMissingInfoActions(index)}
+        </li>
+      `;
+    }
     if (!planningSection) {
       return `<li>${bodyHtml}</li>`;
     }
@@ -1630,7 +1751,11 @@ function renderTimeline(value, sourceLookup) {
 function renderSourceDrawer(source) {
   const meta = [source.sourceType, source.sourceDate, `${wordCount(source.rawText)} words`].filter(Boolean).join(' • ');
   return `
-    <details class="raw-source">
+    <details
+      class="raw-source"
+      data-session-source
+      data-source-type="${escapeHtml(source.sourceType || 'unknown')}"
+    >
       <summary>
         <span class="source-number">${escapeHtml(String(source.displayNumber || ''))}</span>
         <span>
@@ -1642,6 +1767,73 @@ function renderSourceDrawer(source) {
       <pre>${escapeHtml(source.rawText || '')}</pre>
     </details>
   `;
+}
+
+function getSessionNoteTypeOptions(sources = []) {
+  const values = [...new Set(sources.map((source) => sanitizeName(source.sourceType || 'unknown')).filter(Boolean))];
+  return values.sort((left, right) => left.localeCompare(right));
+}
+
+function renderSessionNotesArchiveControls(sources = []) {
+  const types = getSessionNoteTypeOptions(sources);
+  const activeType = types.includes(state.sessionNotesType) ? state.sessionNotesType : 'all';
+  if (activeType !== state.sessionNotesType) {
+    state.sessionNotesType = activeType;
+  }
+  return `
+    <div class="archive-filter-bar">
+      <label>
+        Search notes
+        <input
+          type="search"
+          data-session-notes-search
+          value="${escapeHtml(state.sessionNotesQuery)}"
+          placeholder="Search title, annotation, or source text"
+        />
+      </label>
+      <label>
+        Source type
+        <select data-session-notes-type>
+          <option value="all" ${activeType === 'all' ? 'selected' : ''}>All source types</option>
+          ${types.map((type) => `<option value="${escapeHtml(type)}" ${activeType === type ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}
+        </select>
+      </label>
+      <div class="archive-filter-count">
+        <span>Showing</span>
+        <strong data-session-notes-count>${escapeHtml(String(sources.length))}</strong>
+      </div>
+    </div>
+  `;
+}
+
+function applySessionNoteFilters() {
+  const archive = els.detailContent.querySelector('[data-session-notes-archive]');
+  if (!archive) {
+    return;
+  }
+  const query = String(state.sessionNotesQuery || '').trim().toLowerCase();
+  const type = state.sessionNotesType || 'all';
+  const sources = [...archive.querySelectorAll('[data-session-source]')];
+  let visible = 0;
+  sources.forEach((source) => {
+    const sourceType = source.dataset.sourceType || '';
+    const searchText = source.dataset.sourceSearch || source.textContent.toLowerCase();
+    const typeMatches = type === 'all' || sourceType === type;
+    const queryMatches = !query || searchText.includes(query);
+    const show = typeMatches && queryMatches;
+    source.hidden = !show;
+    if (show) {
+      visible += 1;
+    }
+  });
+  const count = archive.querySelector('[data-session-notes-count]');
+  if (count) {
+    count.textContent = String(visible);
+  }
+  const empty = archive.querySelector('[data-session-notes-empty]');
+  if (empty) {
+    empty.hidden = visible !== 0 || sources.length === 0;
+  }
 }
 
 function renderClientDetail(detail) {
@@ -1697,7 +1889,18 @@ function renderClientDetail(detail) {
       </div>
       <div class="detail-grid">
         ${renderObjectSection('Profile Basics', dashboard.clientProfile, sourceLookup, { sectionKey: 'clientProfile' })}
-        ${renderDetailList('Coaching Plan / Approach', dashboard.coachingPlanApproach, sourceLookup, { sectionKey: 'coachingPlanApproach' })}
+      </div>
+    </div>
+  `;
+
+  const coachingPlanBand = `
+    <div class="dashboard-band">
+      <div class="band-head">
+        <span>Coaching Plan</span>
+        <strong>Agreed approach, habit focus, commitments, and future coaching direction</strong>
+      </div>
+      <div class="detail-grid">
+        ${renderDetailList('Coaching Plan / Approach', dashboard.coachingPlanApproach, sourceLookup, { wide: true, sectionKey: 'coachingPlanApproach' })}
       </div>
     </div>
   `;
@@ -1725,7 +1928,6 @@ function renderClientDetail(detail) {
       <div class="detail-grid">
         ${renderDetailList('Goals / Values', dashboard.goalsValues, sourceLookup, { sectionKey: 'goalsValues' })}
         ${renderDetailList('Coach To-Dos / Action Items', dashboard.coachTasks, sourceLookup, { tone: 'priority', sectionKey: 'coachTasks' })}
-        ${renderDetailList('Coaching Plan / Approach', dashboard.coachingPlanApproach, sourceLookup, { wide: true, sectionKey: 'coachingPlanApproach' })}
       </div>
     </div>
   `;
@@ -1753,7 +1955,6 @@ function renderClientDetail(detail) {
         <strong>Current approach, movement constraints, and decision memory seeds</strong>
       </div>
       <div class="detail-grid">
-        ${renderDetailList('Coaching Plan / Approach', dashboard.coachingPlanApproach, sourceLookup, { sectionKey: 'coachingPlanApproach' })}
         ${renderDetailList('Exercise', dashboard.exerciseThreads, sourceLookup, { sectionKey: 'exerciseThreads' })}
         ${renderDetailList('Flags', dashboard.flags, sourceLookup, { tone: flagCount ? 'scope' : '', sectionKey: 'flags' })}
       </div>
@@ -1782,11 +1983,13 @@ function renderClientDetail(detail) {
         ${renderDetailList('Confidence Notes', dashboard.confidenceNotes, sourceLookup, { sectionKey: 'confidenceNotes' })}
       </div>
     </div>
-    <section class="source-summary">
+    <section class="source-summary session-notes-archive" data-session-notes-archive>
       <div class="source-summary-head">
-        <h3>Raw Sources</h3>
-        <p>Citation chips above refer to these local source excerpts.</p>
+        <h3>Check-In Archive</h3>
+        <p>Search saved notes, transcripts, check-ins, and imported source material.</p>
       </div>
+      ${renderSessionNotesArchiveControls(sources)}
+      <p class="empty-section-copy" data-session-notes-empty hidden>No notes match the current filters.</p>
       ${sourceDrawers || '<p>No sources found.</p>'}
     </section>
   `;
@@ -1795,12 +1998,13 @@ function renderClientDetail(detail) {
   const pageContent = {
     snapshot: `${snapshotHero}${attentionBand}`,
     bio: clientProfileBand,
+    approach: coachingPlanBand,
     goals: goalsBand,
     timeline: timelineBand,
     program: programBand,
     progress: progressBand,
     notes: notesBand,
-    resources: `${resourcesBand}${notesBand}`
+    resources: resourcesBand
   };
 
   els.detailContent.innerHTML = `
@@ -1810,6 +2014,7 @@ function renderClientDetail(detail) {
       ${pageContent[activePage] || pageContent.snapshot}
     </div>
   `;
+  applySessionNoteFilters();
 }
 
 function openEditSection(sectionKey) {
@@ -1900,6 +2105,58 @@ function applyPlanningPatch(item, patch) {
     next.planningStatus = normalizePlanningStatus(patch.planningStatus);
   }
   return next;
+}
+
+function buildCoachTaskFromMissingInfo(item) {
+  const normalized = normalizeDetailItem(item, { sectionKey: 'missingInfo' });
+  const detail = normalized.detail || normalized.title || 'Clarify missing client context.';
+  return {
+    title: normalized.title || 'Clarify missing information',
+    details: detail,
+    priority: 'none',
+    planningStatus: 'active',
+    evidenceIds: normalized.evidenceIds
+  };
+}
+
+async function saveMissingInfoAction(button) {
+  const action = button?.dataset?.missingInfoAction || '';
+  const itemIndex = Number(button?.dataset?.itemIndex);
+  const clientId = state.selectedClientDetail?.client?.id;
+  const structured = state.selectedClientDetail?.baseline?.structured || {};
+  const currentMissingInfo = Array.isArray(structured.missingInfo) ? structured.missingInfo : [];
+  const currentCoachTasks = Array.isArray(structured.coachTasks) ? structured.coachTasks : [];
+  if (!clientId || !['resolve', 'convert'].includes(action) || !Number.isInteger(itemIndex) || itemIndex < 0 || itemIndex >= currentMissingInfo.length) {
+    return;
+  }
+
+  const targetItem = currentMissingInfo[itemIndex];
+  const nextMissingInfo = currentMissingInfo.filter((_, index) => index !== itemIndex);
+  const updates = { missingInfo: nextMissingInfo };
+  if (action === 'convert') {
+    updates.coachTasks = [
+      ...currentCoachTasks,
+      buildCoachTaskFromMissingInfo(targetItem)
+    ];
+  }
+
+  setBusy(true, action === 'convert' ? 'Converting missing info...' : 'Resolving missing info...');
+  try {
+    const detail = await window.coachNotes.updateClientSections({
+      clientId,
+      updates
+    });
+    state.selectedClientDetail = detail;
+    await loadClients();
+    renderClientDetail(detail);
+    setViewMode('detail');
+    showToast(action === 'convert' ? 'Missing info converted to a coach to-do.' : 'Missing info resolved.');
+  } catch (error) {
+    renderClientDetail(state.selectedClientDetail);
+    showToast(`Missing info update failed: ${error.message}`, 'error');
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function savePlanningField(control) {
@@ -2107,10 +2364,69 @@ async function deleteSelectedClient() {
   }
 }
 
+function renderProfileOptionSettings(template = getCoachTemplate()) {
+  const fields = [
+    ...template.profileSelectFields.map((field) => ({ ...field, group: 'single' })),
+    ...template.profileMultiSelectFields.map((field) => ({ ...field, group: 'multi' }))
+  ];
+  els.profileOptionsPanel.innerHTML = `
+    <div class="profile-options-head">
+      <strong>Profile Options</strong>
+      <span>One option per line. These values populate profile dropdowns and guide AI profile labeling.</span>
+    </div>
+    <div class="profile-options-grid">
+      ${fields.map((field) => `
+        <label>
+          ${escapeHtml(field.label)}
+          <textarea
+            rows="5"
+            data-template-options-key="${escapeHtml(field.key)}"
+            data-template-options-group="${escapeHtml(field.group)}"
+          >${escapeHtml(field.options.join('\n'))}</textarea>
+        </label>
+      `).join('')}
+    </div>
+  `;
+}
+
+function setSettingsTemplateInputs(template = getCoachTemplate()) {
+  const normalized = normalizeCoachTemplate(template);
+  els.coachApproachInput.value = normalized.guidance.coachingApproach;
+  els.messageStyleInput.value = normalized.guidance.messageStyle;
+  els.curriculumNotesInput.value = normalized.guidance.curriculumNotes;
+  renderProfileOptionSettings(normalized);
+}
+
+function collectCoachTemplateFromSettings() {
+  const current = getCoachTemplate();
+  const optionControls = [...els.profileOptionsPanel.querySelectorAll('[data-template-options-key]')];
+  const optionsByKey = new Map(optionControls.map((control) => [
+    control.dataset.templateOptionsKey,
+    parseOptionLines(control.value)
+  ]));
+  return normalizeCoachTemplate({
+    ...current,
+    guidance: {
+      coachingApproach: els.coachApproachInput.value,
+      messageStyle: els.messageStyleInput.value,
+      curriculumNotes: els.curriculumNotesInput.value
+    },
+    profileSelectFields: current.profileSelectFields.map((field) => ({
+      ...field,
+      options: optionsByKey.get(field.key) || field.options
+    })),
+    profileMultiSelectFields: current.profileMultiSelectFields.map((field) => ({
+      ...field,
+      options: optionsByKey.get(field.key) || field.options
+    }))
+  });
+}
+
 function openSettings() {
   els.vaultInput.value = state.settings?.vaultFolder || '';
   els.proxyInput.value = state.settings?.proxyBaseUrl || '';
   els.tokenInput.value = state.settings?.inviteToken || '';
+  setSettingsTemplateInputs();
   els.settingsDialog.showModal();
 }
 
@@ -2121,10 +2437,14 @@ async function saveSettings(event) {
     state.settings = await window.coachNotes.saveSettings({
       vaultFolder: els.vaultInput.value,
       proxyBaseUrl: els.proxyInput.value,
-      inviteToken: els.tokenInput.value
+      inviteToken: els.tokenInput.value,
+      coachTemplate: collectCoachTemplateFromSettings()
     });
     els.settingsDialog.close();
     updateStatusLine();
+    if (state.selectedClientDetail) {
+      renderClientDetail(state.selectedClientDetail);
+    }
     showToast('Settings saved.');
   } catch (error) {
     showToast(`Settings failed: ${error.message}`, 'error');
@@ -2213,6 +2533,11 @@ async function init() {
       renderClientDetail(state.selectedClientDetail);
       return;
     }
+    const missingInfoButton = event.target.closest('.missing-info-action');
+    if (missingInfoButton) {
+      saveMissingInfoAction(missingInfoButton);
+      return;
+    }
     const editButton = event.target.closest('.edit-section');
     if (editButton) {
       openEditSection(editButton.dataset.sectionKey);
@@ -2223,7 +2548,20 @@ async function init() {
       undoSection(undoButton.dataset.sectionKey);
     }
   });
+  els.detailContent.addEventListener('input', (event) => {
+    const searchControl = event.target.closest('[data-session-notes-search]');
+    if (searchControl) {
+      state.sessionNotesQuery = searchControl.value;
+      applySessionNoteFilters();
+    }
+  });
   els.detailContent.addEventListener('change', (event) => {
+    const sessionNotesType = event.target.closest('[data-session-notes-type]');
+    if (sessionNotesType) {
+      state.sessionNotesType = sessionNotesType.value || 'all';
+      applySessionNoteFilters();
+      return;
+    }
     const hiddenStatusControl = event.target.closest('[data-planning-hidden-status]');
     if (hiddenStatusControl) {
       const hiddenStatuses = new Set(getPlanningHiddenStatuses());
@@ -2272,6 +2610,7 @@ async function init() {
     }
   });
   els.settingsForm.addEventListener('submit', saveSettings);
+  els.resetCoachTemplateBtn.addEventListener('click', () => setSettingsTemplateInputs(cloneDefaultCoachTemplate()));
   els.cancelSettingsBtn.addEventListener('click', () => els.settingsDialog.close());
   els.editSectionForm.addEventListener('submit', saveEditedSection);
   els.cancelEditSectionBtn.addEventListener('click', () => els.editSectionDialog.close());
