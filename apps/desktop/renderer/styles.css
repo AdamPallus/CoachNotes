@@ -1429,6 +1429,17 @@ dialog::backdrop {
   line-height: 1.45;
 }
 
+.dialog-error {
+  border: 1px solid rgba(148, 59, 50, 0.42);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: rgba(244, 215, 205, 0.62);
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
 .settings-section {
   display: grid;
   gap: 12px;

@@ -238,6 +238,7 @@ const els = {
   noteDateInput: document.getElementById('noteDateInput'),
   noteAnnotationInput: document.getElementById('noteAnnotationInput'),
   noteTextInput: document.getElementById('noteTextInput'),
+  noteErrorPanel: document.getElementById('noteErrorPanel'),
   importNoteFilesBtn: document.getElementById('importNoteFilesBtn'),
   clearNoteSourcesBtn: document.getElementById('clearNoteSourcesBtn'),
   noteSourceList: document.getElementById('noteSourceList'),
@@ -305,7 +306,7 @@ function showToast(message, kind = 'info') {
     setTimeout(() => {
       els.toast.hidden = true;
     }, 180);
-  }, 3200);
+  }, kind === 'error' ? 9000 : 3200);
 }
 
 function setBusy(on, message = 'Working...') {
@@ -981,7 +982,18 @@ function resetNoteDialog() {
   els.noteDateInput.value = '';
   els.noteAnnotationInput.value = '';
   els.noteTextInput.value = '';
+  clearNoteError();
   renderNoteSources();
+}
+
+function clearNoteError() {
+  els.noteErrorPanel.textContent = '';
+  els.noteErrorPanel.hidden = true;
+}
+
+function showNoteError(message) {
+  els.noteErrorPanel.textContent = message;
+  els.noteErrorPanel.hidden = false;
 }
 
 function openAddNoteDialog() {
@@ -2402,6 +2414,7 @@ async function saveProfileField(control) {
 
 async function submitAddedNote(event) {
   event.preventDefault();
+  clearNoteError();
   addPastedNoteSource({ silent: true });
   if (!state.noteSources.length) {
     showToast('Add a note source before updating.', 'error');
@@ -2432,12 +2445,15 @@ async function submitAddedNote(event) {
     showToast(changeCount ? `Dashboard updated: ${changeCount} section${changeCount === 1 ? '' : 's'} changed.` : 'Dashboard updated.');
   } catch (error) {
     reopenDialogOnError = true;
-    showToast(`Update failed: ${error.message}`, 'error');
+    showNoteError(`Update failed. Your note was not saved yet. Please try again. ${error.message}`);
   } finally {
     setBusy(false);
     if (reopenDialogOnError && !els.addNoteDialog.open) {
       renderNoteSources();
       els.addNoteDialog.showModal();
+    }
+    if (reopenDialogOnError) {
+      showToast('Update failed. The note is still in the dialog so you can retry.', 'error');
     }
   }
 }

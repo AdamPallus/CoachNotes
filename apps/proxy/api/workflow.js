@@ -473,6 +473,14 @@ function renderClientUpdatePrompt(body) {
   ].join('\n');
 }
 
+function workflowSourceStats(sources) {
+  const values = Array.isArray(sources) ? sources : [];
+  return {
+    count: values.length,
+    totalChars: values.reduce((total, source) => total + String(source?.text || '').length, 0)
+  };
+}
+
 module.exports = async function workflow(req, res) {
   const auth = authAndRateLimit(req, res);
   if (!auth.ok) {
@@ -524,6 +532,17 @@ module.exports = async function workflow(req, res) {
       rawOutput: outputText
     });
   } catch (err) {
-    json(res, 502, { error: err.message || 'Workflow request failed.' });
+    const errorId = `workflow_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    console.error('[workflow failed]', {
+      errorId,
+      workflow: workflowName,
+      model: req.body?.model || DEFAULT_LLM_MODEL,
+      sourceStats: workflowSourceStats(req.body?.sources),
+      name: err?.name || '',
+      message: err?.message || 'Workflow request failed.'
+    });
+    json(res, 502, {
+      error: `${err?.message || 'Workflow request failed.'} Reference: ${errorId}`
+    });
   }
 };
