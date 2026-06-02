@@ -59,6 +59,7 @@ const BASELINE_SECTION_KEYS = new Set([
   'coachTasks',
   'flags',
   'goalsValues',
+  'clientValues',
   'coachingPlanApproach',
   'programChanges',
   'progressTracking',
@@ -76,6 +77,7 @@ const BASELINE_ARRAY_SECTION_KEYS = new Set([
   'coachTasks',
   'flags',
   'goalsValues',
+  'clientValues',
   'coachingPlanApproach',
   'programChanges',
   'progressTracking',
@@ -98,6 +100,7 @@ const CLIENT_PROFILE_METADATA_KEYS = [
   'programFormat',
   'primaryTrainingGoal',
   'contraindications',
+  'curriculumStartDate',
   'programStartDate',
   'programWeek'
 ];
@@ -332,6 +335,55 @@ function renderCoachTemplateLines(coachTemplate) {
 
 function buildCoachTemplateForPrompt(coachTemplate) {
   return normalizeCoachTemplate(coachTemplate);
+}
+
+function normalizeClientProfilePatch(value) {
+  const profile = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const textKeys = [
+    'curriculumType',
+    'programType',
+    'cohort',
+    'programFormat',
+    'primaryTrainingGoal',
+    'programWeek'
+  ];
+  const dateKeys = ['curriculumStartDate', 'programStartDate'];
+  const output = {};
+
+  for (const key of textKeys) {
+    const normalized = sanitizeName(profile[key]);
+    if (normalized) {
+      output[key] = normalized;
+    }
+  }
+  for (const key of dateKeys) {
+    const normalized = parseDate(profile[key]);
+    if (normalized) {
+      output[key] = normalized;
+    }
+  }
+  const contraindications = normalizeArray(profile.contraindications || [], 30);
+  if (contraindications.length) {
+    output.contraindications = contraindications;
+  }
+  return output;
+}
+
+function applyClientProfilePatch(structured, profilePatch) {
+  if (!profilePatch || !Object.keys(profilePatch).length) {
+    return structured;
+  }
+  const baseline = structured && typeof structured === 'object' && !Array.isArray(structured) ? structured : {};
+  const currentProfile = baseline.clientProfile && typeof baseline.clientProfile === 'object' && !Array.isArray(baseline.clientProfile)
+    ? baseline.clientProfile
+    : {};
+  return {
+    ...baseline,
+    clientProfile: {
+      ...currentProfile,
+      ...profilePatch
+    }
+  };
 }
 
 function yamlQuote(value) {
@@ -707,6 +759,7 @@ async function generateClientBaseline(payload) {
   if (!sources.length) {
     throw new Error('Add at least one source before running intake.');
   }
+  const clientProfilePatch = normalizeClientProfilePatch(payload?.clientProfile);
 
   const clientId = ensureClient(clientName);
   if (!clientId) {
@@ -726,7 +779,8 @@ async function generateClientBaseline(payload) {
       client: {
         name: clientName,
         programContext: normalizeMultilineText(payload?.programContext || '', 2000),
-        coachNotes: normalizeMultilineText(payload?.coachNotes || '', 2000)
+        coachNotes: normalizeMultilineText(payload?.coachNotes || '', 2000),
+        profileSettings: clientProfilePatch
       },
       coachTemplate: buildCoachTemplateForPrompt(settings.coachTemplate),
       sources: buildWorkflowSourcePayload(savedSources)
@@ -741,7 +795,10 @@ async function generateClientBaseline(payload) {
     throw error;
   }
 
-  const structured = response.structured && typeof response.structured === 'object' ? response.structured : {};
+  const structured = applyClientProfilePatch(
+    response.structured && typeof response.structured === 'object' ? response.structured : {},
+    clientProfilePatch
+  );
   const createdAt = nowIso();
   const baseline = db.prepare(
     `INSERT INTO client_baselines
@@ -1018,7 +1075,7 @@ function getClients() {
       updatedAt: row.updatedAt,
       sourceCount: sourceIds.length || Number(row.sourceCount || 0),
       summary: String(structured.overview || '').slice(0, 180),
-      tags: normalizeArray(structured.suggestedTags || [], 8),
+      tags: normalizeArray(structured.suggestedTags || [], 5),
       flagCount: flags.length,
       taskCount: tasks.length
     };

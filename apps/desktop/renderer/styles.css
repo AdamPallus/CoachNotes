@@ -400,6 +400,10 @@ label,
   grid-column: 1 / -1;
 }
 
+.intake-program-settings .profile-control-panel {
+  margin-top: 18px;
+}
+
 .source-toolbar {
   margin-top: 22px;
   padding-top: 18px;

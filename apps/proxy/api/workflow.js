@@ -17,7 +17,7 @@ const workflowPrompts = {
     'Do not pretend uncertain facts are current truth.',
     'Prefer concise, evidence-linked observations over long prose.',
     'Build a current working dashboard, not an exhaustive archive of every historical goal or action plan.',
-    'Combine duplicate or overlapping goals, habits, barriers, and action items into one clear item instead of listing each mention separately.',
+    'Combine duplicate or overlapping goals, habits, barriers, and coach to-dos into one clear item instead of listing each mention separately.',
     'The overview/Snapshot is for quick human scanning: keep it brief, current, and distinct from the to-do lists below.',
     'Separate active constraints from historical context.',
     'Flag scope-of-practice concerns without diagnosing.',
@@ -31,7 +31,7 @@ const workflowPrompts = {
     'Treat the current baseline as authoritative coach context, even if some fields are uncited.',
     'Do not remove or weaken coach-entered facts just because the new source does not mention them.',
     'Keep the dashboard concise and current. Do not let repeated historical mentions inflate the active lists.',
-    'Combine duplicate or overlapping goals, habits, barriers, and action items instead of appending another similar item.',
+    'Combine duplicate or overlapping goals, habits, barriers, and coach to-dos instead of appending another similar item.',
     'The overview/Snapshot is for quick human scanning: keep it brief, current, and distinct from the to-do lists below.',
     'Only change sections when the new source clearly adds, updates, resolves, or contradicts something.',
     'When the new source conflicts with the baseline, preserve the baseline and add a confidence note or open loop unless the source clearly resolves the older point.',
@@ -40,6 +40,29 @@ const workflowPrompts = {
     'Return valid JSON only. Do not wrap it in markdown.'
   ].join(' ')
 };
+
+const TIMELINE_ITEM_SCHEMA = {
+  date: 'event date, date range, approximate date, or "unknown"',
+  label: 'short event label',
+  details: 'why this event matters for progress, trajectory, or recurring themes',
+  evidenceIds: ['source_id']
+};
+
+const TIMELINE_RULES = [
+  '- Timeline is a curated progress history for coaches: show trajectory over time, preserve relevant historical context, and condense large histories into digestible milestones.',
+  '- Timeline dates are client event dates, not automatically the source/import date. Use date_or_range only when the event appears to have happened on that source date or no more specific event date is supported.',
+  '- If one source contains multiple dates for distinct important events, create separate timeline entries for those events and cite the same source_id as needed.',
+  '- Include milestones, check-ins, program changes, setbacks, meaningful progress signals, decisions, and repeating themes that change the coach view of the client trajectory. Do not list every minor message.',
+  '- If a date is approximate or unclear, keep it approximate or use "unknown" and explain the uncertainty in details or confidenceNotes. Do not fabricate exact dates.'
+];
+
+const TAG_RULES = [
+  '- suggestedTags are for quick client-list scanning and future search. Return 0-5 short, broad, coach-useful tags.',
+  '- Order suggestedTags by usefulness for the client sidebar. The first 3 are the sidebar tags.',
+  '- Do not use suggestedTags to repeat profile chips, curriculum/program/cohort labels, contraindications, diagnoses, or every flag. Those belong in their structured sections.',
+  '- Prefer stable themes such as travel, accountability, training-consistency, nutrition-support, recovery, adherence-risk, or strength-focus when supported by source evidence.',
+  '- Remove duplicate, overly specific, or one-off tags. Do not invent medical labels or unsupported traits.'
+];
 
 function normalizeWorkflow(value) {
   const normalized = String(value || '').trim().toLowerCase();
@@ -142,6 +165,21 @@ function renderCoachTemplatePrompt(value) {
   return lines.join('\n');
 }
 
+function renderClientProfileSettingsPrompt(value) {
+  const settings = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const lines = Object.entries(settings)
+    .map(([key, entry]) => {
+      if (Array.isArray(entry)) {
+        const values = entry.map((item) => normalizePromptText(item, 120)).filter(Boolean);
+        return values.length ? `${key}: ${values.join(', ')}` : '';
+      }
+      const normalized = normalizePromptText(entry, 240);
+      return normalized ? `${key}: ${normalized}` : '';
+    })
+    .filter(Boolean);
+  return lines.length ? lines.join('\n') : '(none provided)';
+}
+
 function renderClientIntakePrompt(body) {
   const client = body.client && typeof body.client === 'object' ? body.client : {};
   const sourceBlocks = body.sources.map((source, index) => {
@@ -164,6 +202,8 @@ function renderClientIntakePrompt(body) {
     `name: ${client.name || 'Unknown client'}`,
     `program_context: ${client.programContext || '(not provided)'}`,
     `coach_notes: ${client.coachNotes || '(not provided)'}`,
+    'coach_selected_profile_settings:',
+    renderClientProfileSettingsPrompt(client.profileSettings),
     '',
     'Coach/practice template:',
     renderCoachTemplatePrompt(body.coachTemplate),
@@ -182,6 +222,7 @@ function renderClientIntakePrompt(body) {
         programFormat: '',
         primaryTrainingGoal: '',
         contraindications: [''],
+        curriculumStartDate: '',
         programStartDate: '',
         programWeek: '',
         notes: ''
@@ -190,7 +231,7 @@ function renderClientIntakePrompt(body) {
       coachTasks: [
         {
           title: '',
-          details: 'specific to-do, action item, or follow-up for the coach',
+          details: 'specific coach to-do or follow-up',
           status: 'open | blocked | done | needs_review | unknown',
           dueOrReviewBy: '',
           evidenceIds: ['source_id']
@@ -209,7 +250,14 @@ function renderClientIntakePrompt(body) {
       goalsValues: [
         {
           title: '',
-          details: 'current goal, value, future-self statement, or vision statement',
+          details: 'specific client goal or desired outcome; do not include values',
+          evidenceIds: ['source_id']
+        }
+      ],
+      clientValues: [
+        {
+          title: '',
+          details: 'client value, motivation, identity statement, or stable preference that helps coach the client',
           evidenceIds: ['source_id']
         }
       ],
@@ -277,15 +325,8 @@ function renderClientIntakePrompt(body) {
           evidenceIds: ['source_id']
         }
       ],
-      suggestedTags: ['tag'],
-      timeline: [
-        {
-          date: '',
-          label: '',
-          details: '',
-          evidenceIds: ['source_id']
-        }
-      ],
+      suggestedTags: ['up to five sidebar/search tags'],
+      timeline: [TIMELINE_ITEM_SCHEMA],
       missingInfo: ['important missing context'],
       confidenceNotes: ['uncertainty or evidence quality note']
     }, null, 2),
@@ -297,7 +338,10 @@ function renderClientIntakePrompt(body) {
     '- When a client has a lot of history, choose what matters now. Summarize older repeated themes instead of copying every goal, action plan, or check-in item.',
     '- Merge duplicates and near-duplicates across sources. If several notes say the same thing, write one combined item with multiple evidenceIds.',
     '- Use evidenceIds to point back to source_id values. Empty evidenceIds are allowed only for coach-provided anchors.',
+    '- Treat coach_selected_profile_settings as coach-entered client profile facts. Preserve them in clientProfile when provided.',
     '- Flags should include injuries, vacations, red flags, medical concerns, surgeries/procedures, and major life events. Do not put ordinary preferences in flags.',
+    '- For goalsValues, include only client goals or desired outcomes. Do not include values, identity statements, or general motivations there.',
+    '- For clientValues, include stable values, motivations, identity statements, or coaching-relevant preferences that should live with the client profile.',
     '- For coachingPlanApproach, include only things the coach and client have agreed to try, commit to, revisit, or use later to move the client toward their goals.',
     '- Do not put generic goals in coachingPlanApproach unless there is a concrete agreed approach, habit, skill practice, plan constraint, commitment, or future commitment attached.',
     '- For programChanges, include concrete changes to the client training/program plan: exercise swaps, removed/avoided movements, temporary constraints, permanent modifications, volume/intensity/frequency changes, travel versions, or progressions/regressions.',
@@ -305,6 +349,8 @@ function renderClientIntakePrompt(body) {
     '- For nutritionThreads, mindsetThreads, and exerciseThreads, distinguish mastered/comfortable patterns from difficult patterns when evidence supports it.',
     '- For progressTracking, include skills practice compliance, workout completion, strength/difficulty/load progression, and client engagement only when available.',
     '- For resourcesShared, include resources already shared with the client, not resources the coach might want to create.',
+    ...TIMELINE_RULES,
+    ...TAG_RULES,
     '- Use empty strings or empty arrays for missing fields.',
     '- Current state must favor recent evidence. If old and recent sources conflict, note that in confidenceNotes.',
     '- Use the coach/practice template for tone, prioritization, profile option labels, and coaching emphasis. It is not client evidence; client-specific claims still need source evidence.',
@@ -350,7 +396,7 @@ function renderClientUpdatePrompt(body) {
       updateSummary: '1-2 concise sentences explaining what changed and why it matters to the coach.',
       changes: [
         {
-          sectionKey: 'flags | programChanges | exerciseThreads | coachingPlanApproach | coachTasks | goalsValues | progressTracking | missingInfo | confidenceNotes',
+          sectionKey: 'flags | programChanges | exerciseThreads | coachingPlanApproach | coachTasks | goalsValues | clientValues | progressTracking | timeline | missingInfo | confidenceNotes',
           action: 'add | update | resolve | no_change | needs_review',
           summary: '',
           reason: '',
@@ -370,14 +416,16 @@ function renderClientUpdatePrompt(body) {
           programFormat: '',
           primaryTrainingGoal: '',
           contraindications: [''],
+          curriculumStartDate: '',
           programStartDate: '',
           programWeek: '',
           notes: ''
         },
         overview: 'brief updated current-state Snapshot for coach scanning',
-        coachTasks: ['coach to-do or action item'],
+        coachTasks: ['coach to-do'],
         flags: ['injury, vacation, red flag, medical concern, surgery/procedure, life event, or other flag'],
-        goalsValues: ['current goal, value, future-self statement, or vision statement'],
+        goalsValues: ['specific client goal or desired outcome only'],
+        clientValues: ['client value, motivation, identity statement, or stable coaching-relevant preference'],
         coachingPlanApproach: ['agreed approach, planned habit/skill focus, current commitment, or future commitment expected to move goals forward'],
         programChanges: ['specific training/program modification, exercise swap, avoided movement, temporary/permanent constraint, travel version, progression, regression, or other program adjustment'],
         progressTracking: ['skills practice, workout completion, strength progression, difficulty, load, compliance, or engagement signal'],
@@ -386,8 +434,8 @@ function renderClientUpdatePrompt(body) {
         mindsetThreads: ['mindset common thread: mastered, difficult, improving, watch, or unknown'],
         exerciseThreads: ['exercise common thread: mastered, difficult, improving, watch, or unknown'],
         resourcesShared: ['resource already shared with the client'],
-        suggestedTags: ['tag'],
-        timeline: ['dated event'],
+        suggestedTags: ['up to five sidebar/search tags'],
+        timeline: [TIMELINE_ITEM_SCHEMA],
         missingInfo: ['important missing context'],
         confidenceNotes: ['uncertainty or evidence quality note']
       }
@@ -404,11 +452,16 @@ function renderClientUpdatePrompt(body) {
     '- Do not cite the current baseline as evidence. It is coach context, not a source note.',
     '- Treat coach-entered currentBaseline fields as source of truth. Add new source evidence without erasing coach edits.',
     '- Flags should include injuries, vacations, red flags, medical concerns, surgeries/procedures, and major life events. Do not put ordinary preferences in flags.',
+    '- For goalsValues, keep only client goals or desired outcomes. Move values, identity statements, or general motivations into clientValues.',
+    '- For clientValues, update stable values, motivations, identity statements, or coaching-relevant preferences when new evidence supports it.',
     '- For coachingPlanApproach, update agreed coaching approach, current commitments, planned habit/skill focus, and future commitments when new evidence supports it.',
     '- For programChanges, update concrete changes to the client training/program plan: exercise swaps, removed/avoided movements, temporary constraints, permanent modifications, volume/intensity/frequency changes, travel versions, or progressions/regressions.',
     '- Do not bury concrete program modifications only in exerciseThreads or coachingPlanApproach. Put the modification in programChanges and use exerciseThreads for broader exercise patterns/trends.',
     '- For nutritionThreads, mindsetThreads, and exerciseThreads, update common threads around what is difficult and what has been mastered.',
     '- For progressTracking, update skills practice compliance, workout completion, strength/difficulty/load progression, and client engagement when new evidence supports it.',
+    ...TIMELINE_RULES,
+    ...TAG_RULES,
+    '- On updates, normalize suggestedTags to match these rules even when older baseline tags are noisy.',
     '- updateSummary should name the most important updated sections and stay under 45 words.',
     '- If the new source suggests a coach should verify something, put it in coachTasks, missingInfo, or confidenceNotes.',
     '- Use the coach/practice template for tone, prioritization, profile option labels, and coaching emphasis. It is not client evidence; client-specific claims still need source evidence.',

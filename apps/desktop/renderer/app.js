@@ -23,9 +23,10 @@ const state = {
 const baselineSections = [
   { key: 'clientProfile', label: 'Client Profile', type: 'object', rows: 6 },
   { key: 'overview', label: 'Current Baseline Snapshot', type: 'text', rows: 4 },
-  { key: 'coachTasks', label: 'Coach To-Dos / Action Items', type: 'list', rows: 5 },
+  { key: 'coachTasks', label: 'Coach To-Dos', type: 'list', rows: 5 },
   { key: 'flags', label: 'Flags', type: 'list', rows: 6 },
-  { key: 'goalsValues', label: 'Goals / Values', type: 'list', rows: 5 },
+  { key: 'goalsValues', label: 'Client Goals', type: 'list', rows: 5 },
+  { key: 'clientValues', label: 'Client Values', type: 'list', rows: 4 },
   { key: 'coachingPlanApproach', label: 'Coaching Plan / Approach', type: 'list', rows: 5 },
   { key: 'programChanges', label: 'Program Changes', type: 'list', rows: 5 },
   { key: 'progressTracking', label: 'Progress Tracking', type: 'list', rows: 5 },
@@ -166,6 +167,7 @@ const profileControlKeys = new Set([
   'programFormat',
   'primaryTrainingGoal',
   'contraindications',
+  'curriculumStartDate',
   'programStartDate',
   'programWeek'
 ]);
@@ -182,6 +184,7 @@ const els = {
   clientNameInput: document.getElementById('clientNameInput'),
   programInput: document.getElementById('programInput'),
   coachNoteInput: document.getElementById('coachNoteInput'),
+  intakeProgramSettings: document.getElementById('intakeProgramSettings'),
   importFilesBtn: document.getElementById('importFilesBtn'),
   addSourceBtn: document.getElementById('addSourceBtn'),
   clearSourcesBtn: document.getElementById('clearSourcesBtn'),
@@ -406,6 +409,28 @@ function renderEvidenceText(value, sourceLookup, evidenceIds = []) {
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function normalizeTagList(values, maxItems = 5) {
+  const source = Array.isArray(values) ? values : [];
+  const seen = new Set();
+  const tags = [];
+  for (const item of source) {
+    const value = sanitizeName(item);
+    if (!value) {
+      continue;
+    }
+    const key = value.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    tags.push(value);
+    if (tags.length >= maxItems) {
+      break;
+    }
+  }
+  return tags;
 }
 
 function getPriorityOption(value) {
@@ -642,6 +667,7 @@ function buildDashboardModel(structured = {}) {
     coachTasks: asArray(structured.coachTasks),
     flags: asArray(structured.flags),
     goalsValues: asArray(structured.goalsValues),
+    clientValues: asArray(structured.clientValues),
     coachingPlanApproach: asArray(structured.coachingPlanApproach),
     programChanges: asArray(structured.programChanges),
     progressTracking: asArray(structured.progressTracking),
@@ -650,7 +676,7 @@ function buildDashboardModel(structured = {}) {
     mindsetThreads: asArray(structured.mindsetThreads),
     exerciseThreads: asArray(structured.exerciseThreads),
     resourcesShared: asArray(structured.resourcesShared),
-    suggestedTags: asArray(structured.suggestedTags),
+    suggestedTags: normalizeTagList(structured.suggestedTags),
     timeline: asArray(structured.timeline),
     missingInfo: asArray(structured.missingInfo),
     confidenceNotes: asArray(structured.confidenceNotes)
@@ -712,6 +738,59 @@ function normalizeDetailItem(item, options = {}) {
     evidenceIds: Array.isArray(item.evidenceIds) ? item.evidenceIds : [],
     priority: getPriorityOption(item.priority),
     planningStatus: getPlanningStatusOption(item)
+  };
+}
+
+function normalizeTimelineItem(item) {
+  if (typeof item === 'string') {
+    return {
+      dateLabel: 'Date unknown',
+      detail: item,
+      evidenceIds: []
+    };
+  }
+  if (!item || typeof item !== 'object') {
+    return {
+      dateLabel: 'Date unknown',
+      detail: '',
+      evidenceIds: []
+    };
+  }
+
+  const dateLabel = item.date || item.dateRange || item.date_range || item.date_or_range || item.when || 'Date unknown';
+  const label = item.label || item.title || item.resource || item.name || '';
+  const detail = item.details || item.currentStatus || item.status || item.urgency || item.summary || item.note || item.notes || '';
+  const fallback = Object.entries(item)
+    .filter(([key]) => ![
+      'title',
+      'label',
+      'resource',
+      'name',
+      'date',
+      'dateRange',
+      'date_range',
+      'date_or_range',
+      'when',
+      'details',
+      'currentStatus',
+      'status',
+      'planningStatus',
+      'priority',
+      'urgency',
+      'summary',
+      'note',
+      'notes',
+      'dateBasis',
+      'confidence',
+      'evidenceIds'
+    ].includes(key))
+    .map(([key, entry]) => `${key}: ${entry}`)
+    .join(' · ');
+  const labeledDetail = label && detail ? `${label}: ${detail}` : (label || detail);
+  return {
+    dateLabel,
+    detail: [labeledDetail, fallback].filter(Boolean).join(' · '),
+    evidenceIds: Array.isArray(item.evidenceIds) ? item.evidenceIds : []
   };
 }
 
@@ -880,6 +959,7 @@ function resetIntake(options = {}) {
   els.reviewPanel.hidden = true;
   els.baselineFields.innerHTML = '';
   els.baselineJsonInput.value = '';
+  renderIntakeProgramSettings();
   renderSources();
   if (!options.keepMode) {
     state.selectedClientId = null;
@@ -1290,6 +1370,7 @@ async function runIntake() {
       clientName,
       programContext: els.programInput.value,
       coachNotes: els.coachNoteInput.value,
+      clientProfile: collectIntakeClientProfile(),
       sources: state.intakeSources
     });
     resetIntake({ keepMode: true });
@@ -1353,7 +1434,12 @@ function renderClients() {
     if (state.selectedClientId === client.id) {
       button.classList.add('active');
     }
-    const tags = (client.tags || []).slice(0, 3).map((tag) => `<span>${escapeHtml(tag)}</span>`).join('');
+    const clientTags = client.tags || [];
+    const visibleTags = clientTags.slice(0, 3).map((tag) => `<span>${escapeHtml(tag)}</span>`);
+    if (clientTags.length > 3) {
+      visibleTags.push(`<span>+${clientTags.length - 3} more</span>`);
+    }
+    const tags = visibleTags.join('');
     button.innerHTML = `
       <strong>${escapeHtml(client.name)}</strong>
       <em>${client.sourceCount} sources • ${client.flagCount || 0} flags • ${client.taskCount || 0} to-dos</em>
@@ -1501,13 +1587,13 @@ function renderProfileSelectOptions(options, selectedValue) {
   ].join('');
 }
 
-function renderClientProfileControls(profile = {}) {
+function renderProgramSettingsFields(profile = {}, dataAttribute = 'data-profile-field') {
   const selectControls = getProfileSelectFields().map((config) => {
     const value = normalizeProfileSelectValue(profile, config);
     return `
       <label>
         ${escapeHtml(config.label)}
-        <select data-profile-field="${escapeHtml(config.key)}">
+        <select ${dataAttribute}="${escapeHtml(config.key)}">
           ${renderProfileSelectOptions(config.options, value)}
         </select>
       </label>
@@ -1519,7 +1605,7 @@ function renderClientProfileControls(profile = {}) {
     return `
       <label>
         ${escapeHtml(config.label)}
-        <select multiple size="6" data-profile-field="${escapeHtml(config.key)}" data-profile-multiple="true">
+        <select multiple size="6" ${dataAttribute}="${escapeHtml(config.key)}" data-profile-multiple="true">
           ${config.options.map((option) => `<option value="${escapeHtml(option)}" ${values.has(option) ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('')}
         </select>
       </label>
@@ -1527,25 +1613,82 @@ function renderClientProfileControls(profile = {}) {
   }).join('');
 
   return `
+    ${selectControls}
+    <label>
+      Curriculum start date
+      <input type="date" value="${escapeHtml(profile.curriculumStartDate || '')}" ${dataAttribute}="curriculumStartDate" />
+    </label>
+    <label>
+      Training program start date
+      <input type="date" value="${escapeHtml(profile.programStartDate || '')}" ${dataAttribute}="programStartDate" />
+    </label>
+    <div class="computed-week">
+      <span>Program Week</span>
+      <strong data-program-week-display>${escapeHtml(getProgramWeek(profile) || 'Not set')}</strong>
+    </div>
+    ${multiControls}
+  `;
+}
+
+function renderClientProfileControls(profile = {}) {
+  return `
     <div class="profile-control-panel">
       <div class="profile-control-head">
         <strong>Program Settings</strong>
         <span>Most fields are single-select; contraindications can have multiple selections. Selected values appear on Snapshot.</span>
       </div>
       <div class="profile-control-grid">
-        ${selectControls}
-        <label>
-          Training program start date
-          <input type="date" value="${escapeHtml(profile.programStartDate || '')}" data-profile-field="programStartDate" />
-        </label>
-        <div class="computed-week">
-          <span>Program Week</span>
-          <strong>${escapeHtml(getProgramWeek(profile) || 'Not set')}</strong>
-        </div>
-        ${multiControls}
+        ${renderProgramSettingsFields(profile)}
       </div>
     </div>
   `;
+}
+
+function collectIntakeClientProfile() {
+  const profile = {};
+  for (const control of els.intakeProgramSettings.querySelectorAll('[data-intake-profile-field]')) {
+    const field = control.dataset.intakeProfileField || '';
+    if (!profileControlKeys.has(field)) {
+      continue;
+    }
+    const value = control.multiple
+      ? [...control.selectedOptions].map((option) => option.value).filter(Boolean)
+      : control.value;
+    if (Array.isArray(value) ? value.length : String(value || '').trim()) {
+      profile[field] = value;
+    }
+  }
+  const programWeek = calculateProgramWeek(profile.programStartDate);
+  if (programWeek) {
+    profile.programWeek = programWeek;
+  }
+  return profile;
+}
+
+function updateIntakeProgramWeek() {
+  const startDate = els.intakeProgramSettings.querySelector('[data-intake-profile-field="programStartDate"]')?.value || '';
+  const display = els.intakeProgramSettings.querySelector('[data-program-week-display]');
+  if (display) {
+    display.textContent = calculateProgramWeek(startDate) || 'Not set';
+  }
+}
+
+function renderIntakeProgramSettings(profile = {}) {
+  if (!els.intakeProgramSettings) {
+    return;
+  }
+  els.intakeProgramSettings.innerHTML = `
+    <div class="profile-control-panel">
+      <div class="profile-control-head">
+        <strong>Program Settings</strong>
+        <span>Set known cohort/program fields now; they stay editable on Bio & Intake.</span>
+      </div>
+      <div class="profile-control-grid">
+        ${renderProgramSettingsFields(profile, 'data-intake-profile-field')}
+      </div>
+    </div>
+  `;
+  updateIntakeProgramWeek();
 }
 
 function sortPlanningRows(rows) {
@@ -1737,10 +1880,10 @@ function renderTimeline(value, sourceLookup) {
       </div>
       <div class="timeline-list">
         ${values.length ? values.map((item) => {
-          const normalized = normalizeDetailItem(item);
+          const normalized = normalizeTimelineItem(item);
           return `
             <div class="timeline-item">
-              <time>${renderEvidenceText(normalized.title || 'Recent', sourceLookup, normalized.evidenceIds)}</time>
+              <time>${renderEvidenceText(normalized.dateLabel, sourceLookup)}</time>
               <p>${renderEvidenceText(normalized.detail, sourceLookup, normalized.evidenceIds)}</p>
             </div>
           `;
@@ -1887,10 +2030,11 @@ function renderClientDetail(detail) {
     <div class="dashboard-band">
       <div class="band-head">
         <span>Client Profile</span>
-        <strong>Name, location, curriculum, program, and intake context</strong>
+        <strong>Name, location, values, curriculum, program, and intake context</strong>
       </div>
       <div class="detail-grid">
         ${renderObjectSection('Profile Basics', dashboard.clientProfile, sourceLookup, { sectionKey: 'clientProfile' })}
+        ${renderDetailList('Client Values', dashboard.clientValues, sourceLookup, { sectionKey: 'clientValues' })}
       </div>
     </div>
   `;
@@ -1911,10 +2055,10 @@ function renderClientDetail(detail) {
     <div class="dashboard-band attention-band">
       <div class="band-head">
         <span>Needs Attention</span>
-        <strong>Client to-dos, flags, and current follow-up items</strong>
+        <strong>Coach to-dos, flags, and current follow-up items</strong>
       </div>
       <div class="detail-grid">
-        ${renderDetailList('Coach To-Dos / Action Items', dashboard.coachTasks, sourceLookup, { tone: 'priority', sectionKey: 'coachTasks' })}
+        ${renderDetailList('Coach To-Dos', dashboard.coachTasks, sourceLookup, { tone: 'priority', sectionKey: 'coachTasks' })}
         ${renderDetailList('Flags', dashboard.flags, sourceLookup, { tone: flagCount ? 'scope' : '', sectionKey: 'flags' })}
         ${renderDetailList('Missing Info', dashboard.missingInfo, sourceLookup, { sectionKey: 'missingInfo' })}
       </div>
@@ -1925,11 +2069,11 @@ function renderClientDetail(detail) {
     <div class="dashboard-band">
       <div class="band-head">
         <span>Goals</span>
-        <strong>Long-term outcomes, values, and current action items</strong>
+        <strong>Client goals and related coach to-dos</strong>
       </div>
       <div class="detail-grid">
-        ${renderDetailList('Goals / Values', dashboard.goalsValues, sourceLookup, { sectionKey: 'goalsValues' })}
-        ${renderDetailList('Coach To-Dos / Action Items', dashboard.coachTasks, sourceLookup, { tone: 'priority', sectionKey: 'coachTasks' })}
+        ${renderDetailList('Client Goals', dashboard.goalsValues, sourceLookup, { sectionKey: 'goalsValues' })}
+        ${renderDetailList('Coach To-Dos', dashboard.coachTasks, sourceLookup, { tone: 'priority', sectionKey: 'coachTasks' })}
       </div>
     </div>
   `;
@@ -2448,6 +2592,7 @@ async function saveSettings(event) {
     if (state.selectedClientDetail) {
       renderClientDetail(state.selectedClientDetail);
     }
+    renderIntakeProgramSettings(collectIntakeClientProfile());
     showToast('Settings saved.');
   } catch (error) {
     showToast(`Settings failed: ${error.message}`, 'error');
@@ -2463,6 +2608,7 @@ async function init() {
     const appState = await window.coachNotes.getState();
     state.settings = appState.settings || {};
     state.clients = appState.clients || [];
+    renderIntakeProgramSettings();
     renderSources();
     renderNoteSources();
     renderClients();
@@ -2487,6 +2633,8 @@ async function init() {
     await window.coachNotes.revealVault();
   });
   els.resetIntakeBtn.addEventListener('click', resetIntake);
+  els.intakeProgramSettings.addEventListener('change', updateIntakeProgramWeek);
+  els.intakeProgramSettings.addEventListener('input', updateIntakeProgramWeek);
   els.addSourceBtn.addEventListener('click', () => addPastedSource());
   els.clearSourcesBtn.addEventListener('click', () => {
     state.intakeSources = [];
