@@ -221,6 +221,15 @@ function renderClientIntakePrompt(body) {
           evidenceIds: ['source_id']
         }
       ],
+      programChanges: [
+        {
+          title: '',
+          details: 'specific training/program modification being made, avoided, swapped, progressed, regressed, paused, or revisited',
+          status: 'active | planned | temporary | permanent | resolved | historical | unknown',
+          reason: '',
+          evidenceIds: ['source_id']
+        }
+      ],
       progressTracking: [
         {
           title: '',
@@ -291,6 +300,8 @@ function renderClientIntakePrompt(body) {
     '- Flags should include injuries, vacations, red flags, medical concerns, surgeries/procedures, and major life events. Do not put ordinary preferences in flags.',
     '- For coachingPlanApproach, include only things the coach and client have agreed to try, commit to, revisit, or use later to move the client toward their goals.',
     '- Do not put generic goals in coachingPlanApproach unless there is a concrete agreed approach, habit, skill practice, plan constraint, commitment, or future commitment attached.',
+    '- For programChanges, include concrete changes to the client training/program plan: exercise swaps, removed/avoided movements, temporary constraints, permanent modifications, volume/intensity/frequency changes, travel versions, or progressions/regressions.',
+    '- Do not bury concrete program modifications only in exerciseThreads or coachingPlanApproach. Put the modification in programChanges and use exerciseThreads for broader exercise patterns/trends.',
     '- For nutritionThreads, mindsetThreads, and exerciseThreads, distinguish mastered/comfortable patterns from difficult patterns when evidence supports it.',
     '- For progressTracking, include skills practice compliance, workout completion, strength/difficulty/load progression, and client engagement only when available.',
     '- For resourcesShared, include resources already shared with the client, not resources the coach might want to create.',
@@ -298,6 +309,7 @@ function renderClientIntakePrompt(body) {
     '- Current state must favor recent evidence. If old and recent sources conflict, note that in confidenceNotes.',
     '- Use the coach/practice template for tone, prioritization, profile option labels, and coaching emphasis. It is not client evidence; client-specific claims still need source evidence.',
     '- When profile values fit configured option labels, prefer those exact labels. If no configured option fits a source-supported fact, use the source-supported value rather than forcing a bad option.',
+    '- Treat coach_annotation as coach-supplied context and routing guidance. If an annotation explicitly says to add something to a section such as Program Changes, follow that routing when the source text supports the item.',
     '',
     'Sources:',
     sourceBlocks
@@ -338,7 +350,7 @@ function renderClientUpdatePrompt(body) {
       updateSummary: '1-2 concise sentences explaining what changed and why it matters to the coach.',
       changes: [
         {
-          sectionKey: 'flags',
+          sectionKey: 'flags | programChanges | exerciseThreads | coachingPlanApproach | coachTasks | goalsValues | progressTracking | missingInfo | confidenceNotes',
           action: 'add | update | resolve | no_change | needs_review',
           summary: '',
           reason: '',
@@ -367,6 +379,7 @@ function renderClientUpdatePrompt(body) {
         flags: ['injury, vacation, red flag, medical concern, surgery/procedure, life event, or other flag'],
         goalsValues: ['current goal, value, future-self statement, or vision statement'],
         coachingPlanApproach: ['agreed approach, planned habit/skill focus, current commitment, or future commitment expected to move goals forward'],
+        programChanges: ['specific training/program modification, exercise swap, avoided movement, temporary/permanent constraint, travel version, progression, regression, or other program adjustment'],
         progressTracking: ['skills practice, workout completion, strength progression, difficulty, load, compliance, or engagement signal'],
         engagementNotes: ['Zoom, text, instant message, check-in, responsiveness, tone, or cadence note'],
         nutritionThreads: ['nutrition common thread: mastered, difficult, improving, watch, or unknown'],
@@ -392,12 +405,15 @@ function renderClientUpdatePrompt(body) {
     '- Treat coach-entered currentBaseline fields as source of truth. Add new source evidence without erasing coach edits.',
     '- Flags should include injuries, vacations, red flags, medical concerns, surgeries/procedures, and major life events. Do not put ordinary preferences in flags.',
     '- For coachingPlanApproach, update agreed coaching approach, current commitments, planned habit/skill focus, and future commitments when new evidence supports it.',
+    '- For programChanges, update concrete changes to the client training/program plan: exercise swaps, removed/avoided movements, temporary constraints, permanent modifications, volume/intensity/frequency changes, travel versions, or progressions/regressions.',
+    '- Do not bury concrete program modifications only in exerciseThreads or coachingPlanApproach. Put the modification in programChanges and use exerciseThreads for broader exercise patterns/trends.',
     '- For nutritionThreads, mindsetThreads, and exerciseThreads, update common threads around what is difficult and what has been mastered.',
     '- For progressTracking, update skills practice compliance, workout completion, strength/difficulty/load progression, and client engagement when new evidence supports it.',
     '- updateSummary should name the most important updated sections and stay under 45 words.',
     '- If the new source suggests a coach should verify something, put it in coachTasks, missingInfo, or confidenceNotes.',
     '- Use the coach/practice template for tone, prioritization, profile option labels, and coaching emphasis. It is not client evidence; client-specific claims still need source evidence.',
     '- When profile values fit configured option labels, prefer those exact labels. If no configured option fits a source-supported fact, use the source-supported value rather than forcing a bad option.',
+    '- Treat coach_annotation as coach-supplied context and routing guidance. If an annotation explicitly says to add something to a section such as Program Changes, follow that routing when the source text supports the item.',
     '',
     'New sources:',
     sourceBlocks

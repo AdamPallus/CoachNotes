@@ -27,6 +27,7 @@ const baselineSections = [
   { key: 'flags', label: 'Flags', type: 'list', rows: 6 },
   { key: 'goalsValues', label: 'Goals / Values', type: 'list', rows: 5 },
   { key: 'coachingPlanApproach', label: 'Coaching Plan / Approach', type: 'list', rows: 5 },
+  { key: 'programChanges', label: 'Program Changes', type: 'list', rows: 5 },
   { key: 'progressTracking', label: 'Progress Tracking', type: 'list', rows: 5 },
   { key: 'engagementNotes', label: 'Engagement', type: 'list', rows: 4 },
   { key: 'nutritionThreads', label: 'Nutrition', type: 'list', rows: 5 },
@@ -642,6 +643,7 @@ function buildDashboardModel(structured = {}) {
     flags: asArray(structured.flags),
     goalsValues: asArray(structured.goalsValues),
     coachingPlanApproach: asArray(structured.coachingPlanApproach),
+    programChanges: asArray(structured.programChanges),
     progressTracking: asArray(structured.progressTracking),
     engagementNotes: asArray(structured.engagementNotes),
     nutritionThreads: asArray(structured.nutritionThreads),
@@ -1952,9 +1954,10 @@ function renderClientDetail(detail) {
     <div class="dashboard-band domain-band">
       <div class="band-head">
         <span>Program Changes</span>
-        <strong>Current approach, movement constraints, and decision memory seeds</strong>
+        <strong>Specific modifications, movement constraints, and decision memory seeds</strong>
       </div>
       <div class="detail-grid">
+        ${renderDetailList('Program Changes', dashboard.programChanges, sourceLookup, { wide: true, sectionKey: 'programChanges' })}
         ${renderDetailList('Exercise', dashboard.exerciseThreads, sourceLookup, { sectionKey: 'exerciseThreads' })}
         ${renderDetailList('Flags', dashboard.flags, sourceLookup, { tone: flagCount ? 'scope' : '', sectionKey: 'flags' })}
       </div>

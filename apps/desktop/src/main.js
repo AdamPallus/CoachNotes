@@ -60,6 +60,24 @@ const BASELINE_SECTION_KEYS = new Set([
   'flags',
   'goalsValues',
   'coachingPlanApproach',
+  'programChanges',
+  'progressTracking',
+  'engagementNotes',
+  'nutritionThreads',
+  'mindsetThreads',
+  'exerciseThreads',
+  'resourcesShared',
+  'suggestedTags',
+  'timeline',
+  'missingInfo',
+  'confidenceNotes'
+]);
+const BASELINE_ARRAY_SECTION_KEYS = new Set([
+  'coachTasks',
+  'flags',
+  'goalsValues',
+  'coachingPlanApproach',
+  'programChanges',
   'progressTracking',
   'engagementNotes',
   'nutritionThreads',
@@ -792,6 +810,13 @@ function jsonValuesEqual(left, right) {
   return stringifyJsonValue(left) === stringifyJsonValue(right);
 }
 
+function comparableBaselineSectionValue(structured, sectionKey) {
+  if (structured && Object.prototype.hasOwnProperty.call(structured, sectionKey)) {
+    return structured[sectionKey];
+  }
+  return BASELINE_ARRAY_SECTION_KEYS.has(sectionKey) ? [] : undefined;
+}
+
 function normalizePlanningMatchText(item) {
   if (typeof item === 'string') {
     return sanitizeName(item).toLowerCase();
@@ -1204,7 +1229,10 @@ async function updateClientFromNote(payload) {
   );
   const changedSections = [...BASELINE_SECTION_KEYS].filter((sectionKey) => (
     Object.prototype.hasOwnProperty.call(nextStructured, sectionKey)
-    && !jsonValuesEqual(currentStructured[sectionKey], nextStructured[sectionKey])
+    && !jsonValuesEqual(
+      comparableBaselineSectionValue(currentStructured, sectionKey),
+      comparableBaselineSectionValue(nextStructured, sectionKey)
+    )
   ));
 
   for (const sectionKey of changedSections) {
