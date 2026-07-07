@@ -332,6 +332,24 @@ function setViewMode(mode) {
   }
   els.clientDetailPanel.hidden = mode !== 'detail' || !state.selectedClientDetail;
   document.body.dataset.viewMode = state.viewMode;
+  updateTopbarPrimaryAction();
+}
+
+function updateTopbarPrimaryAction() {
+  const showRunIntake = !els.intakePanel.hidden;
+  els.onboardBtn.textContent = showRunIntake ? 'Run Intake' : 'Onboard New Client';
+  els.onboardBtn.title = showRunIntake
+    ? 'Run intake for the current onboarding form'
+    : 'Start onboarding a new client';
+  els.onboardBtn.setAttribute('aria-label', els.onboardBtn.textContent);
+}
+
+function handleTopbarPrimaryAction() {
+  if (!els.intakePanel.hidden) {
+    runIntake();
+    return;
+  }
+  startOnboarding();
 }
 
 function truncateText(value, maxLength = 620) {
@@ -2640,7 +2658,7 @@ async function init() {
     setBusy(false);
   }
 
-  els.onboardBtn.addEventListener('click', startOnboarding);
+  els.onboardBtn.addEventListener('click', handleTopbarPrimaryAction);
   els.settingsBtn.addEventListener('click', openSettings);
   els.askClientBtn.addEventListener('click', openAskDialog);
   els.addNoteBtn.addEventListener('click', openAddNoteDialog);
