@@ -46,6 +46,85 @@ const defaultHiddenPlanningStatuses = new Set(['completed', 'abandoned', 'outdat
 const closedPlanningStatuses = new Set(['completed', 'abandoned', 'outdated']);
 const planningHiddenStatusesStorageKey = 'coachnotes.planningHiddenStatuses.v1';
 
+const clientProfileExportPrompt = `Create an Everfit client profile from the client intake notes and any related coaching notes.
+
+Use only information supported by the source material. Do not invent details. If a field is not mentioned, leave it blank. Keep the profile concise, coach-friendly, and easy to paste into Everfit. Use plain language and avoid medical diagnosis language beyond what the client/source explicitly states.
+
+For the Phone section, include the client's phone number if available, phone type if mentioned, whether calling and/or texting is okay, and their preferred "SOS system" contact plan if the coach has not heard from them in 4+ weeks. If any part is not mentioned, leave it blank.
+
+Format the output exactly like this:
+
+Name:
+Pronouns:
+DOB:
+Age:
+Location:
+
+Phone:
+Number:
+Phone type:
+Call/text okay:
+SOS system if no contact for 4+ weeks:
+
+CLIENT PROFILE TEMPLATE (Everfit)
+
+Family life, job, pets, hobbies:
+
+Height/Weight:
+
+Training experience:
+
+Equipment access:
+
+Current training goals:
+
+Injuries or limitations, including pelvic floor issues, perimenopause, and menopause:
+
+Nutrition habits/preferences:
+
+GLP 1 use:
+
+Disordered eating or eating disorder:
+
+Top 3 nutrition goals:
+1.
+2.
+3.
+
+Mindset or motivation considerations:
+
+Other coaching considerations:
+
+Any red flags or important items for the coach to consider:
+
+Missing or unclear information:`;
+
+const initialWelcomeMessagePrompt = `Create an initial welcome message for this client from their intake notes and any related coaching notes.
+
+Use only information supported by the source material. Do not invent details. If the official coaching start date is not available, leave a clear placeholder for the coach to fill in.
+
+The message should:
+
+Thank them for completing their intake.
+Mention several personal details from their intake, such as family, career, pets, hobbies, location, or other meaningful context.
+Reflect back what they want to accomplish and why those goals matter to them.
+Briefly acknowledge any limitations or special considerations.
+Let them know they are in the right place and will be supported throughout coaching.
+Tell them their official coaching start date.
+Explain that on their official coaching start date they will receive their first nutrition and mindset lessons and access to their training programs.
+Ask: Do you need help selecting a training program? If so, let me know and we can discuss it.
+Invite any questions.
+Close warmly with: I'm so happy you're here!
+
+Style rules:
+
+Focus on the client, not the coach.
+Avoid first person statements like I love or I'm proud of you.
+Do not simply repeat their intake answers. Synthesize the information so they feel understood.
+Use a warm, compassionate tone.
+Do not use hyphens, em dashes, or en dashes.
+Do not use contrast framing such as It's not X, it's Y.`;
+
 const priorityOptions = [
   { value: 'none', label: 'No priority', rank: 4, className: 'priority-none' },
   { value: 'high', label: 'High', rank: 1, className: 'priority-high' },
@@ -1047,6 +1126,19 @@ function openAskDialog() {
   els.askTitle.textContent = `Ask about ${state.selectedClientDetail.client.name}`;
   els.askDialog.showModal();
   els.askPromptInput.focus();
+}
+
+function applyAskOutputPreset() {
+  if (els.askOutputTypeInput.value === 'client-profile-export') {
+    els.askScopeInput.value = 'all-sources';
+    els.askTimeWindowInput.value = 'all-time';
+    els.askPromptInput.value = clientProfileExportPrompt;
+  }
+  if (els.askOutputTypeInput.value === 'initial-welcome-message') {
+    els.askScopeInput.value = 'all-sources';
+    els.askTimeWindowInput.value = 'all-time';
+    els.askPromptInput.value = initialWelcomeMessagePrompt;
+  }
 }
 
 function setAskLoading(on, message = 'Using the selected client context.') {
@@ -2805,6 +2897,7 @@ async function init() {
     }
   });
   els.askForm.addEventListener('submit', submitAsk);
+  els.askOutputTypeInput.addEventListener('change', applyAskOutputPreset);
   els.cancelAskBtn.addEventListener('click', () => els.askDialog.close());
   els.copyAskResultBtn.addEventListener('click', copyAskResult);
   els.saveAskResultBtn.addEventListener('click', saveAskResultAsNote);
