@@ -101,29 +101,30 @@ Any red flags or important items for the coach to consider:
 
 Missing or unclear information:`;
 
-const initialWelcomeMessagePrompt = `Create an initial welcome message for this client from their intake notes and any related coaching notes.
+const initialWelcomeMessagePrompt = `Write a warm client-facing initial welcome message from the coach to this client. This is a welcome note, not an intake summary.
 
 Use only information supported by the source material. Do not invent details. If the official coaching start date is not available, leave a clear placeholder for the coach to fill in.
 
 Return only the client-ready message. Do not include commentary, citations, source notes, or coach/practice guidance.
 
-The message should:
+Structure the message naturally:
 
-Thank them for completing their intake.
-Mention several personal details from their intake, such as family, career, pets, hobbies, location, or other meaningful context.
-Reflect back what they want to accomplish and why those goals matter to them.
-Briefly acknowledge any limitations or special considerations.
+Open by thanking them for completing their intake.
+Use 2 or 3 meaningful personal details only if they help the client feel seen. Do not list demographics or biographical facts.
+Synthesize what matters to them, what they want to accomplish, and why those goals matter for their life.
+Briefly reassure them that coaching will account for their needs, preferences, history, and relevant considerations. Do not list sensitive medical, mental health, pelvic floor, eating disorder, medication, or diagnosis details unless absolutely necessary for the welcome message.
 Let them know they are in the right place and will be supported throughout coaching.
 Tell them their official coaching start date.
 Explain that on their official coaching start date they will receive their first nutrition and mindset lessons and access to their training programs.
 Ask: Do you need help selecting a training program? If so, let me know and we can discuss it.
-Invite any questions.
+Invite questions and encourage them to share what is and is not working so coaching can be adjusted.
 Close warmly with: I'm so happy you're here!
 
 Style rules:
 
 Focus on the client, not the coach.
 Avoid first person statements like I love or I'm proud of you.
+Do not try to mention every important detail from the intake. Choose the details that create the warmest and most useful welcome.
 Do not simply repeat their intake answers. Synthesize the information so they feel understood.
 Use a warm, compassionate tone.
 Do not use hyphens, em dashes, or en dashes.
