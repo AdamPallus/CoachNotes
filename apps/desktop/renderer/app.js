@@ -50,6 +50,8 @@ const clientProfileExportPrompt = `Create an Everfit client profile from the cli
 
 Use only information supported by the source material. Do not invent details. If a field is not mentioned, leave it blank. Keep the profile concise, coach-friendly, and easy to paste into Everfit. Use plain language and avoid medical diagnosis language beyond what the client/source explicitly states.
 
+Return only the profile. Do not include commentary, citations, source numbers, bracketed references, source notes, markdown fences, or coach/practice guidance.
+
 For the Phone section, include the client's phone number if available, phone type if mentioned, whether calling and/or texting is okay, and their preferred "SOS system" contact plan if the coach has not heard from them in 4+ weeks. If any part is not mentioned, leave it blank.
 
 Format the output exactly like this:
@@ -102,6 +104,8 @@ Missing or unclear information:`;
 const initialWelcomeMessagePrompt = `Create an initial welcome message for this client from their intake notes and any related coaching notes.
 
 Use only information supported by the source material. Do not invent details. If the official coaching start date is not available, leave a clear placeholder for the coach to fill in.
+
+Return only the client-ready message. Do not include commentary, citations, source notes, or coach/practice guidance.
 
 The message should:
 

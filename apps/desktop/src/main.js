@@ -1572,9 +1572,14 @@ function buildAskInstructions({ outputType, scope, timeWindow, coachTemplate }) 
     `Output type: ${askOutputLabel(outputType)}.`,
     `Context scope selected by coach: ${askScopeLabel(scope)}.`,
     `Time window selected by coach: ${askTimeWindowLabel(timeWindow)}.`,
-    'Respect the selected context boundary. If the selected sources do not support the request, say what is missing.',
-    'Keep citations next to source-grounded claims.'
+    'Respect the selected context boundary. If the selected sources do not support the request, say what is missing.'
   ];
+  const shouldIncludeCitations = !['client-profile-export', 'initial-welcome-message'].includes(outputType);
+  if (shouldIncludeCitations) {
+    shared.push('Keep citations next to source-grounded claims.');
+  } else {
+    shared.push('Do not include citations, source numbers, bracketed references, or source markers in the output.');
+  }
   if (outputType === 'client-message') {
     shared.push(
       'Write a client-ready message draft from the coach to the client.',
@@ -1587,6 +1592,7 @@ function buildAskInstructions({ outputType, scope, timeWindow, coachTemplate }) 
       'Create an initial welcome message for this client from their intake notes and any related coaching notes.',
       'Use only information supported by the source material. Do not invent details.',
       'If the official coaching start date is not available, leave a clear placeholder for the coach to fill in.',
+      'Return only the client-ready message. Do not include commentary, citations, source notes, or coach/practice guidance.',
       'Thank the client for completing their intake.',
       'Mention several personal details from their intake, such as family, career, pets, hobbies, location, or other meaningful context.',
       'Reflect back what they want to accomplish and why those goals matter to them.',
@@ -1615,6 +1621,7 @@ function buildAskInstructions({ outputType, scope, timeWindow, coachTemplate }) 
       'Use only information supported by the source material. Do not invent details. If a field is not mentioned, leave it blank.',
       'Keep the profile concise, coach-friendly, and easy to paste into Everfit.',
       'Use plain language and avoid medical diagnosis language beyond what the client/source explicitly states.',
+      'Return only the profile. Do not include commentary, citations, source numbers, bracketed references, source notes, markdown fences, or coach/practice guidance.',
       'For the Phone section, include the client phone number if available, phone type if mentioned, whether calling and/or texting is okay, and the preferred SOS system contact plan if the coach has not heard from the client in 4+ weeks.',
       'If any phone detail is not mentioned, leave it blank.',
       '',
@@ -1669,7 +1676,7 @@ function buildAskInstructions({ outputType, scope, timeWindow, coachTemplate }) 
     shared.push('Answer the coach directly and keep it concise.');
   }
   const coachGuidance = renderCoachTemplateLines(coachTemplate);
-  if (coachGuidance) {
+  if (coachGuidance && shouldIncludeCitations) {
     shared.push(
       '',
       'Coach/practice guidance:',
