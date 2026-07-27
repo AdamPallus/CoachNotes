@@ -27,7 +27,7 @@ git push -u origin main
 - `INVITE_TOKENS`: one or more comma-separated tokens (example: `tokenA,tokenB`)
 - `RATE_LIMIT_PER_MIN`: `60`
 - `EMBED_MODEL_ALLOWLIST`: `text-embedding-3-small`
-- `LLM_MODEL_ALLOWLIST`: `gpt-5.4-mini`
+- `LLM_MODEL_ALLOWLIST`: `gpt-5.6-luna`
 
 ## 4) Deploy
 
