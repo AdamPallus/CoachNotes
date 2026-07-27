@@ -13,7 +13,8 @@ const state = {
   askLoading: false,
   sessionNotesQuery: '',
   sessionNotesType: 'all',
-  clientTagFilter: 'all',
+  clientSearchQuery: '',
+  clientProfileTagFilter: 'all',
   planningHiddenStatuses: new Set(['completed', 'abandoned', 'outdated']),
   expandedPlanningSections: new Set(),
   activeBaseline: null,
@@ -262,7 +263,8 @@ const els = {
   statusLine: document.getElementById('statusLine'),
   onboardBtn: document.getElementById('onboardBtn'),
   settingsBtn: document.getElementById('settingsBtn'),
-  clientTagFilter: document.getElementById('clientTagFilter'),
+  clientSearchInput: document.getElementById('clientSearchInput'),
+  clientProfileTagFilter: document.getElementById('clientProfileTagFilter'),
   clientList: document.getElementById('clientList'),
   revealVaultBtn: document.getElementById('revealVaultBtn'),
   intakePanel: document.getElementById('intakePanel'),
@@ -1584,10 +1586,10 @@ async function acceptBaseline() {
   }
 }
 
-function getClientTagOptions() {
+function getClientProfileTagOptions() {
   const tags = new Set();
   for (const client of state.clients) {
-    for (const tag of client.tags || []) {
+    for (const tag of client.profileTags || []) {
       const normalized = sanitizeName(tag);
       if (normalized) {
         tags.add(normalized);
@@ -1597,28 +1599,31 @@ function getClientTagOptions() {
   return [...tags].sort((left, right) => left.localeCompare(right));
 }
 
-function renderClientTagFilter() {
-  const tags = getClientTagOptions();
-  if (state.clientTagFilter !== 'all' && !tags.includes(state.clientTagFilter)) {
-    state.clientTagFilter = 'all';
+function renderClientProfileTagFilter() {
+  const tags = getClientProfileTagOptions();
+  if (state.clientProfileTagFilter !== 'all' && !tags.includes(state.clientProfileTagFilter)) {
+    state.clientProfileTagFilter = 'all';
   }
-  els.clientTagFilter.disabled = !tags.length;
-  els.clientTagFilter.innerHTML = [
-    `<option value="all"${state.clientTagFilter === 'all' ? ' selected' : ''}>All tags</option>`,
-    ...tags.map((tag) => `<option value="${escapeHtml(tag)}"${state.clientTagFilter === tag ? ' selected' : ''}>${escapeHtml(tag)}</option>`)
+  els.clientProfileTagFilter.disabled = !tags.length;
+  els.clientProfileTagFilter.innerHTML = [
+    `<option value="all"${state.clientProfileTagFilter === 'all' ? ' selected' : ''}>All bio tags</option>`,
+    ...tags.map((tag) => `<option value="${escapeHtml(tag)}"${state.clientProfileTagFilter === tag ? ' selected' : ''}>${escapeHtml(tag)}</option>`)
   ].join('');
 }
 
 function getFilteredClients() {
-  if (state.clientTagFilter === 'all') {
-    return state.clients;
-  }
-  return state.clients.filter((client) => (client.tags || []).some((tag) => sanitizeName(tag) === state.clientTagFilter));
+  const query = state.clientSearchQuery.toLowerCase();
+  return state.clients.filter((client) => {
+    const matchesSearch = !query || sanitizeName(client.name).toLowerCase().includes(query);
+    const matchesProfileTag = state.clientProfileTagFilter === 'all'
+      || (client.profileTags || []).some((tag) => sanitizeName(tag) === state.clientProfileTagFilter);
+    return matchesSearch && matchesProfileTag;
+  });
 }
 
 function renderClients() {
   els.clientList.innerHTML = '';
-  renderClientTagFilter();
+  renderClientProfileTagFilter();
   if (!state.clients.length) {
     els.clientList.innerHTML = `
       <div class="empty-rail">
@@ -1634,8 +1639,8 @@ function renderClients() {
   if (!clients.length) {
     els.clientList.innerHTML = `
       <div class="empty-rail">
-        <strong>No clients match this tag.</strong>
-        <span>Choose All tags to show every client.</span>
+        <strong>No clients match.</strong>
+        <span>Clear search or choose All bio tags.</span>
       </div>
     `;
     updateStatusLine();
@@ -1648,7 +1653,7 @@ function renderClients() {
     if (state.selectedClientId === client.id) {
       button.classList.add('active');
     }
-    const clientTags = client.tags || [];
+    const clientTags = client.profileTags || [];
     const visibleTags = clientTags.slice(0, 3).map((tag) => `<span>${escapeHtml(tag)}</span>`);
     if (clientTags.length > 3) {
       visibleTags.push(`<span>+${clientTags.length - 3} more</span>`);
@@ -2847,8 +2852,12 @@ async function init() {
 
   els.onboardBtn.addEventListener('click', handleTopbarPrimaryAction);
   els.settingsBtn.addEventListener('click', openSettings);
-  els.clientTagFilter.addEventListener('change', () => {
-    state.clientTagFilter = els.clientTagFilter.value || 'all';
+  els.clientSearchInput.addEventListener('input', () => {
+    state.clientSearchQuery = sanitizeName(els.clientSearchInput.value);
+    renderClients();
+  });
+  els.clientProfileTagFilter.addEventListener('change', () => {
+    state.clientProfileTagFilter = els.clientProfileTagFilter.value || 'all';
     renderClients();
   });
   els.askClientBtn.addEventListener('click', openAskDialog);

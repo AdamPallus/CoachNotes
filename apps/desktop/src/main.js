@@ -105,6 +105,14 @@ const CLIENT_PROFILE_METADATA_KEYS = [
   'programWeek',
   'trainingProgramWeek'
 ];
+const CLIENT_PROFILE_FILTER_FIELDS = [
+  { key: 'curriculumType', legacyKey: 'curriculum', label: 'Curriculum' },
+  { key: 'programType', legacyKey: 'program', label: 'Program' },
+  { key: 'cohort', label: 'Cohort' },
+  { key: 'programFormat', label: 'Format' },
+  { key: 'primaryTrainingGoal', label: 'Goal' },
+  { key: 'contraindications', label: 'Contraindication', multi: true }
+];
 const DEFAULT_COACH_TEMPLATE = {
   schemaVersion: 'coach_template.v1',
   guidance: {
@@ -265,6 +273,31 @@ function normalizeArray(values, maxItems = 80) {
     }
   }
   return rows;
+}
+
+function getClientProfileFilterTags(profile) {
+  if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
+    return [];
+  }
+
+  const seen = new Set();
+  const tags = [];
+  for (const field of CLIENT_PROFILE_FILTER_FIELDS) {
+    const rawValue = profile[field.key] || (field.legacyKey ? profile[field.legacyKey] : '');
+    const values = field.multi || Array.isArray(rawValue)
+      ? normalizeArray(rawValue, 12)
+      : [sanitizeName(rawValue)].filter(Boolean);
+    for (const value of values) {
+      const tag = `${field.label}: ${value}`;
+      const key = tag.toLowerCase();
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      tags.push(tag);
+    }
+  }
+  return tags;
 }
 
 function cloneDefaultCoachTemplate() {
@@ -1069,6 +1102,9 @@ function getClients() {
     const sourceIds = parseJsonArray(row.sourceIdsJson);
     const flags = Array.isArray(structured.flags) ? structured.flags : [];
     const tasks = Array.isArray(structured.coachTasks) ? structured.coachTasks : [];
+    const clientProfile = structured.clientProfile && typeof structured.clientProfile === 'object' && !Array.isArray(structured.clientProfile)
+      ? structured.clientProfile
+      : {};
     return {
       id: row.id,
       name: row.name,
@@ -1078,6 +1114,7 @@ function getClients() {
       sourceCount: sourceIds.length || Number(row.sourceCount || 0),
       summary: String(structured.overview || '').slice(0, 180),
       tags: normalizeArray(structured.suggestedTags || [], 5),
+      profileTags: getClientProfileFilterTags(clientProfile),
       flagCount: flags.length,
       taskCount: tasks.length
     };

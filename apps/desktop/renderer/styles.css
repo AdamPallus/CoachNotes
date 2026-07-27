@@ -240,6 +240,7 @@ textarea:focus {
   gap: 5px;
 }
 
+.rail-filter input,
 .rail-filter select {
   min-height: 34px;
   padding: 7px 9px;
