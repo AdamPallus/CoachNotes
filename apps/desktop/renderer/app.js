@@ -1098,6 +1098,21 @@ function showNoteError(message) {
   els.noteErrorPanel.hidden = false;
 }
 
+function extractErrorReference(error) {
+  const match = String(error?.message || '').match(/Reference:\s*([A-Za-z0-9_-]+)/);
+  return match ? match[1] : '';
+}
+
+function formatAddNoteError(error) {
+  const reference = extractErrorReference(error);
+  return [
+    'CoachNotes could not update the dashboard.',
+    'The source is still listed below.',
+    'Click Update Dashboard to retry.',
+    reference ? `Reference: ${reference}` : ''
+  ].filter(Boolean).join(' ');
+}
+
 function openAddNoteDialog() {
   if (!state.selectedClientDetail?.client?.id) {
     showToast('Select a client before adding a note.', 'error');
@@ -2560,7 +2575,7 @@ async function submitAddedNote(event) {
     showToast(changeCount ? `Dashboard updated: ${changeCount} section${changeCount === 1 ? '' : 's'} changed.` : 'Dashboard updated.');
   } catch (error) {
     reopenDialogOnError = true;
-    showNoteError(`Update failed. Your note was not saved yet. Please try again. ${error.message}`);
+    showNoteError(formatAddNoteError(error));
   } finally {
     setBusy(false);
     if (reopenDialogOnError && !els.addNoteDialog.open) {
@@ -2568,7 +2583,7 @@ async function submitAddedNote(event) {
       els.addNoteDialog.showModal();
     }
     if (reopenDialogOnError) {
-      showToast('Update failed. The note is still in the dialog so you can retry.', 'error');
+      showToast('Update failed. The source is still in the dialog so you can retry.', 'error');
     }
   }
 }

@@ -64,6 +64,16 @@ const TAG_RULES = [
   '- Remove duplicate, overly specific, or one-off tags. Do not invent medical labels or unsupported traits.'
 ];
 
+const WORKFLOW_JSON_RETRY_ATTEMPTS = 1;
+
+class WorkflowJsonParseError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'WorkflowJsonParseError';
+    this.isWorkflowJsonParseError = true;
+  }
+}
+
 function normalizeWorkflow(value) {
   const normalized = String(value || '').trim().toLowerCase();
   if (normalized === 'client_intake_baseline' || normalized === 'client_note_update') {
@@ -103,14 +113,88 @@ function cleanJsonText(text) {
 function parseStructuredOutput(text) {
   const jsonText = cleanJsonText(text);
   if (!jsonText) {
-    throw new Error('Workflow returned an empty response.');
+    throw new WorkflowJsonParseError('Workflow returned an empty response.');
   }
 
   try {
     return JSON.parse(jsonText);
   } catch (error) {
-    throw new Error(`Workflow returned invalid JSON: ${error.message}`);
+    throw new WorkflowJsonParseError(`Workflow returned invalid JSON: ${error.message}`);
   }
+}
+
+function isWorkflowJsonParseError(error) {
+  return Boolean(error?.isWorkflowJsonParseError);
+}
+
+function workflowSystemPrompt(workflowName, attempt) {
+  if (attempt <= 0) {
+    return workflowPrompts[workflowName];
+  }
+  return [
+    workflowPrompts[workflowName],
+    'The previous attempt could not be parsed by CoachNotes.',
+    'Retry by returning one complete valid JSON object only.',
+    'Do not include markdown, comments, analysis, prose, or trailing text outside the JSON object.'
+  ].join(' ');
+}
+
+async function createWorkflowResponse({
+  openai,
+  model,
+  workflowName,
+  prompt,
+  maxOutputTokens,
+  requestTimeoutMs,
+  attempt
+}) {
+  const result = await withTimeout(
+    openai.responses.create({
+      model,
+      max_output_tokens: maxOutputTokens,
+      text: {
+        format: { type: 'json_object' }
+      },
+      input: [
+        { role: 'system', content: workflowSystemPrompt(workflowName, attempt) },
+        { role: 'user', content: prompt }
+      ]
+    }),
+    requestTimeoutMs,
+    'Workflow response timed out. Reduce the intake bundle and try again.'
+  );
+
+  const outputText = extractResponseOutputText(result).trim();
+  return {
+    outputText,
+    structured: parseStructuredOutput(outputText)
+  };
+}
+
+async function createParsedWorkflowResponse(options) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= WORKFLOW_JSON_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await createWorkflowResponse({ ...options, attempt });
+      return {
+        ...response,
+        attempts: attempt + 1
+      };
+    } catch (error) {
+      if (!isWorkflowJsonParseError(error) || attempt >= WORKFLOW_JSON_RETRY_ATTEMPTS) {
+        throw error;
+      }
+      lastError = error;
+      console.warn('[workflow json retry]', {
+        workflow: options.workflowName,
+        model: options.model,
+        attempt: attempt + 1,
+        message: error.message
+      });
+    }
+  }
+
+  throw lastError || new WorkflowJsonParseError('Workflow returned invalid JSON.');
 }
 
 function normalizePromptText(value, maxLength = 6000) {
@@ -508,26 +592,20 @@ module.exports = async function workflow(req, res) {
       ? renderClientUpdatePrompt(req.body)
       : renderClientIntakePrompt(req.body);
 
-    const result = await withTimeout(
-      openai.responses.create({
-        model,
-        max_output_tokens: maxOutputTokens,
-        input: [
-          { role: 'system', content: workflowPrompts[workflowName] },
-          { role: 'user', content: prompt }
-        ]
-      }),
-      requestTimeoutMs,
-      'Workflow response timed out. Reduce the intake bundle and try again.'
-    );
-
-    const outputText = extractResponseOutputText(result).trim();
-    const structured = parseStructuredOutput(outputText);
+    const { outputText, structured, attempts } = await createParsedWorkflowResponse({
+      openai,
+      model,
+      workflowName,
+      prompt,
+      maxOutputTokens,
+      requestTimeoutMs
+    });
 
     json(res, 200, {
       workflow: workflowName,
       model,
       maxOutputTokens,
+      attempts,
       structured,
       rawOutput: outputText
     });
@@ -541,8 +619,11 @@ module.exports = async function workflow(req, res) {
       name: err?.name || '',
       message: err?.message || 'Workflow request failed.'
     });
+    const message = isWorkflowJsonParseError(err)
+      ? 'CoachNotes could not finish formatting the AI update. Please try again.'
+      : err?.message || 'Workflow request failed.';
     json(res, 502, {
-      error: `${err?.message || 'Workflow request failed.'} Reference: ${errorId}`
+      error: `${message} Reference: ${errorId}`
     });
   }
 };
