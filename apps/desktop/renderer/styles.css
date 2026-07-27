@@ -221,6 +221,8 @@ textarea:focus {
 
 .rail-head {
   border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
 }
 
 .rail-head h2,
@@ -232,6 +234,16 @@ textarea:focus {
 
 .rail-head h2 {
   font-size: 16px;
+}
+
+.rail-filter {
+  gap: 5px;
+}
+
+.rail-filter select {
+  min-height: 34px;
+  padding: 7px 9px;
+  font-size: 13px;
 }
 
 .section-kicker {

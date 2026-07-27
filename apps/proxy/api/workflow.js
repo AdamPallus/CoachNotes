@@ -22,6 +22,7 @@ const workflowPrompts = {
     'Separate active constraints from historical context.',
     'Flag scope-of-practice concerns without diagnosing.',
     'Never invent dates, injuries, client preferences, program details, medications, or plans.',
+    'If returning clientProfile.programWeek, it must mean curriculum week based on curriculumStartDate. Use clientProfile.trainingProgramWeek for the separate training program week based on programStartDate.',
     'If a detail is unclear, put it in missingInfo instead of assuming.',
     'Return valid JSON only. Do not wrap it in markdown.'
   ].join(' '),
@@ -35,6 +36,7 @@ const workflowPrompts = {
     'The overview/Snapshot is for quick human scanning: keep it brief, current, and distinct from the to-do lists below.',
     'Only change sections when the new source clearly adds, updates, resolves, or contradicts something.',
     'When the new source conflicts with the baseline, preserve the baseline and add a confidence note or open loop unless the source clearly resolves the older point.',
+    'If returning clientProfile.programWeek, it must mean curriculum week based on curriculumStartDate. Use clientProfile.trainingProgramWeek for the separate training program week based on programStartDate.',
     'Every new or changed claim should cite the new source_id when possible.',
     'Flag scope-of-practice concerns without diagnosing.',
     'Return valid JSON only. Do not wrap it in markdown.'
@@ -308,7 +310,8 @@ function renderClientIntakePrompt(body) {
         contraindications: [''],
         curriculumStartDate: '',
         programStartDate: '',
-        programWeek: '',
+        programWeek: 'curriculum week based on curriculumStartDate, not training program start date',
+        trainingProgramWeek: 'training program week based on programStartDate',
         notes: ''
       },
       overview: 'brief current-state Snapshot for coach scanning',
@@ -502,7 +505,8 @@ function renderClientUpdatePrompt(body) {
           contraindications: [''],
           curriculumStartDate: '',
           programStartDate: '',
-          programWeek: '',
+          programWeek: 'curriculum week based on curriculumStartDate, not training program start date',
+          trainingProgramWeek: 'training program week based on programStartDate',
           notes: ''
         },
         overview: 'brief updated current-state Snapshot for coach scanning',

@@ -13,6 +13,7 @@ const state = {
   askLoading: false,
   sessionNotesQuery: '',
   sessionNotesType: 'all',
+  clientTagFilter: 'all',
   planningHiddenStatuses: new Set(['completed', 'abandoned', 'outdated']),
   expandedPlanningSections: new Set(),
   activeBaseline: null,
@@ -253,13 +254,15 @@ const profileControlKeys = new Set([
   'contraindications',
   'curriculumStartDate',
   'programStartDate',
-  'programWeek'
+  'programWeek',
+  'trainingProgramWeek'
 ]);
 
 const els = {
   statusLine: document.getElementById('statusLine'),
   onboardBtn: document.getElementById('onboardBtn'),
   settingsBtn: document.getElementById('settingsBtn'),
+  clientTagFilter: document.getElementById('clientTagFilter'),
   clientList: document.getElementById('clientList'),
   revealVaultBtn: document.getElementById('revealVaultBtn'),
   intakePanel: document.getElementById('intakePanel'),
@@ -745,8 +748,32 @@ function normalizeProfileSelectValue(profile, config) {
   return config.options.find((option) => option.toLowerCase() === legacyValue.toLowerCase()) || '';
 }
 
-function getProgramWeek(profile = {}) {
-  return calculateProgramWeek(profile.programStartDate) || sanitizeName(profile.programWeek);
+function getCurriculumWeek(profile = {}) {
+  return calculateProgramWeek(profile.curriculumStartDate);
+}
+
+function getTrainingProgramWeek(profile = {}) {
+  return calculateProgramWeek(profile.programStartDate);
+}
+
+function applyComputedProfileWeeks(profile, changedFields = new Set()) {
+  const next = profile && typeof profile === 'object' && !Array.isArray(profile)
+    ? { ...profile }
+    : {};
+  const curriculumWeek = calculateProgramWeek(next.curriculumStartDate);
+  if (curriculumWeek) {
+    next.programWeek = curriculumWeek;
+  } else if (changedFields.has('curriculumStartDate')) {
+    delete next.programWeek;
+  }
+
+  const trainingProgramWeek = calculateProgramWeek(next.programStartDate);
+  if (trainingProgramWeek) {
+    next.trainingProgramWeek = trainingProgramWeek;
+  } else if (changedFields.has('programStartDate')) {
+    delete next.trainingProgramWeek;
+  }
+  return next;
 }
 
 function compactObject(value) {
@@ -1557,8 +1584,41 @@ async function acceptBaseline() {
   }
 }
 
+function getClientTagOptions() {
+  const tags = new Set();
+  for (const client of state.clients) {
+    for (const tag of client.tags || []) {
+      const normalized = sanitizeName(tag);
+      if (normalized) {
+        tags.add(normalized);
+      }
+    }
+  }
+  return [...tags].sort((left, right) => left.localeCompare(right));
+}
+
+function renderClientTagFilter() {
+  const tags = getClientTagOptions();
+  if (state.clientTagFilter !== 'all' && !tags.includes(state.clientTagFilter)) {
+    state.clientTagFilter = 'all';
+  }
+  els.clientTagFilter.disabled = !tags.length;
+  els.clientTagFilter.innerHTML = [
+    `<option value="all"${state.clientTagFilter === 'all' ? ' selected' : ''}>All tags</option>`,
+    ...tags.map((tag) => `<option value="${escapeHtml(tag)}"${state.clientTagFilter === tag ? ' selected' : ''}>${escapeHtml(tag)}</option>`)
+  ].join('');
+}
+
+function getFilteredClients() {
+  if (state.clientTagFilter === 'all') {
+    return state.clients;
+  }
+  return state.clients.filter((client) => (client.tags || []).some((tag) => sanitizeName(tag) === state.clientTagFilter));
+}
+
 function renderClients() {
   els.clientList.innerHTML = '';
+  renderClientTagFilter();
   if (!state.clients.length) {
     els.clientList.innerHTML = `
       <div class="empty-rail">
@@ -1570,7 +1630,19 @@ function renderClients() {
     return;
   }
 
-  for (const client of state.clients) {
+  const clients = getFilteredClients();
+  if (!clients.length) {
+    els.clientList.innerHTML = `
+      <div class="empty-rail">
+        <strong>No clients match this tag.</strong>
+        <span>Choose All tags to show every client.</span>
+      </div>
+    `;
+    updateStatusLine();
+    return;
+  }
+
+  for (const client of clients) {
     const button = document.createElement('button');
     button.className = 'client-button';
     if (state.selectedClientId === client.id) {
@@ -1697,9 +1769,13 @@ function renderDetailPageTabs(activePage) {
 
 function renderProfileReferenceChips(profile = {}) {
   const chips = [];
-  const programWeek = getProgramWeek(profile);
-  if (programWeek) {
-    chips.push({ label: programWeek, className: 'profile-chip-week' });
+  const curriculumWeek = getCurriculumWeek(profile);
+  const trainingProgramWeek = getTrainingProgramWeek(profile);
+  if (curriculumWeek) {
+    chips.push({ label: `Curriculum: ${curriculumWeek}`, className: 'profile-chip-week' });
+  }
+  if (trainingProgramWeek) {
+    chips.push({ label: `Training: ${trainingProgramWeek}`, className: 'profile-chip-week' });
   }
   for (const config of getProfileSelectFields()) {
     const value = normalizeProfileSelectValue(profile, config);
@@ -1765,8 +1841,12 @@ function renderProgramSettingsFields(profile = {}, dataAttribute = 'data-profile
       <input type="date" value="${escapeHtml(profile.programStartDate || '')}" ${dataAttribute}="programStartDate" />
     </label>
     <div class="computed-week">
-      <span>Program Week</span>
-      <strong data-program-week-display>${escapeHtml(getProgramWeek(profile) || 'Not set')}</strong>
+      <span>Curriculum Week</span>
+      <strong data-curriculum-week-display>${escapeHtml(getCurriculumWeek(profile) || 'Not set')}</strong>
+    </div>
+    <div class="computed-week">
+      <span>Training Program Week</span>
+      <strong data-training-program-week-display>${escapeHtml(getTrainingProgramWeek(profile) || 'Not set')}</strong>
     </div>
     ${multiControls}
   `;
@@ -1800,18 +1880,19 @@ function collectIntakeClientProfile() {
       profile[field] = value;
     }
   }
-  const programWeek = calculateProgramWeek(profile.programStartDate);
-  if (programWeek) {
-    profile.programWeek = programWeek;
-  }
-  return profile;
+  return applyComputedProfileWeeks(profile, new Set(['curriculumStartDate', 'programStartDate']));
 }
 
 function updateIntakeProgramWeek() {
-  const startDate = els.intakeProgramSettings.querySelector('[data-intake-profile-field="programStartDate"]')?.value || '';
-  const display = els.intakeProgramSettings.querySelector('[data-program-week-display]');
-  if (display) {
-    display.textContent = calculateProgramWeek(startDate) || 'Not set';
+  const curriculumStartDate = els.intakeProgramSettings.querySelector('[data-intake-profile-field="curriculumStartDate"]')?.value || '';
+  const programStartDate = els.intakeProgramSettings.querySelector('[data-intake-profile-field="programStartDate"]')?.value || '';
+  const curriculumDisplay = els.intakeProgramSettings.querySelector('[data-curriculum-week-display]');
+  const trainingDisplay = els.intakeProgramSettings.querySelector('[data-training-program-week-display]');
+  if (curriculumDisplay) {
+    curriculumDisplay.textContent = calculateProgramWeek(curriculumStartDate) || 'Not set';
+  }
+  if (trainingDisplay) {
+    trainingDisplay.textContent = calculateProgramWeek(programStartDate) || 'Not set';
   }
 }
 
@@ -2494,13 +2575,7 @@ function buildNextClientProfile(currentProfile, patch) {
     ? { ...currentProfile }
     : {};
   Object.assign(next, patch);
-  const programWeek = calculateProgramWeek(next.programStartDate);
-  if (programWeek) {
-    next.programWeek = programWeek;
-  } else if (Object.prototype.hasOwnProperty.call(patch, 'programStartDate')) {
-    delete next.programWeek;
-  }
-  return next;
+  return applyComputedProfileWeeks(next, new Set(Object.keys(patch)));
 }
 
 async function saveProfileField(control) {
@@ -2772,6 +2847,10 @@ async function init() {
 
   els.onboardBtn.addEventListener('click', handleTopbarPrimaryAction);
   els.settingsBtn.addEventListener('click', openSettings);
+  els.clientTagFilter.addEventListener('change', () => {
+    state.clientTagFilter = els.clientTagFilter.value || 'all';
+    renderClients();
+  });
   els.askClientBtn.addEventListener('click', openAskDialog);
   els.addNoteBtn.addEventListener('click', openAddNoteDialog);
   els.deleteClientBtn.addEventListener('click', deleteSelectedClient);

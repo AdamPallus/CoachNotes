@@ -102,7 +102,8 @@ const CLIENT_PROFILE_METADATA_KEYS = [
   'contraindications',
   'curriculumStartDate',
   'programStartDate',
-  'programWeek'
+  'programWeek',
+  'trainingProgramWeek'
 ];
 const DEFAULT_COACH_TEMPLATE = {
   schemaVersion: 'coach_template.v1',
@@ -345,7 +346,8 @@ function normalizeClientProfilePatch(value) {
     'cohort',
     'programFormat',
     'primaryTrainingGoal',
-    'programWeek'
+    'programWeek',
+    'trainingProgramWeek'
   ];
   const dateKeys = ['curriculumStartDate', 'programStartDate'];
   const output = {};
