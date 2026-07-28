@@ -21,6 +21,14 @@
           </div>
         </div>
         <div class="topbar-actions">
+          <button id="backBtn" class="topbar-nav-button" type="button" title="Go back" aria-label="Go back" disabled>
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10H4M9 5l-5 5 5 5" /></svg>
+            <span>Back</span>
+          </button>
+          <button id="coachHomeBtn" class="topbar-nav-button active" type="button" aria-pressed="true" title="Open Mission Control">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="6" /><path d="M10 6v8M6 10h8" /></svg>
+            <span>Mission Control</span>
+          </button>
           <button id="onboardBtn" class="btn btn-primary" type="button">Onboard New Client</button>
           <button id="themeToggleBtn" class="theme-toggle" type="button" aria-pressed="false" title="Use dark mode">
             <svg class="theme-icon moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15.3A8.4 8.4 0 0 1 8.7 4 8.5 8.5 0 1 0 20 15.3Z" /></svg>
@@ -34,33 +42,15 @@
       <main class="workspace">
         <aside class="client-rail">
           <div class="rail-head">
-            <div class="rail-title-row">
-              <div>
-                <p class="section-kicker">Clients</p>
-                <h2>Client Profiles</h2>
-              </div>
-              <button id="coachHomeBtn" class="home-nav-button active" type="button" aria-pressed="true">
-                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10h14M10 3l-7 7 7 7" /></svg>
-                Mission Control
-              </button>
-            </div>
             <div class="rail-find-row">
               <label class="rail-filter rail-search-filter">
-                Find clients
-                <input id="clientSearchInput" type="search" placeholder="Name" autocomplete="off" />
+                <span class="sr-only">Find clients</span>
+                <input id="clientSearchInput" type="search" placeholder="Search" autocomplete="off" />
               </label>
               <button id="clientFilterToggle" class="rail-filter-toggle" type="button" aria-expanded="false" aria-controls="clientBioFilter">
-                Bio filter
+                Bio
               </button>
-            </div>
-            <label id="clientBioFilter" class="rail-filter rail-bio-filter" hidden>
-              Bio tag
-              <input id="clientProfileTagFilter" type="search" list="clientProfileTagOptions" placeholder="Any bio tag" autocomplete="off" />
-            </label>
-            <datalist id="clientProfileTagOptions"></datalist>
-            <div class="rail-filter sort-filter">
-              <span>Sort</span>
-              <div class="segmented-control" role="group" aria-label="Sort clients">
+              <div class="segmented-control compact-sort" role="group" aria-label="Sort clients">
                 <button type="button" data-client-sort="name" aria-pressed="true" aria-label="Sort alphabetically" title="Alphabetical">
                   <span class="sort-alpha" aria-hidden="true">A↓</span>
                   <span class="sr-only">Alphabetical</span>
@@ -71,6 +61,11 @@
                 </button>
               </div>
             </div>
+            <label id="clientBioFilter" class="rail-filter rail-bio-filter" hidden>
+              Bio tag
+              <input id="clientProfileTagFilter" type="search" list="clientProfileTagOptions" placeholder="Any bio tag" autocomplete="off" />
+            </label>
+            <datalist id="clientProfileTagOptions"></datalist>
           </div>
           <div id="clientList" class="client-list"></div>
           <div class="rail-foot">
@@ -403,7 +398,7 @@
           <div class="preset-field span-all">
             <label>
               Annotation
-              <input id="noteAnnotationInput" type="text" placeholder="Optional: what should the AI pay attention to?" />
+              <textarea id="noteAnnotationInput" class="auto-grow-annotation" rows="1" placeholder="Optional: what should the AI pay attention to?"></textarea>
             </label>
             <div class="field-preset-bar">
               <button id="saveNoteAnnotationPresetBtn" class="preset-save" type="button">Save</button>
@@ -477,6 +472,7 @@
       </form>
     </dialog>
 
+    <div id="citationTooltip" class="citation-tooltip" popover="manual" role="tooltip"></div>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <div id="busyOverlay" class="busy-overlay" hidden>
       <div class="busy-box">

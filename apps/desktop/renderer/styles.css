@@ -5918,3 +5918,350 @@ html[data-theme="dark"] .metric.missing-hot {
 html[data-theme="dark"] .dialog-form h2 {
   color: var(--ink);
 }
+
+/* UX repair pass: compact navigation, top-layer evidence, and a botanical flourish. */
+
+.topbar-actions {
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.topbar-nav-button {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  padding: 8px 11px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(248, 253, 250, 0.9);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.topbar-nav-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.topbar-nav-button:hover,
+.topbar-nav-button:focus-visible {
+  border-color: rgba(199, 244, 61, 0.65);
+  background: rgba(199, 244, 61, 0.12);
+  color: #efffbd;
+}
+
+.topbar-nav-button.active {
+  border-color: rgba(199, 244, 61, 0.48);
+  background: rgba(199, 244, 61, 0.1);
+  color: var(--atlas-leaf);
+}
+
+.topbar-nav-button:disabled {
+  opacity: 0.34;
+  cursor: default;
+}
+
+.topbar-nav-button:disabled:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(248, 253, 250, 0.9);
+}
+
+.rail-head {
+  min-height: 0;
+  gap: 7px;
+  padding: 8px;
+}
+
+.rail-find-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 5px;
+  align-items: center;
+}
+
+.rail-search-filter {
+  display: block;
+}
+
+.rail-search-filter input,
+.rail-filter-toggle,
+.compact-sort {
+  min-height: 36px;
+}
+
+.rail-filter-toggle {
+  padding: 7px 9px;
+}
+
+.compact-sort {
+  display: inline-flex;
+  width: auto;
+  flex: 0 0 auto;
+}
+
+.compact-sort button {
+  width: 35px;
+  min-width: 35px;
+  min-height: 34px;
+  padding: 5px;
+}
+
+.rail-bio-filter {
+  padding: 2px 0 0;
+}
+
+.coach-home-head {
+  min-height: 104px;
+}
+
+.coach-home-head::after {
+  display: block;
+  background-image: url("../assets/botanical-flourish-v1.png");
+  background-position: right -24px bottom -8px;
+  background-size: 430px auto;
+  filter: invert(31%) sepia(24%) saturate(860%) hue-rotate(95deg) brightness(82%) contrast(88%);
+  opacity: 0.2;
+  z-index: 0;
+}
+
+.home-brief-facts {
+  overflow: hidden;
+}
+
+.home-brief-fact {
+  position: relative;
+  min-width: 0;
+  min-height: 82px;
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  border: 0;
+  border-right: 1px solid rgba(9, 37, 26, 0.24);
+  padding: 12px 14px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.home-brief-fact:last-child {
+  border-right: 0;
+}
+
+.home-brief-fact strong {
+  color: var(--atlas-ink);
+  font-family: var(--display);
+  font-size: 29px;
+  font-weight: 620;
+  line-height: 1;
+}
+
+.home-brief-fact small {
+  color: inherit;
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.home-brief-fact.overdue strong,
+.home-brief-fact.missing strong {
+  color: var(--atlas-clay);
+}
+
+.home-brief-fact:hover,
+.home-brief-fact:focus-visible {
+  background: rgba(23, 74, 51, 0.07);
+  color: var(--atlas-green);
+  outline: none;
+}
+
+.home-brief-fact:focus-visible {
+  box-shadow: inset 0 0 0 3px var(--atlas-leaf);
+}
+
+[data-home-anchor] {
+  scroll-margin-top: 62px;
+}
+
+[data-home-anchor].is-jump-target {
+  animation: homeTargetLocate 1350ms ease-out;
+}
+
+@keyframes homeTargetLocate {
+  0%, 32% { box-shadow: inset 4px 0 0 var(--atlas-leaf), 0 0 0 2px rgba(199, 244, 61, 0.3); }
+  100% { box-shadow: none; }
+}
+
+.detail-section.prioritizable .section-title-row,
+.attention-band .detail-section .section-title-row {
+  width: auto;
+  min-height: 48px;
+  margin: 0;
+  padding: 13px 16px 11px;
+  border-bottom: 1px solid var(--line);
+  box-sizing: border-box;
+}
+
+.raw-source summary {
+  padding: 10px 12px;
+}
+
+.citation-popover,
+.ask-citation-popover {
+  display: none !important;
+}
+
+.citation-tooltip {
+  position: fixed;
+  inset: auto;
+  width: min(360px, calc(100vw - 24px));
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: #fffaf1;
+  box-shadow: 0 18px 50px rgba(8, 28, 19, 0.28);
+  color: var(--ink);
+  pointer-events: none;
+  text-align: left;
+}
+
+.citation-tooltip:popover-open {
+  animation: citationTooltipIn 110ms ease-out both;
+}
+
+.citation-tooltip strong,
+.citation-tooltip em,
+.citation-tooltip span {
+  display: block;
+}
+
+.citation-tooltip strong {
+  font-size: 13px;
+}
+
+.citation-tooltip em {
+  margin-top: 3px;
+  color: var(--clay);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.citation-tooltip span {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.42;
+}
+
+@keyframes citationTooltipIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+textarea.auto-grow-annotation {
+  min-height: 40px;
+  max-height: 132px;
+  overflow-y: hidden;
+  resize: none;
+  line-height: 1.45;
+}
+
+.preset-chip {
+  max-width: 230px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-left: 1px solid var(--line-strong);
+  border-radius: 3px;
+  padding: 5px 8px;
+  background: transparent;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preset-chip.annotation-preset {
+  max-width: min(320px, 100%);
+}
+
+.preset-chip:hover,
+.preset-chip:focus-visible {
+  border-color: var(--moss);
+  background: var(--moss-soft);
+}
+
+.choice-button-grid.note-type-choices {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+html[data-theme="dark"] .coach-home-head::after {
+  filter: invert(78%) sepia(29%) saturate(620%) hue-rotate(79deg) brightness(96%) contrast(89%);
+  opacity: 0.16;
+}
+
+html[data-theme="dark"] .home-brief-fact {
+  border-right-color: var(--line);
+  color: var(--muted);
+}
+
+html[data-theme="dark"] .home-brief-fact:hover,
+html[data-theme="dark"] .home-brief-fact:focus-visible {
+  background: rgba(199, 244, 61, 0.08);
+}
+
+html[data-theme="dark"] .citation-tooltip {
+  border-color: var(--line-strong);
+  background: #233029;
+  color: var(--ink);
+}
+
+html[data-theme="dark"] .topbar #onboardBtn,
+html[data-theme="dark"] .topbar #onboardBtn:hover,
+html[data-theme="dark"] .topbar #onboardBtn:focus-visible {
+  border-color: #a8cf55 !important;
+  background: #a8cf55 !important;
+  color: #071a12 !important;
+}
+
+@media (max-width: 1100px) {
+  .topbar {
+    gap: 8px;
+    padding-right: 10px;
+  }
+
+  .brand-block p,
+  .topbar-nav-button span {
+    display: none;
+  }
+
+  .topbar-nav-button {
+    width: 40px;
+    min-width: 40px;
+    padding-inline: 7px;
+  }
+
+  .topbar-actions {
+    gap: 5px;
+  }
+}
+
+@media (max-width: 760px) {
+  .choice-button-grid.note-type-choices {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

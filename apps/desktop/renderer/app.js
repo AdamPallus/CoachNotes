@@ -20,6 +20,10 @@ const state = {
   clientProfileTagFilter: '',
   clientSortMode: 'name',
   theme: 'light',
+  navigationHistory: [],
+  restoringNavigation: false,
+  askAppliedPresetPrompt: '',
+  askCustomPromptDraft: '',
   noteTitlePresets: [],
   noteAnnotationPresets: [],
   todoTitlePresets: [],
@@ -63,6 +67,7 @@ const noteAnnotationPresetsStorageKey = 'coachnotes.noteAnnotationPresets.v1';
 const todoTitlePresetsStorageKey = 'coachnotes.todoTitlePresets.v1';
 const themeStorageKey = 'coachnotes.theme.v1';
 const maxSavedPresets = 12;
+const maxNavigationHistory = 20;
 let clientProfileTagFilterTimer = null;
 
 const clientProfileExportPrompt = `Create an Everfit client profile from the client intake notes and any related coaching notes.
@@ -278,6 +283,7 @@ const profileControlKeys = new Set([
 
 const els = {
   statusLine: document.getElementById('statusLine'),
+  backBtn: document.getElementById('backBtn'),
   onboardBtn: document.getElementById('onboardBtn'),
   themeToggleBtn: document.getElementById('themeToggleBtn'),
   themeToggleLabel: document.getElementById('themeToggleLabel'),
@@ -291,6 +297,7 @@ const els = {
   clientSortButtons: [...document.querySelectorAll('[data-client-sort]')],
   clientList: document.getElementById('clientList'),
   revealVaultBtn: document.getElementById('revealVaultBtn'),
+  mainSurface: document.querySelector('.main-surface'),
   coachHomePanel: document.getElementById('coachHomePanel'),
   coachHomeContent: document.getElementById('coachHomeContent'),
   refreshCoachHomeBtn: document.getElementById('refreshCoachHomeBtn'),
@@ -374,6 +381,7 @@ const els = {
   todoTitlePresetList: document.getElementById('todoTitlePresetList'),
   saveTodoTitlePresetBtn: document.getElementById('saveTodoTitlePresetBtn'),
   cancelAddTodoBtn: document.getElementById('cancelAddTodoBtn'),
+  citationTooltip: document.getElementById('citationTooltip'),
   settingsDialog: document.getElementById('settingsDialog'),
   settingsForm: document.getElementById('settingsForm'),
   vaultInput: document.getElementById('vaultInput'),
@@ -560,6 +568,84 @@ function updateStatusLine() {
   els.statusLine.textContent = `${clientCount} accepted client${clientCount === 1 ? '' : 's'} • ${vault}`;
 }
 
+function captureNavigationLocation() {
+  return {
+    viewMode: state.viewMode,
+    clientId: state.selectedClientId,
+    detailPage: getActiveDetailPage(),
+    coachHomeTab: state.coachHomeTab,
+    scrollTop: Math.max(0, Number(els.mainSurface?.scrollTop || 0))
+  };
+}
+
+function navigationLocationKey(location) {
+  return [
+    location?.viewMode || '',
+    location?.clientId || '',
+    location?.detailPage || '',
+    location?.coachHomeTab || '',
+    Math.round(Number(location?.scrollTop || 0))
+  ].join(':');
+}
+
+function updateBackButton() {
+  const available = state.navigationHistory.length > 0 && !state.restoringNavigation;
+  els.backBtn.disabled = !available;
+  els.backBtn.title = available ? 'Go back' : 'Nothing to go back to yet';
+}
+
+function pushNavigationLocation() {
+  if (state.restoringNavigation) {
+    return;
+  }
+  const location = captureNavigationLocation();
+  const previous = state.navigationHistory[state.navigationHistory.length - 1];
+  if (!previous || navigationLocationKey(previous) !== navigationLocationKey(location)) {
+    state.navigationHistory.push(location);
+    if (state.navigationHistory.length > maxNavigationHistory) {
+      state.navigationHistory.splice(0, state.navigationHistory.length - maxNavigationHistory);
+    }
+  }
+  updateBackButton();
+}
+
+function restoreNavigationScroll(location) {
+  window.requestAnimationFrame(() => {
+    if (els.mainSurface) {
+      els.mainSurface.scrollTop = Math.max(0, Number(location?.scrollTop || 0));
+    }
+  });
+}
+
+async function goBack() {
+  const location = state.navigationHistory.pop();
+  if (!location) {
+    updateBackButton();
+    return;
+  }
+  state.restoringNavigation = true;
+  updateBackButton();
+  try {
+    if (location.viewMode === 'detail' && Number.isFinite(Number(location.clientId))) {
+      await selectClient(Number(location.clientId), {
+        detailPage: location.detailPage || 'snapshot',
+        recordHistory: false
+      });
+    } else if (location.viewMode === 'home' && state.clients.length) {
+      state.coachHomeTab = location.coachHomeTab || 'attention';
+      await openCoachHome({ recordHistory: false });
+    } else {
+      setViewMode('intake');
+    }
+    restoreNavigationScroll(location);
+  } catch (error) {
+    showToast(`Could not go back: ${error.message}`, 'error');
+  } finally {
+    state.restoringNavigation = false;
+    updateBackButton();
+  }
+}
+
 function setViewMode(mode) {
   state.viewMode = mode;
   const showIntake = mode === 'intake' || !state.clients.length;
@@ -574,6 +660,7 @@ function setViewMode(mode) {
   els.coachHomeBtn.setAttribute('aria-pressed', showHome ? 'true' : 'false');
   document.body.dataset.viewMode = state.viewMode;
   updateTopbarPrimaryAction();
+  updateBackButton();
 }
 
 function updateTopbarPrimaryAction() {
@@ -667,6 +754,46 @@ function renderCitationChip(rawSourceId, sourceLookup) {
       </span>
     </button>
   `;
+}
+
+function getCitationTrigger(target) {
+  return target?.closest?.('.citation-chip:not(:disabled), .ask-citation:not(:disabled)') || null;
+}
+
+function hideCitationTooltip() {
+  if (!els.citationTooltip) {
+    return;
+  }
+  if (els.citationTooltip.matches(':popover-open')) {
+    els.citationTooltip.hidePopover();
+  }
+  els.citationTooltip.innerHTML = '';
+}
+
+function showCitationTooltip(trigger) {
+  const source = trigger?.querySelector('.citation-popover, .ask-citation-popover');
+  if (!source || !els.citationTooltip) {
+    return;
+  }
+  hideCitationTooltip();
+  els.citationTooltip.innerHTML = source.innerHTML;
+  els.citationTooltip.showPopover();
+  const triggerRect = trigger.getBoundingClientRect();
+  const tooltipRect = els.citationTooltip.getBoundingClientRect();
+  const gap = 10;
+  const edge = 12;
+  const left = Math.min(
+    window.innerWidth - tooltipRect.width - edge,
+    Math.max(edge, triggerRect.left + (triggerRect.width / 2) - (tooltipRect.width / 2))
+  );
+  const above = triggerRect.top - tooltipRect.height - gap;
+  const top = above >= edge ? above : Math.min(
+    window.innerHeight - tooltipRect.height - edge,
+    triggerRect.bottom + gap
+  );
+  els.citationTooltip.style.left = `${Math.round(left)}px`;
+  els.citationTooltip.style.top = `${Math.round(Math.max(edge, top))}px`;
+  els.citationTooltip.dataset.placement = above >= edge ? 'above' : 'below';
 }
 
 function renderEvidenceText(value, sourceLookup, evidenceIds = []) {
@@ -1332,11 +1459,14 @@ function resetIntake(options = {}) {
 }
 
 function startOnboarding() {
+  if (state.viewMode !== 'intake') {
+    pushNavigationLocation();
+  }
   resetIntake();
   els.clientNameInput.focus();
 }
 
-function renderPresetList(container, values, emptyLabel) {
+function renderPresetList(container, values, emptyLabel, options = {}) {
   if (!container) {
     return;
   }
@@ -1344,16 +1474,31 @@ function renderPresetList(container, values, emptyLabel) {
     container.innerHTML = `<span class="preset-empty">${escapeHtml(emptyLabel)}</span>`;
     return;
   }
-  container.innerHTML = values.map((value, index) => `
-    <button class="preset-chip" type="button" data-preset-index="${escapeHtml(String(index))}">
-      ${escapeHtml(value)}
+  container.innerHTML = values.map((value, index) => {
+    const normalized = String(value || '').replace(/\s+/g, ' ').trim();
+    const label = options.truncate && normalized.length > 48
+      ? `${normalized.slice(0, 47).trim()}…`
+      : normalized;
+    return `
+    <button
+      class="preset-chip ${options.className || ''}"
+      type="button"
+      data-preset-index="${escapeHtml(String(index))}"
+      title="${escapeHtml(normalized)}"
+      aria-label="Use saved preset: ${escapeHtml(normalized)}"
+    >
+      ${escapeHtml(label)}
     </button>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function renderNotePresetControls() {
   renderPresetList(els.noteTitlePresetList, state.noteTitlePresets, 'No saved titles yet.');
-  renderPresetList(els.noteAnnotationPresetList, state.noteAnnotationPresets, 'No saved annotations yet.');
+  renderPresetList(els.noteAnnotationPresetList, state.noteAnnotationPresets, 'No saved annotations yet.', {
+    truncate: true,
+    className: 'annotation-preset'
+  });
 }
 
 function renderTodoPresetControls() {
@@ -1393,6 +1538,19 @@ function saveTodoTitlePreset() {
   showToast('To-do title saved.');
 }
 
+function resizeNoteAnnotation() {
+  const control = els.noteAnnotationInput;
+  if (!control) {
+    return;
+  }
+  control.style.height = 'auto';
+  const minimumHeight = 40;
+  const maximumHeight = 132;
+  const nextHeight = Math.min(maximumHeight, Math.max(minimumHeight, control.scrollHeight));
+  control.style.height = `${nextHeight}px`;
+  control.style.overflowY = control.scrollHeight > maximumHeight ? 'auto' : 'hidden';
+}
+
 function resetNoteDialog() {
   state.noteSources = [];
   state.noteRetryBlocked = false;
@@ -1406,6 +1564,7 @@ function resetNoteDialog() {
   syncChoiceGroups();
   renderNotePresetControls();
   renderNoteSources();
+  resizeNoteAnnotation();
 }
 
 function clearNoteError() {
@@ -1449,11 +1608,14 @@ function openAddNoteDialog() {
   resetNoteDialog();
   els.addNoteTitle.textContent = `Add Note for ${state.selectedClientDetail.client.name}`;
   els.addNoteDialog.showModal();
+  window.requestAnimationFrame(resizeNoteAnnotation);
   els.noteTextInput.focus();
 }
 
 function resetAskDialog() {
   state.askResult = null;
+  state.askAppliedPresetPrompt = '';
+  state.askCustomPromptDraft = '';
   setAskLoading(false);
   window.clearTimeout(copyAskResetTimer);
   copyAskResetTimer = null;
@@ -1482,15 +1644,29 @@ function openAskDialog() {
 }
 
 function applyAskOutputPreset() {
-  if (els.askOutputTypeInput.value === 'client-profile-export') {
-    els.askScopeInput.value = 'all-sources';
-    els.askTimeWindowInput.value = 'all-time';
-    els.askPromptInput.value = clientProfileExportPrompt;
+  const presets = {
+    'client-message': { scope: 'recent-notes', timeWindow: 'last-3-weeks', prompt: '' },
+    'session-prep': { scope: 'recent-notes', timeWindow: 'last-90-days', prompt: '' },
+    'initial-welcome-message': { scope: 'all-sources', timeWindow: 'all-time', prompt: initialWelcomeMessagePrompt },
+    'client-profile-export': { scope: 'all-sources', timeWindow: 'all-time', prompt: clientProfileExportPrompt },
+    'general-answer': { scope: 'recent-notes', timeWindow: 'last-3-weeks', prompt: '' }
+  };
+  const preset = presets[els.askOutputTypeInput.value] || presets['client-message'];
+  const currentPrompt = els.askPromptInput.value;
+  const currentlyUsingPreset = Boolean(state.askAppliedPresetPrompt)
+    && currentPrompt === state.askAppliedPresetPrompt;
+  if (!currentlyUsingPreset) {
+    state.askCustomPromptDraft = currentPrompt;
   }
-  if (els.askOutputTypeInput.value === 'initial-welcome-message') {
-    els.askScopeInput.value = 'all-sources';
-    els.askTimeWindowInput.value = 'all-time';
-    els.askPromptInput.value = initialWelcomeMessagePrompt;
+
+  els.askScopeInput.value = preset.scope;
+  els.askTimeWindowInput.value = preset.timeWindow;
+  if (preset.prompt) {
+    els.askPromptInput.value = preset.prompt;
+    state.askAppliedPresetPrompt = preset.prompt;
+  } else {
+    els.askPromptInput.value = state.askCustomPromptDraft;
+    state.askAppliedPresetPrompt = '';
   }
   syncChoiceGroups();
 }
@@ -1682,6 +1858,9 @@ function openAskCitationSource(sourceId) {
     els.askDialog.close();
   }
   if (normalized === 'dashboard_current') {
+    if (getActiveDetailPage() !== 'snapshot') {
+      pushNavigationLocation();
+    }
     state.detailPage = 'snapshot';
     renderClientDetail(state.selectedClientDetail);
     els.clientDetailPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1956,7 +2135,10 @@ function renderClientProfileTagFilter() {
   els.clientProfileTagOptions.innerHTML = tags.map((tag) => `<option value="${escapeHtml(tag)}"></option>`).join('');
   const hasFilter = Boolean(state.clientProfileTagFilter);
   els.clientFilterToggle.classList.toggle('is-active', hasFilter);
-  els.clientFilterToggle.textContent = hasFilter ? `Bio: ${state.clientProfileTagFilter}` : 'Bio filter';
+  els.clientFilterToggle.textContent = hasFilter ? 'Bio •' : 'Bio';
+  els.clientFilterToggle.setAttribute('aria-label', hasFilter
+    ? `Bio filter active: ${state.clientProfileTagFilter}`
+    : 'Filter the client index by a bio tag');
   els.clientFilterToggle.title = hasFilter ? `Filtering by ${state.clientProfileTagFilter}` : 'Filter the client index by a bio tag';
 }
 
@@ -2166,7 +2348,7 @@ function renderAttentionLane(label, caption, items, tone = '') {
   const visibleItems = expanded ? items : items.slice(0, initialLimit);
   const hiddenCount = Math.max(0, items.length - visibleItems.length);
   return `
-    <section class="attention-lane ${escapeHtml(tone)}">
+    <section class="attention-lane ${escapeHtml(tone)}" data-home-anchor="${escapeHtml(tone)}">
       <header class="attention-lane-label">
         <span class="attention-leaf" aria-hidden="true"></span>
         <strong>${escapeHtml(label)}</strong>
@@ -2211,9 +2393,9 @@ function renderHomeClientRows(clients = [], emptyText = 'No clients in this grou
   `;
 }
 
-function renderHomeGroup(title, subtitle, bodyHtml, tone = '') {
+function renderHomeGroup(title, subtitle, bodyHtml, tone = '', anchor = '') {
   return `
-    <section class="home-group ${escapeHtml(tone)}">
+    <section class="home-group ${escapeHtml(tone)}" ${anchor ? `data-home-anchor="${escapeHtml(anchor)}"` : ''}>
       <div class="home-group-head">
         <h3>${escapeHtml(title)}</h3>
         ${subtitle ? `<span>${escapeHtml(subtitle)}</span>` : ''}
@@ -2264,10 +2446,10 @@ function renderHomeBriefing(home) {
         <p>Start with overdue and missing-context work, then move through today's follow-ups.</p>
       </div>
       <div class="home-brief-facts" aria-label="Practice summary">
-        <span class="overdue"><strong>${escapeHtml(String(stats.overdueTaskCount || 0))}</strong> overdue</span>
-        <span class="today"><strong>${escapeHtml(String(stats.dueTodayTaskCount || 0))}</strong> due today</span>
-        <span class="missing"><strong>${escapeHtml(String(stats.missingInfoCount || 0))}</strong> missing info</span>
-        <span class="quiet"><strong>${escapeHtml(String(stats.staleClientCount || 0))}</strong> quiet clients</span>
+        <button class="home-brief-fact overdue" type="button" data-home-jump="overdue"><strong>${escapeHtml(String(stats.overdueTaskCount || 0))}</strong><small>overdue</small></button>
+        <button class="home-brief-fact today" type="button" data-home-jump="today"><strong>${escapeHtml(String(stats.dueTodayTaskCount || 0))}</strong><small>due today</small></button>
+        <button class="home-brief-fact missing" type="button" data-home-jump="missing"><strong>${escapeHtml(String(stats.missingInfoCount || 0))}</strong><small>missing info</small></button>
+        <button class="home-brief-fact quiet" type="button" data-home-jump="quiet"><strong>${escapeHtml(String(stats.staleClientCount || 0))}</strong><small>quiet clients</small></button>
       </div>
     </section>
   `;
@@ -2285,10 +2467,11 @@ function renderCoachHomeActivity(home) {
         renderHomeClientRows(activity.recentlyUpdated || [], 'No recent client updates yet.')
       )}
       ${renderHomeGroup(
-        'Needs Update',
+        'Quiet Clients',
         `No dashboard update in ${home.rules?.staleDays || 14}+ days`,
         renderHomeClientRows(activity.staleClients || [], 'No clients are stale by this rule.'),
-        activity.staleClients?.length ? 'warm' : ''
+        activity.staleClients?.length ? 'warm' : '',
+        'quiet'
       )}
       ${renderHomeGroup(
         'Messages This Week',
@@ -2381,6 +2564,31 @@ function renderCoachHome() {
       <div class="home-tab-content">${tabContent}</div>
     </div>
   `;
+}
+
+function jumpToHomeSection(jumpKey) {
+  const destinations = {
+    overdue: { tab: 'attention', anchor: 'overdue' },
+    today: { tab: 'attention', anchor: 'today' },
+    missing: { tab: 'attention', anchor: 'missing' },
+    quiet: { tab: 'activity', anchor: 'quiet' }
+  };
+  const destination = destinations[jumpKey];
+  if (!destination) {
+    return;
+  }
+  pushNavigationLocation();
+  state.coachHomeTab = destination.tab;
+  renderCoachHome();
+  window.requestAnimationFrame(() => {
+    const target = els.coachHomeContent.querySelector(`[data-home-anchor="${destination.anchor}"]`);
+    if (!target) {
+      return;
+    }
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    target.classList.add('is-jump-target');
+    window.setTimeout(() => target.classList.remove('is-jump-target'), 1500);
+  });
 }
 
 function renderDetailMetric(label, value, tone = '') {
@@ -2887,6 +3095,9 @@ function openCitedSource(sourceId) {
   if (!normalizedSourceId || !state.selectedClientDetail) {
     showToast('Source is not available locally.', 'error');
     return;
+  }
+  if (getActiveDetailPage() !== 'notes') {
+    pushNavigationLocation();
   }
   state.detailPage = 'notes';
   renderClientDetail(state.selectedClientDetail);
@@ -3542,10 +3753,18 @@ function formatDate(value) {
 }
 
 async function selectClient(clientId, options = {}) {
+  const requestedDetailPage = options.detailPage || '';
+  const targetDetailPage = requestedDetailPage
+    || (state.selectedClientId === clientId ? getActiveDetailPage() : 'snapshot');
+  const changesLocation = state.viewMode !== 'detail'
+    || state.selectedClientId !== clientId
+    || getActiveDetailPage() !== targetDetailPage;
+  if (options.recordHistory !== false && changesLocation) {
+    pushNavigationLocation();
+  }
   setBusy(true, 'Loading client...');
   try {
     const detail = await window.coachNotes.getClientDetail({ clientId });
-    const requestedDetailPage = options.detailPage || '';
     if (state.selectedClientId !== clientId) {
       state.detailPage = requestedDetailPage || 'snapshot';
     } else if (requestedDetailPage) {
@@ -3583,6 +3802,9 @@ async function openCoachHome(options = {}) {
   if (!state.clients.length) {
     setViewMode('intake');
     return;
+  }
+  if (options.recordHistory !== false && state.viewMode !== 'home') {
+    pushNavigationLocation();
   }
   if (options.refresh) {
     setBusy(true, 'Refreshing Coach Home...');
@@ -3655,7 +3877,7 @@ async function deleteSelectedClient() {
     state.lastUpdateNotice = null;
     await loadClients();
     if (state.clients.length) {
-      await openCoachHome();
+      await openCoachHome({ recordHistory: false });
     } else {
       resetIntake({ keepMode: true });
       setViewMode('intake');
@@ -3786,6 +4008,7 @@ async function init() {
     setBusy(false);
   }
 
+  els.backBtn.addEventListener('click', goBack);
   els.onboardBtn.addEventListener('click', handleTopbarPrimaryAction);
   els.themeToggleBtn.addEventListener('click', () => {
     applyTheme(state.theme === 'dark' ? 'light' : 'dark');
@@ -3794,9 +4017,18 @@ async function init() {
   els.coachHomeBtn.addEventListener('click', () => openCoachHome());
   els.refreshCoachHomeBtn.addEventListener('click', () => openCoachHome({ refresh: true }));
   els.coachHomeContent.addEventListener('click', async (event) => {
+    const jumpButton = event.target.closest('[data-home-jump]');
+    if (jumpButton) {
+      jumpToHomeSection(jumpButton.dataset.homeJump || '');
+      return;
+    }
     const tabButton = event.target.closest('[data-home-tab]');
     if (tabButton) {
-      state.coachHomeTab = tabButton.dataset.homeTab || 'attention';
+      const nextTab = tabButton.dataset.homeTab || 'attention';
+      if (nextTab !== state.coachHomeTab) {
+        pushNavigationLocation();
+      }
+      state.coachHomeTab = nextTab;
       renderCoachHome();
       return;
     }
@@ -3902,7 +4134,11 @@ async function init() {
     }
     const pageButton = event.target.closest('.detail-page-tab');
     if (pageButton) {
-      state.detailPage = pageButton.dataset.detailPage || 'snapshot';
+      const nextPage = pageButton.dataset.detailPage || 'snapshot';
+      if (nextPage !== getActiveDetailPage()) {
+        pushNavigationLocation();
+      }
+      state.detailPage = nextPage;
       renderClientDetail(state.selectedClientDetail);
       return;
     }
@@ -4020,6 +4256,34 @@ async function init() {
     control.dispatchEvent(new Event('change', { bubbles: true }));
     syncChoiceGroups();
   });
+  document.addEventListener('pointerover', (event) => {
+    const trigger = getCitationTrigger(event.target);
+    if (!trigger || trigger.contains(event.relatedTarget)) {
+      return;
+    }
+    showCitationTooltip(trigger);
+  });
+  document.addEventListener('pointerout', (event) => {
+    const trigger = getCitationTrigger(event.target);
+    if (!trigger || trigger.contains(event.relatedTarget)) {
+      return;
+    }
+    hideCitationTooltip();
+  });
+  document.addEventListener('focusin', (event) => {
+    const trigger = getCitationTrigger(event.target);
+    if (trigger) {
+      showCitationTooltip(trigger);
+    }
+  });
+  document.addEventListener('focusout', (event) => {
+    const trigger = getCitationTrigger(event.target);
+    if (trigger && !trigger.contains(event.relatedTarget)) {
+      hideCitationTooltip();
+    }
+  });
+  window.addEventListener('scroll', hideCitationTooltip, true);
+  window.addEventListener('resize', hideCitationTooltip);
   els.askOutputTypeInput.addEventListener('change', applyAskOutputPreset);
   els.askResultOutput.addEventListener('click', (event) => {
     const citationButton = event.target.closest('.ask-citation[data-source-id]');
@@ -4047,9 +4311,11 @@ async function init() {
     const index = Number(button?.dataset?.presetIndex);
     if (Number.isInteger(index) && state.noteAnnotationPresets[index]) {
       els.noteAnnotationInput.value = state.noteAnnotationPresets[index];
+      resizeNoteAnnotation();
       els.noteAnnotationInput.focus();
     }
   });
+  els.noteAnnotationInput.addEventListener('input', resizeNoteAnnotation);
   els.addTodoForm.addEventListener('submit', submitAddTodo);
   els.cancelAddTodoBtn.addEventListener('click', () => els.addTodoDialog.close());
   els.saveTodoTitlePresetBtn.addEventListener('click', saveTodoTitlePreset);
