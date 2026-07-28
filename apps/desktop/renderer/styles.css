@@ -6170,7 +6170,78 @@ html[data-theme="dark"] .dialog-form h2 {
 }
 
 .rail-bio-filter {
+  position: relative;
+  z-index: 12;
   padding: 2px 0 0;
+}
+
+.rail-bio-filter > label {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.rail-bio-combobox {
+  position: relative;
+}
+
+.client-profile-tag-options {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  left: 0;
+  z-index: 30;
+  max-height: min(240px, calc(100vh - 230px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  padding: 4px;
+  background: var(--paper-strong);
+  box-shadow: var(--shadow);
+}
+
+.client-profile-tag-options::-webkit-scrollbar {
+  width: 8px;
+}
+
+.client-profile-tag-options::-webkit-scrollbar-track {
+  background: var(--paper-muted);
+}
+
+.client-profile-tag-options::-webkit-scrollbar-thumb {
+  border: 2px solid var(--paper-muted);
+  border-radius: 999px;
+  background: var(--moss);
+}
+
+.client-profile-tag-option {
+  width: 100%;
+  min-height: 32px;
+  border: 0;
+  border-radius: 2px;
+  padding: 7px 9px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+}
+
+.client-profile-tag-option:hover,
+.client-profile-tag-option.is-active,
+.client-profile-tag-option[aria-selected="true"] {
+  background: var(--moss-soft);
+  color: var(--moss-dark);
+}
+
+.client-profile-tag-empty {
+  margin: 0;
+  padding: 9px;
+  color: var(--muted);
+  font-size: 11px;
+  font-style: italic;
 }
 
 .coach-home-head {

@@ -71,6 +71,7 @@ const themeStorageKey = 'coachnotes.theme.v1';
 const maxSavedPresets = 12;
 const maxNavigationHistory = 20;
 let clientProfileTagFilterTimer = null;
+let clientProfileTagActiveIndex = -1;
 let clientNavigationSequence = 0;
 let clientLoadingTimer = null;
 
@@ -2190,10 +2191,71 @@ function getClientProfileTagOptions() {
   return [...tags].sort((left, right) => left.localeCompare(right));
 }
 
+function closeClientProfileTagOptions() {
+  clientProfileTagActiveIndex = -1;
+  els.clientProfileTagOptions.hidden = true;
+  els.clientProfileTagFilter.setAttribute('aria-expanded', 'false');
+  els.clientProfileTagFilter.removeAttribute('aria-activedescendant');
+}
+
+function setClientProfileTagActiveOption(index) {
+  const options = [...els.clientProfileTagOptions.querySelectorAll('[data-client-profile-tag-option]')];
+  if (!options.length) {
+    clientProfileTagActiveIndex = -1;
+    els.clientProfileTagFilter.removeAttribute('aria-activedescendant');
+    return;
+  }
+  clientProfileTagActiveIndex = Math.max(0, Math.min(index, options.length - 1));
+  options.forEach((option, optionIndex) => {
+    const active = optionIndex === clientProfileTagActiveIndex;
+    option.classList.toggle('is-active', active);
+    option.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  const activeOption = options[clientProfileTagActiveIndex];
+  els.clientProfileTagFilter.setAttribute('aria-activedescendant', activeOption.id);
+  activeOption.scrollIntoView({ block: 'nearest' });
+}
+
+function renderClientProfileTagOptions({ open = false } = {}) {
+  const allTags = getClientProfileTagOptions();
+  const query = sanitizeName(els.clientProfileTagFilter.value).toLowerCase();
+  const tags = query
+    ? allTags.filter((tag) => tag.toLowerCase().includes(query))
+    : allTags;
+  els.clientProfileTagOptions.innerHTML = tags.length
+    ? tags.map((tag, index) => `
+        <button
+          id="clientProfileTagOption${index}"
+          class="client-profile-tag-option"
+          type="button"
+          role="option"
+          aria-selected="false"
+          data-client-profile-tag-option="${escapeHtml(tag)}"
+        >${escapeHtml(tag)}</button>
+      `).join('')
+    : '<p class="client-profile-tag-empty">No matching bio tags.</p>';
+  clientProfileTagActiveIndex = -1;
+  const shouldOpen = open && allTags.length > 0 && !els.clientBioFilter.hidden;
+  els.clientProfileTagOptions.hidden = !shouldOpen;
+  els.clientProfileTagFilter.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+  els.clientProfileTagFilter.removeAttribute('aria-activedescendant');
+}
+
+function selectClientProfileTag(tag) {
+  const value = sanitizeName(tag);
+  els.clientProfileTagFilter.value = value;
+  state.clientProfileTagFilter = value;
+  window.clearTimeout(clientProfileTagFilterTimer);
+  renderClients();
+  els.clientProfileTagFilter.focus();
+  closeClientProfileTagOptions();
+}
+
 function renderClientProfileTagFilter() {
   const tags = getClientProfileTagOptions();
+  const optionsWereOpen = !els.clientProfileTagOptions.hidden;
   els.clientProfileTagFilter.placeholder = tags.length ? 'Any bio tag' : 'No bio tags yet';
-  els.clientProfileTagOptions.innerHTML = tags.map((tag) => `<option value="${escapeHtml(tag)}"></option>`).join('');
+  renderClientProfileTagOptions({ open: optionsWereOpen });
   const hasFilter = Boolean(state.clientProfileTagFilter);
   els.clientFilterToggle.classList.toggle('is-active', hasFilter);
   els.clientFilterToggle.textContent = hasFilter ? 'Bio •' : 'Bio';
@@ -4363,14 +4425,75 @@ async function init() {
     els.clientBioFilter.hidden = !nextExpanded;
     if (nextExpanded) {
       els.clientProfileTagFilter.focus();
+      renderClientProfileTagOptions({ open: true });
+    } else {
+      closeClientProfileTagOptions();
     }
   });
   els.clientProfileTagFilter.addEventListener('input', () => {
     window.clearTimeout(clientProfileTagFilterTimer);
+    renderClientProfileTagOptions({ open: true });
     clientProfileTagFilterTimer = window.setTimeout(() => {
       state.clientProfileTagFilter = sanitizeName(els.clientProfileTagFilter.value);
       renderClients();
     }, 180);
+  });
+  els.clientProfileTagFilter.addEventListener('focus', () => {
+    if (!els.clientBioFilter.hidden) {
+      renderClientProfileTagOptions({ open: true });
+    }
+  });
+  els.clientProfileTagFilter.addEventListener('keydown', (event) => {
+    const options = [...els.clientProfileTagOptions.querySelectorAll('[data-client-profile-tag-option]')];
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (els.clientProfileTagOptions.hidden) {
+        renderClientProfileTagOptions({ open: true });
+      }
+      const nextIndex = event.key === 'ArrowDown'
+        ? (clientProfileTagActiveIndex < 0 ? 0 : clientProfileTagActiveIndex + 1)
+        : (clientProfileTagActiveIndex < 0 ? options.length - 1 : clientProfileTagActiveIndex - 1);
+      setClientProfileTagActiveOption(nextIndex);
+      return;
+    }
+    if (event.key === 'Enter' && clientProfileTagActiveIndex >= 0) {
+      const activeOption = options[clientProfileTagActiveIndex];
+      if (activeOption) {
+        event.preventDefault();
+        selectClientProfileTag(activeOption.dataset.clientProfileTagOption);
+      }
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeClientProfileTagOptions();
+    }
+  });
+  els.clientProfileTagOptions.addEventListener('click', (event) => {
+    const option = event.target.closest('[data-client-profile-tag-option]');
+    if (option) {
+      selectClientProfileTag(option.dataset.clientProfileTagOption);
+    }
+  });
+  els.clientProfileTagOptions.addEventListener('pointermove', (event) => {
+    const option = event.target.closest('[data-client-profile-tag-option]');
+    if (!option) {
+      return;
+    }
+    const options = [...els.clientProfileTagOptions.querySelectorAll('[data-client-profile-tag-option]')];
+    setClientProfileTagActiveOption(options.indexOf(option));
+  });
+  els.clientBioFilter.addEventListener('focusout', () => {
+    window.setTimeout(() => {
+      if (!els.clientBioFilter.contains(document.activeElement)) {
+        closeClientProfileTagOptions();
+      }
+    }, 0);
+  });
+  document.addEventListener('pointerdown', (event) => {
+    if (!els.clientBioFilter.contains(event.target) && !els.clientFilterToggle.contains(event.target)) {
+      closeClientProfileTagOptions();
+    }
   });
   els.clientSortButtons.forEach((button) => {
     button.addEventListener('click', () => {

@@ -64,11 +64,22 @@
                 </button>
               </div>
             </div>
-            <label id="clientBioFilter" class="rail-filter rail-bio-filter" hidden>
-              Bio tag
-              <input id="clientProfileTagFilter" type="search" list="clientProfileTagOptions" placeholder="Any bio tag" autocomplete="off" />
-            </label>
-            <datalist id="clientProfileTagOptions"></datalist>
+            <div id="clientBioFilter" class="rail-filter rail-bio-filter" hidden>
+              <label for="clientProfileTagFilter">Bio tag</label>
+              <div class="rail-bio-combobox">
+                <input
+                  id="clientProfileTagFilter"
+                  type="search"
+                  placeholder="Any bio tag"
+                  autocomplete="off"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded="false"
+                  aria-controls="clientProfileTagOptions"
+                />
+                <div id="clientProfileTagOptions" class="client-profile-tag-options" role="listbox" hidden></div>
+              </div>
+            </div>
           </div>
           <div id="clientList" class="client-list"></div>
           <div class="rail-foot">
