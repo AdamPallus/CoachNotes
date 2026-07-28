@@ -11,10 +11,18 @@ const state = {
   lastUpdateNotice: null,
   askResult: null,
   askLoading: false,
+  coachHome: null,
+  coachHomeTab: 'attention',
   sessionNotesQuery: '',
   sessionNotesType: 'all',
   clientSearchQuery: '',
-  clientProfileTagFilter: 'all',
+  clientProfileTagFilter: '',
+  clientSortMode: 'name',
+  noteTitlePresets: [],
+  noteAnnotationPresets: [],
+  todoTitlePresets: [],
+  addTodoSectionKey: 'coachTasks',
+  noteRetryBlocked: false,
   planningHiddenStatuses: new Set(['completed', 'abandoned', 'outdated']),
   expandedPlanningSections: new Set(),
   activeBaseline: null,
@@ -47,6 +55,11 @@ const prioritizableSections = new Set(['coachTasks', 'goalsValues']);
 const defaultHiddenPlanningStatuses = new Set(['completed', 'abandoned', 'outdated']);
 const closedPlanningStatuses = new Set(['completed', 'abandoned', 'outdated']);
 const planningHiddenStatusesStorageKey = 'coachnotes.planningHiddenStatuses.v1';
+const clientSortStorageKey = 'coachnotes.clientSortMode.v1';
+const noteTitlePresetsStorageKey = 'coachnotes.noteTitlePresets.v1';
+const noteAnnotationPresetsStorageKey = 'coachnotes.noteAnnotationPresets.v1';
+const todoTitlePresetsStorageKey = 'coachnotes.todoTitlePresets.v1';
+const maxSavedPresets = 12;
 
 const clientProfileExportPrompt = `Create an Everfit client profile from the client intake notes and any related coaching notes.
 
@@ -263,10 +276,16 @@ const els = {
   statusLine: document.getElementById('statusLine'),
   onboardBtn: document.getElementById('onboardBtn'),
   settingsBtn: document.getElementById('settingsBtn'),
+  coachHomeBtn: document.getElementById('coachHomeBtn'),
   clientSearchInput: document.getElementById('clientSearchInput'),
   clientProfileTagFilter: document.getElementById('clientProfileTagFilter'),
+  clientProfileTagOptions: document.getElementById('clientProfileTagOptions'),
+  clientSortButtons: [...document.querySelectorAll('[data-client-sort]')],
   clientList: document.getElementById('clientList'),
   revealVaultBtn: document.getElementById('revealVaultBtn'),
+  coachHomePanel: document.getElementById('coachHomePanel'),
+  coachHomeContent: document.getElementById('coachHomeContent'),
+  refreshCoachHomeBtn: document.getElementById('refreshCoachHomeBtn'),
   intakePanel: document.getElementById('intakePanel'),
   resetIntakeBtn: document.getElementById('resetIntakeBtn'),
   runIntakeBtn: document.getElementById('runIntakeBtn'),
@@ -328,10 +347,25 @@ const els = {
   noteAnnotationInput: document.getElementById('noteAnnotationInput'),
   noteTextInput: document.getElementById('noteTextInput'),
   noteErrorPanel: document.getElementById('noteErrorPanel'),
+  noteTitlePresetList: document.getElementById('noteTitlePresetList'),
+  noteAnnotationPresetList: document.getElementById('noteAnnotationPresetList'),
+  saveNoteTitlePresetBtn: document.getElementById('saveNoteTitlePresetBtn'),
+  saveNoteAnnotationPresetBtn: document.getElementById('saveNoteAnnotationPresetBtn'),
   importNoteFilesBtn: document.getElementById('importNoteFilesBtn'),
   clearNoteSourcesBtn: document.getElementById('clearNoteSourcesBtn'),
   noteSourceList: document.getElementById('noteSourceList'),
   cancelAddNoteBtn: document.getElementById('cancelAddNoteBtn'),
+  updateNoteSubmitBtn: document.getElementById('updateNoteSubmitBtn'),
+  addTodoDialog: document.getElementById('addTodoDialog'),
+  addTodoForm: document.getElementById('addTodoForm'),
+  todoTitleInput: document.getElementById('todoTitleInput'),
+  todoDueDateInput: document.getElementById('todoDueDateInput'),
+  todoPriorityInput: document.getElementById('todoPriorityInput'),
+  todoStatusInput: document.getElementById('todoStatusInput'),
+  todoDetailsInput: document.getElementById('todoDetailsInput'),
+  todoTitlePresetList: document.getElementById('todoTitlePresetList'),
+  saveTodoTitlePresetBtn: document.getElementById('saveTodoTitlePresetBtn'),
+  cancelAddTodoBtn: document.getElementById('cancelAddTodoBtn'),
   settingsDialog: document.getElementById('settingsDialog'),
   settingsForm: document.getElementById('settingsForm'),
   vaultInput: document.getElementById('vaultInput'),
@@ -350,6 +384,7 @@ const els = {
 };
 
 let toastTimer = null;
+let copyAskResetTimer = null;
 
 function escapeHtml(value) {
   return String(value || '')
@@ -368,6 +403,14 @@ function makeLocalId() {
   return `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function todayLocalDate() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function getSectionConfig(key) {
   return baselineSections.find((section) => section.key === key) || { key, label: key, type: 'list', rows: 6 };
 }
@@ -378,6 +421,53 @@ function sectionLabel(key) {
 
 function valuesEqual(left, right) {
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+function loadStringList(storageKey) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    if (Array.isArray(parsed)) {
+      return parsed.map((entry) => sanitizeName(entry)).filter(Boolean).slice(0, maxSavedPresets);
+    }
+  } catch {
+    // Local convenience presets can safely fall back to empty.
+  }
+  return [];
+}
+
+function saveStringList(storageKey, values) {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify((Array.isArray(values) ? values : []).slice(0, maxSavedPresets)));
+  } catch {
+    // Presets are best-effort local convenience state.
+  }
+}
+
+function upsertPresetValue(storageKey, values, value) {
+  const normalized = sanitizeName(value).slice(0, 180);
+  if (!normalized) {
+    return values;
+  }
+  const existing = Array.isArray(values) ? values : [];
+  const next = [
+    normalized,
+    ...existing.filter((entry) => entry.toLowerCase() !== normalized.toLowerCase())
+  ].slice(0, maxSavedPresets);
+  saveStringList(storageKey, next);
+  return next;
+}
+
+function loadLocalPreferences() {
+  loadPlanningHiddenStatuses();
+  state.noteTitlePresets = loadStringList(noteTitlePresetsStorageKey);
+  state.noteAnnotationPresets = loadStringList(noteAnnotationPresetsStorageKey);
+  state.todoTitlePresets = loadStringList(todoTitlePresetsStorageKey);
+  try {
+    const savedSortMode = localStorage.getItem(clientSortStorageKey);
+    state.clientSortMode = savedSortMode === 'updated' ? 'updated' : 'name';
+  } catch {
+    state.clientSortMode = 'name';
+  }
 }
 
 function wordCount(text) {
@@ -415,11 +505,15 @@ function updateStatusLine() {
 function setViewMode(mode) {
   state.viewMode = mode;
   const showIntake = mode === 'intake' || !state.clients.length;
+  const showHome = mode === 'home' && state.clients.length;
   els.intakePanel.hidden = !showIntake;
   if (!showIntake) {
     els.reviewPanel.hidden = true;
   }
+  els.coachHomePanel.hidden = !showHome;
   els.clientDetailPanel.hidden = mode !== 'detail' || !state.selectedClientDetail;
+  els.coachHomeBtn.classList.toggle('active', showHome);
+  els.coachHomeBtn.setAttribute('aria-pressed', showHome ? 'true' : 'false');
   document.body.dataset.viewMode = state.viewMode;
   updateTopbarPrimaryAction();
 }
@@ -453,31 +547,67 @@ function buildSourceLookup(sources = []) {
   const lookup = new Map();
   sources.forEach((source, index) => {
     const sourceId = source.sourceId || `intake_source_${source.id}`;
-    lookup.set(sourceId, {
+    const normalized = {
       ...source,
       sourceId,
       displayNumber: index + 1,
       excerpt: truncateText(source.rawText || source.annotation || '', 720)
-    });
+    };
+    [
+      sourceId,
+      String(source.id || ''),
+      `source_${index + 1}`,
+      `#${index + 1}`
+    ].filter(Boolean).forEach((key) => lookup.set(key, normalized));
   });
   return lookup;
 }
 
-function renderCitationChip(sourceId, sourceLookup) {
-  const source = sourceLookup.get(sourceId);
-  const label = source ? source.displayNumber : sourceId.replace('intake_source_', '#');
+function normalizeCitationSourceId(value) {
+  const raw = String(value || '').trim();
+  if (/^\d+$/.test(raw)) {
+    return `intake_source_${raw}`;
+  }
+  return raw;
+}
+
+function getCitationSource(rawSourceId, sourceLookup) {
+  const raw = String(rawSourceId || '').trim();
+  const withoutHash = raw.replace(/^#/, '');
+  const candidates = [
+    raw,
+    normalizeCitationSourceId(raw),
+    withoutHash,
+    normalizeCitationSourceId(withoutHash)
+  ];
+  if (/^\d+$/.test(withoutHash)) {
+    candidates.push(`source_${withoutHash}`, `#${withoutHash}`);
+  }
+  return candidates.map((candidate) => sourceLookup.get(candidate)).find(Boolean);
+}
+
+function renderCitationChip(rawSourceId, sourceLookup) {
+  const sourceId = String(rawSourceId || '').trim();
+  const source = getCitationSource(sourceId, sourceLookup);
+  const label = source ? source.displayNumber : normalizeCitationSourceId(sourceId).replace('intake_source_', '#');
   const title = source?.title || sourceId;
   const meta = source ? [source.sourceType, source.sourceDate].filter(Boolean).join(' • ') : 'Source not found in this baseline';
   const excerpt = source?.excerpt || 'This citation points to a source id that is not available locally.';
   return `
-    <span class="citation-chip" tabindex="0" role="button" aria-label="Show source ${escapeHtml(String(label))}">
+    <button
+      class="citation-chip"
+      type="button"
+      data-source-id="${escapeHtml(source?.sourceId || '')}"
+      aria-label="Open source ${escapeHtml(String(label))}"
+      ${source ? '' : 'disabled'}
+    >
       ${escapeHtml(String(label))}
       <span class="citation-popover" role="tooltip">
         <strong>${escapeHtml(title)}</strong>
         <em>${escapeHtml(meta)}</em>
         <span>${escapeHtml(excerpt)}</span>
       </span>
-    </span>
+    </button>
   `;
 }
 
@@ -488,16 +618,16 @@ function renderEvidenceText(value, sourceLookup, evidenceIds = []) {
   }
 
   const citedIds = new Set();
-  const pattern = /\[((?:\s*intake_source_\d+\s*,?)+)\]/g;
+  const pattern = /\[((?:\s*(?:intake_source_\d+|source_\d+|#?\d+)\s*,?)+)\]/g;
   let cursor = 0;
   let html = '';
   let match = pattern.exec(raw);
   while (match) {
     html += escapeHtml(raw.slice(cursor, match.index));
-    const ids = match[1].match(/intake_source_\d+/g) || [];
+    const ids = match[1].match(/intake_source_\d+|source_\d+|#?\d+/g) || [];
     if (ids.length) {
       html += `<span class="citation-cluster">${ids.map((id) => {
-        citedIds.add(id);
+        citedIds.add(normalizeCitationSourceId(id.replace(/^#/, '')));
         return renderCitationChip(id, sourceLookup);
       }).join('')}</span>`;
     } else {
@@ -508,7 +638,10 @@ function renderEvidenceText(value, sourceLookup, evidenceIds = []) {
   }
   html += escapeHtml(raw.slice(cursor));
 
-  const appended = evidenceIds.filter((id) => id && !citedIds.has(id));
+  const appended = evidenceIds.filter((id) => {
+    const normalized = normalizeCitationSourceId(String(id || '').replace(/^#/, ''));
+    return normalized && !citedIds.has(normalized);
+  });
   if (appended.length) {
     html += `<span class="citation-cluster inline-tail">${appended.map((id) => renderCitationChip(id, sourceLookup)).join('')}</span>`;
   }
@@ -581,6 +714,35 @@ function getPlanningStatusOption(item) {
     : '';
   const value = normalizePlanningStatus(explicit);
   return planningStatusOptions.find((option) => option.value === value) || planningStatusOptions[0];
+}
+
+function normalizeDueDateValue(value) {
+  const raw = String(value || '').trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : '';
+}
+
+function getPlanningDueDate(item) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    return '';
+  }
+  return normalizeDueDateValue(item.dueDate || item.dueOrReviewBy || item.reviewBy || item.due || '');
+}
+
+function getDueDateState(dueDate) {
+  const due = parseLocalDate(dueDate);
+  if (!due) {
+    return '';
+  }
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (due < today) {
+    return 'overdue';
+  }
+  if (due.getTime() === today.getTime()) {
+    return 'due-today';
+  }
+  return 'upcoming';
 }
 
 function isPrioritizableSection(sectionKey) {
@@ -822,7 +984,8 @@ function normalizeDetailItem(item, options = {}) {
       detail: item,
       evidenceIds: [],
       priority: getPriorityOption('none'),
-      planningStatus: planningStatusOptions[0]
+      planningStatus: planningStatusOptions[0],
+      dueDate: ''
     };
   }
   if (!item || typeof item !== 'object') {
@@ -831,7 +994,8 @@ function normalizeDetailItem(item, options = {}) {
       detail: '',
       evidenceIds: [],
       priority: getPriorityOption('none'),
-      planningStatus: planningStatusOptions[0]
+      planningStatus: planningStatusOptions[0],
+      dueDate: ''
     };
   }
   const planningSection = isPrioritizableSection(options.sectionKey);
@@ -860,6 +1024,10 @@ function normalizeDetailItem(item, options = {}) {
       'summary',
       'note',
       'notes',
+      'dueDate',
+      'dueOrReviewBy',
+      'reviewBy',
+      'due',
       'evidenceIds'
     ].includes(key))
     .map(([key, entry]) => `${key}: ${entry}`)
@@ -869,7 +1037,8 @@ function normalizeDetailItem(item, options = {}) {
     detail: [detail, fallback].filter(Boolean).join(' · '),
     evidenceIds: Array.isArray(item.evidenceIds) ? item.evidenceIds : [],
     priority: getPriorityOption(item.priority),
-    planningStatus: getPlanningStatusOption(item)
+    planningStatus: getPlanningStatusOption(item),
+    dueDate: getPlanningDueDate(item)
   };
 }
 
@@ -1054,7 +1223,7 @@ function addPastedNoteSource(options = {}) {
   }]);
   if (added) {
     els.noteTitleInput.value = '';
-    els.noteDateInput.value = '';
+    els.noteDateInput.value = todayLocalDate();
     els.noteAnnotationInput.value = '';
     els.noteTextInput.value = '';
     if (!options.silent) {
@@ -1066,7 +1235,10 @@ function addPastedNoteSource(options = {}) {
 
 function addNoteSources(sources) {
   const normalized = (Array.isArray(sources) ? sources : [])
-    .map((source) => normalizeSource(source))
+    .map((source) => normalizeSource({
+      ...source,
+      sourceDate: source?.sourceDate || source?.date || todayLocalDate()
+    }))
     .filter(Boolean);
   if (!normalized.length) {
     return 0;
@@ -1106,14 +1278,74 @@ function startOnboarding() {
   els.clientNameInput.focus();
 }
 
+function renderPresetList(container, values, emptyLabel) {
+  if (!container) {
+    return;
+  }
+  if (!values.length) {
+    container.innerHTML = `<span class="preset-empty">${escapeHtml(emptyLabel)}</span>`;
+    return;
+  }
+  container.innerHTML = values.map((value, index) => `
+    <button class="preset-chip" type="button" data-preset-index="${escapeHtml(String(index))}">
+      ${escapeHtml(value)}
+    </button>
+  `).join('');
+}
+
+function renderNotePresetControls() {
+  renderPresetList(els.noteTitlePresetList, state.noteTitlePresets, 'No saved titles yet.');
+  renderPresetList(els.noteAnnotationPresetList, state.noteAnnotationPresets, 'No saved annotations yet.');
+}
+
+function renderTodoPresetControls() {
+  renderPresetList(els.todoTitlePresetList, state.todoTitlePresets, 'No saved to-do titles yet.');
+}
+
+function saveNoteTitlePreset() {
+  const next = upsertPresetValue(noteTitlePresetsStorageKey, state.noteTitlePresets, els.noteTitleInput.value);
+  if (next === state.noteTitlePresets) {
+    showToast('Enter a note title before saving it.', 'error');
+    return;
+  }
+  state.noteTitlePresets = next;
+  renderNotePresetControls();
+  showToast('Note title saved.');
+}
+
+function saveNoteAnnotationPreset() {
+  const next = upsertPresetValue(noteAnnotationPresetsStorageKey, state.noteAnnotationPresets, els.noteAnnotationInput.value);
+  if (next === state.noteAnnotationPresets) {
+    showToast('Enter an annotation before saving it.', 'error');
+    return;
+  }
+  state.noteAnnotationPresets = next;
+  renderNotePresetControls();
+  showToast('Annotation saved.');
+}
+
+function saveTodoTitlePreset() {
+  const next = upsertPresetValue(todoTitlePresetsStorageKey, state.todoTitlePresets, els.todoTitleInput.value);
+  if (next === state.todoTitlePresets) {
+    showToast('Enter a to-do title before saving it.', 'error');
+    return;
+  }
+  state.todoTitlePresets = next;
+  renderTodoPresetControls();
+  showToast('To-do title saved.');
+}
+
 function resetNoteDialog() {
   state.noteSources = [];
+  state.noteRetryBlocked = false;
   els.noteSourceTypeInput.value = 'notes';
   els.noteTitleInput.value = '';
-  els.noteDateInput.value = '';
+  els.noteDateInput.value = todayLocalDate();
   els.noteAnnotationInput.value = '';
   els.noteTextInput.value = '';
+  els.updateNoteSubmitBtn.disabled = false;
   clearNoteError();
+  renderNotePresetControls();
   renderNoteSources();
 }
 
@@ -1142,6 +1374,14 @@ function formatAddNoteError(error) {
   ].filter(Boolean).join(' ');
 }
 
+function formatAddNoteRefreshError() {
+  return [
+    'CoachNotes finished the update, but could not refresh the screen afterward.',
+    'The note may already be saved.',
+    'Close this dialog, reopen the client, and only retry if the new note is missing.'
+  ].join(' ');
+}
+
 function openAddNoteDialog() {
   if (!state.selectedClientDetail?.client?.id) {
     showToast('Select a client before adding a note.', 'error');
@@ -1156,6 +1396,10 @@ function openAddNoteDialog() {
 function resetAskDialog() {
   state.askResult = null;
   setAskLoading(false);
+  window.clearTimeout(copyAskResetTimer);
+  copyAskResetTimer = null;
+  els.copyAskResultBtn.textContent = els.copyAskResultBtn.dataset.defaultLabel || 'Copy';
+  els.copyAskResultBtn.disabled = false;
   els.askOutputTypeInput.value = 'client-message';
   els.askScopeInput.value = 'recent-notes';
   els.askTimeWindowInput.value = 'last-3-weeks';
@@ -1218,7 +1462,26 @@ function renderAskCitationChip(chunkId, sourceLookup) {
   if (!source) {
     return escapeHtml(`[c:${chunkId}]`);
   }
-  return `<span class="ask-citation" title="${escapeHtml(source.title || chunkId)}">${escapeHtml(String(source.displayNumber || chunkId))}</span>`;
+  const label = source.displayNumber || chunkId;
+  const title = source.title || chunkId;
+  const meta = [source.sourceType, formatDate(source.date)].filter(Boolean).join(' • ') || 'Selected ASK source';
+  const excerpt = source.excerpt || 'No preview text is available for this source.';
+  return `
+    <button
+      class="ask-citation"
+      type="button"
+      data-source-id="${escapeHtml(source.sourceId || '')}"
+      aria-label="Open ASK source ${escapeHtml(String(label))}"
+      ${source.sourceId ? '' : 'disabled'}
+    >
+      ${escapeHtml(String(label))}
+      <span class="ask-citation-popover" role="tooltip">
+        <strong>${escapeHtml(title)}</strong>
+        <em>${escapeHtml(meta)}</em>
+        <span>${escapeHtml(excerpt)}</span>
+      </span>
+    </button>
+  `;
 }
 
 function renderAskInlineMarkdown(text, sourceLookup) {
@@ -1347,6 +1610,24 @@ function renderAskResult(result) {
   els.askSourceList.innerHTML = renderAskSources(result.selectedSources || []);
 }
 
+function openAskCitationSource(sourceId) {
+  const normalized = String(sourceId || '').trim();
+  if (!normalized) {
+    showToast('Source is not available locally.', 'error');
+    return;
+  }
+  if (els.askDialog.open) {
+    els.askDialog.close();
+  }
+  if (normalized === 'dashboard_current') {
+    state.detailPage = 'snapshot';
+    renderClientDetail(state.selectedClientDetail);
+    els.clientDetailPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+  openCitedSource(normalized);
+}
+
 async function submitAsk(event) {
   event.preventDefault();
   const clientId = state.selectedClientDetail?.client?.id;
@@ -1407,7 +1688,15 @@ async function copyAskResult() {
   }
   try {
     await copyText(state.askResult.answer);
-    showToast('ASK output copied.');
+    window.clearTimeout(copyAskResetTimer);
+    const originalLabel = els.copyAskResultBtn.dataset.defaultLabel || els.copyAskResultBtn.textContent || 'Copy';
+    els.copyAskResultBtn.dataset.defaultLabel = originalLabel;
+    els.copyAskResultBtn.textContent = 'Copied!';
+    els.copyAskResultBtn.disabled = true;
+    copyAskResetTimer = window.setTimeout(() => {
+      els.copyAskResultBtn.textContent = originalLabel;
+      els.copyAskResultBtn.disabled = false;
+    }, 1400);
   } catch (error) {
     showToast(`Copy failed: ${error.message}`, 'error');
   }
@@ -1601,29 +1890,41 @@ function getClientProfileTagOptions() {
 
 function renderClientProfileTagFilter() {
   const tags = getClientProfileTagOptions();
-  if (state.clientProfileTagFilter !== 'all' && !tags.includes(state.clientProfileTagFilter)) {
-    state.clientProfileTagFilter = 'all';
-  }
-  els.clientProfileTagFilter.disabled = !tags.length;
-  els.clientProfileTagFilter.innerHTML = [
-    `<option value="all"${state.clientProfileTagFilter === 'all' ? ' selected' : ''}>All bio tags</option>`,
-    ...tags.map((tag) => `<option value="${escapeHtml(tag)}"${state.clientProfileTagFilter === tag ? ' selected' : ''}>${escapeHtml(tag)}</option>`)
-  ].join('');
+  els.clientProfileTagFilter.placeholder = tags.length ? 'Any bio tag' : 'No bio tags yet';
+  els.clientProfileTagOptions.innerHTML = tags.map((tag) => `<option value="${escapeHtml(tag)}"></option>`).join('');
+}
+
+function renderClientSortControl() {
+  els.clientSortButtons.forEach((button) => {
+    const active = button.dataset.clientSort === state.clientSortMode;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
 }
 
 function getFilteredClients() {
   const query = state.clientSearchQuery.toLowerCase();
-  return state.clients.filter((client) => {
+  const tagQuery = state.clientProfileTagFilter.toLowerCase();
+  const filtered = state.clients.filter((client) => {
     const matchesSearch = !query || sanitizeName(client.name).toLowerCase().includes(query);
-    const matchesProfileTag = state.clientProfileTagFilter === 'all'
-      || (client.profileTags || []).some((tag) => sanitizeName(tag) === state.clientProfileTagFilter);
+    const matchesProfileTag = !tagQuery
+      || (client.profileTags || []).some((tag) => sanitizeName(tag).toLowerCase().includes(tagQuery));
     return matchesSearch && matchesProfileTag;
+  });
+  return filtered.sort((left, right) => {
+    if (state.clientSortMode === 'updated') {
+      const leftTime = Date.parse(left.updatedAt || left.acceptedAt || '') || 0;
+      const rightTime = Date.parse(right.updatedAt || right.acceptedAt || '') || 0;
+      return rightTime - leftTime || sanitizeName(left.name).localeCompare(sanitizeName(right.name));
+    }
+    return sanitizeName(left.name).localeCompare(sanitizeName(right.name));
   });
 }
 
 function renderClients() {
   els.clientList.innerHTML = '';
   renderClientProfileTagFilter();
+  renderClientSortControl();
   if (!state.clients.length) {
     els.clientList.innerHTML = `
       <div class="empty-rail">
@@ -1640,7 +1941,7 @@ function renderClients() {
     els.clientList.innerHTML = `
       <div class="empty-rail">
         <strong>No clients match.</strong>
-        <span>Clear search or choose All bio tags.</span>
+        <span>Clear search or tag filter.</span>
       </div>
     `;
     updateStatusLine();
@@ -1659,15 +1960,314 @@ function renderClients() {
       visibleTags.push(`<span>+${clientTags.length - 3} more</span>`);
     }
     const tags = visibleTags.join('');
+    const dueTaskCount = Number(client.dueTaskCount || 0);
+    const overdueTaskCount = Number(client.overdueTaskCount || 0);
+    const dueTodayCount = Math.max(0, dueTaskCount - overdueTaskCount);
+    const dueAlertLabel = overdueTaskCount && dueTodayCount
+      ? `${overdueTaskCount} overdue, ${dueTodayCount} due`
+      : overdueTaskCount
+        ? `${overdueTaskCount} overdue`
+        : `${dueTaskCount} due today`;
+    const dueBadgeCount = overdueTaskCount || dueTaskCount;
+    const dueAlert = dueTaskCount
+      ? `
+        <span class="client-notification-badge ${overdueTaskCount ? 'overdue' : 'due-today'}" title="${escapeHtml(dueAlertLabel)}">
+          ${escapeHtml(String(dueBadgeCount))}
+        </span>
+        <em class="client-alert-text">${escapeHtml(dueAlertLabel)}</em>
+      `
+      : '';
     button.innerHTML = `
       <strong>${escapeHtml(client.name)}</strong>
       <em>${client.sourceCount} sources • ${client.flagCount || 0} flags • ${client.taskCount || 0} to-dos</em>
+      ${dueAlert}
       ${tags ? `<div class="tag-strip">${tags}</div>` : ''}
     `;
     button.addEventListener('click', () => selectClient(client.id));
     els.clientList.appendChild(button);
   }
   updateStatusLine();
+}
+
+function getCoachHomeData() {
+  return state.coachHome || {
+    rules: { activityDays: 7, staleDays: 14, dueSoonDays: 7 },
+    stats: {},
+    attention: {},
+    activity: {},
+    segments: {}
+  };
+}
+
+function formatDaysAgo(days) {
+  if (!Number.isFinite(Number(days))) {
+    return 'No date';
+  }
+  const value = Number(days);
+  if (value === 0) {
+    return 'today';
+  }
+  if (value === 1) {
+    return '1 day ago';
+  }
+  return `${value} days ago`;
+}
+
+function detailPageForHomeSection(sectionKey) {
+  if (sectionKey === 'coachTasks' || sectionKey === 'goalsValues') {
+    return 'goals';
+  }
+  if (sectionKey === 'missingInfo' || sectionKey === 'flags') {
+    return 'snapshot';
+  }
+  return 'snapshot';
+}
+
+function renderHomeMetric(label, value, detail = '', tone = '') {
+  return `
+    <div class="home-metric ${escapeHtml(tone)}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(String(value ?? 0))}</strong>
+      ${detail ? `<em>${escapeHtml(detail)}</em>` : ''}
+    </div>
+  `;
+}
+
+function renderHomeTabs(activeTab) {
+  const tabs = [
+    { key: 'attention', label: 'Attention' },
+    { key: 'activity', label: 'Activity' },
+    { key: 'segments', label: 'Segments' }
+  ];
+  return `
+    <nav class="home-tabs" aria-label="Coach home views">
+      ${tabs.map((tab) => `
+        <button class="home-tab ${tab.key === activeTab ? 'active' : ''}" type="button" data-home-tab="${escapeHtml(tab.key)}" aria-pressed="${tab.key === activeTab ? 'true' : 'false'}">
+          ${escapeHtml(tab.label)}
+        </button>
+      `).join('')}
+    </nav>
+  `;
+}
+
+function renderHomeItemRows(items = [], emptyText = 'Nothing needs attention here.', options = {}) {
+  if (!items.length) {
+    return `<p class="empty-section-copy">${escapeHtml(emptyText)}</p>`;
+  }
+  return `
+    <div class="home-row-list">
+      ${items.map((item) => {
+        const meta = [
+          item.dueDate ? `Due ${formatDate(item.dueDate)}` : '',
+          item.priority === 'high' ? 'High priority' : '',
+          item.planningStatus && item.planningStatus !== 'active' ? item.planningStatus : ''
+        ].filter(Boolean).join(' • ');
+        const page = options.detailPage || detailPageForHomeSection(item.sectionKey);
+        return `
+          <button class="home-row" type="button" data-home-client-id="${escapeHtml(String(item.clientId))}" data-home-detail-page="${escapeHtml(page)}">
+            <span class="home-row-main">
+              <strong>${escapeHtml(item.clientName || 'Client')}</strong>
+              <span>${escapeHtml(item.title || 'Untitled item')}</span>
+              ${item.detail ? `<em>${escapeHtml(item.detail)}</em>` : ''}
+            </span>
+            ${meta ? `<span class="home-row-meta">${escapeHtml(meta)}</span>` : ''}
+          </button>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderHomeClientRows(clients = [], emptyText = 'No clients in this group.') {
+  if (!clients.length) {
+    return `<p class="empty-section-copy">${escapeHtml(emptyText)}</p>`;
+  }
+  return `
+    <div class="home-row-list">
+      ${clients.map((client) => {
+        const meta = [
+          client.daysSinceUpdate != null ? `Updated ${formatDaysAgo(client.daysSinceUpdate)}` : '',
+          client.lastSourceDate ? `Last source ${formatDate(client.lastSourceDate)}` : '',
+          `${client.sourceCount || 0} sources`
+        ].filter(Boolean).join(' • ');
+        return `
+          <button class="home-row" type="button" data-home-client-id="${escapeHtml(String(client.id))}" data-home-detail-page="snapshot">
+            <span class="home-row-main">
+              <strong>${escapeHtml(client.name || 'Client')}</strong>
+              ${client.summary ? `<span>${escapeHtml(client.summary)}</span>` : '<span>No overview captured yet.</span>'}
+            </span>
+            <span class="home-row-meta">${escapeHtml(meta)}</span>
+          </button>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderHomeGroup(title, subtitle, bodyHtml, tone = '') {
+  return `
+    <section class="home-group ${escapeHtml(tone)}">
+      <div class="home-group-head">
+        <h3>${escapeHtml(title)}</h3>
+        ${subtitle ? `<span>${escapeHtml(subtitle)}</span>` : ''}
+      </div>
+      ${bodyHtml}
+    </section>
+  `;
+}
+
+function renderCoachHomeAttention(home) {
+  const attention = home.attention || {};
+  return `
+    <div class="home-grid">
+      ${renderHomeGroup(
+        'Overdue',
+        `${attention.overdueTasks?.length || 0} open to-do${attention.overdueTasks?.length === 1 ? '' : 's'}`,
+        renderHomeItemRows(attention.overdueTasks || [], 'No overdue coach to-dos.'),
+        attention.overdueTasks?.length ? 'hot' : ''
+      )}
+      ${renderHomeGroup(
+        'Due Today',
+        `${attention.dueTodayTasks?.length || 0} open to-do${attention.dueTodayTasks?.length === 1 ? '' : 's'}`,
+        renderHomeItemRows(attention.dueTodayTasks || [], 'No coach to-dos due today.')
+      )}
+      ${renderHomeGroup(
+        'Due This Week',
+        `Next ${home.rules?.dueSoonDays || 7} days`,
+        renderHomeItemRows(attention.dueThisWeekTasks || [], 'No upcoming dated to-dos this week.')
+      )}
+      ${renderHomeGroup(
+        'High Priority',
+        `${attention.highPriorityItems?.length || 0} open planning item${attention.highPriorityItems?.length === 1 ? '' : 's'}`,
+        renderHomeItemRows(attention.highPriorityItems || [], 'No open high-priority items.')
+      )}
+      ${renderHomeGroup(
+        'Missing Info',
+        `${attention.missingInfoItems?.length || 0} item${attention.missingInfoItems?.length === 1 ? '' : 's'} across clients`,
+        renderHomeItemRows(attention.missingInfoItems || [], 'No missing info captured.')
+      )}
+      ${renderHomeGroup(
+        'Flags',
+        `${attention.flagItems?.length || 0} flag${attention.flagItems?.length === 1 ? '' : 's'} across clients`,
+        renderHomeItemRows(attention.flagItems || [], 'No flags captured.'),
+        attention.flagItems?.length ? 'warm' : ''
+      )}
+    </div>
+  `;
+}
+
+function renderCoachHomeActivity(home) {
+  const activity = home.activity || {};
+  const stats = home.stats || {};
+  const sourceTypes = activity.sourceTypes || [];
+  return `
+    <div class="home-grid">
+      ${renderHomeGroup(
+        'Recently Updated',
+        'Most recent accepted dashboard updates',
+        renderHomeClientRows(activity.recentlyUpdated || [], 'No recent client updates yet.')
+      )}
+      ${renderHomeGroup(
+        'Needs Update',
+        `No dashboard update in ${home.rules?.staleDays || 14}+ days`,
+        renderHomeClientRows(activity.staleClients || [], 'No clients are stale by this rule.'),
+        activity.staleClients?.length ? 'warm' : ''
+      )}
+      ${renderHomeGroup(
+        'Messages This Week',
+        `${stats.recentMessageCoveragePercent || 0}% client coverage`,
+        `
+          <div class="home-statement">
+            <strong>${escapeHtml(String(stats.recentMessageClientCount || 0))} of ${escapeHtml(String(stats.clientCount || 0))}</strong>
+            <span>clients have a message source in the last ${escapeHtml(String(home.rules?.activityDays || 7))} days.</span>
+          </div>
+        `
+      )}
+      ${renderHomeGroup(
+        'Source Types',
+        `${stats.recentSourceCount || 0} new source${stats.recentSourceCount === 1 ? '' : 's'} in the last ${home.rules?.activityDays || 7} days`,
+        sourceTypes.length
+          ? `<div class="source-type-list">${sourceTypes.map((entry) => `<span><strong>${escapeHtml(String(entry.count))}</strong>${escapeHtml(entry.label)}</span>`).join('')}</div>`
+          : '<p class="empty-section-copy">No source metadata yet.</p>'
+      )}
+    </div>
+  `;
+}
+
+function renderSegmentGroupRows(groups = [], emptyText = 'No segment data yet.') {
+  if (!groups.length) {
+    return `<p class="empty-section-copy">${escapeHtml(emptyText)}</p>`;
+  }
+  return `
+    <div class="segment-list">
+      ${groups.map((group) => `
+        <div class="segment-row">
+          <div class="segment-row-head">
+            <strong>${escapeHtml(group.label)}</strong>
+            <span>${escapeHtml(String(group.count))} client${group.count === 1 ? '' : 's'}</span>
+          </div>
+          <div class="segment-clients">
+            ${(group.clients || []).slice(0, 10).map((client) => `
+              <button type="button" data-home-client-id="${escapeHtml(String(client.id))}" data-home-detail-page="snapshot">
+                ${escapeHtml(client.name)}
+              </button>
+            `).join('')}
+            ${(group.clients || []).length > 10 ? `<span>+${escapeHtml(String(group.clients.length - 10))} more</span>` : ''}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderCoachHomeSegments(home) {
+  const segments = home.segments || {};
+  return `
+    <div class="home-grid">
+      ${renderHomeGroup(
+        'Profile Segments',
+        'Cohort, program, curriculum, goal, format, and contraindication fields',
+        renderSegmentGroupRows(segments.profileSegments || [], 'No profile segment fields yet.')
+      )}
+      ${renderHomeGroup(
+        'Client Tags',
+        'AI-suggested client themes',
+        renderSegmentGroupRows(segments.suggestedTags || [], 'No suggested tags yet.')
+      )}
+      ${renderHomeGroup(
+        'Flag Themes',
+        'Grouped by flag title',
+        renderSegmentGroupRows(segments.flagThemes || [], 'No flags yet.'),
+        segments.flagThemes?.length ? 'warm' : ''
+      )}
+    </div>
+  `;
+}
+
+function renderCoachHome() {
+  const home = getCoachHomeData();
+  const stats = home.stats || {};
+  const activeTab = ['attention', 'activity', 'segments'].includes(state.coachHomeTab)
+    ? state.coachHomeTab
+    : 'attention';
+  state.coachHomeTab = activeTab;
+  const tabContent = activeTab === 'activity'
+    ? renderCoachHomeActivity(home)
+    : activeTab === 'segments'
+      ? renderCoachHomeSegments(home)
+      : renderCoachHomeAttention(home);
+  els.coachHomeContent.innerHTML = `
+    <div class="home-metrics">
+      ${renderHomeMetric('Clients', stats.clientCount || 0, 'accepted')}
+      ${renderHomeMetric('Overdue', stats.overdueTaskCount || 0, 'open to-dos', stats.overdueTaskCount ? 'hot' : '')}
+      ${renderHomeMetric('Due Today', stats.dueTodayTaskCount || 0, 'open to-dos')}
+      ${renderHomeMetric('Missing Info', stats.missingInfoCount || 0, 'items')}
+      ${renderHomeMetric('Stale', stats.staleClientCount || 0, `${home.rules?.staleDays || 14}+ days`, stats.staleClientCount ? 'warm' : '')}
+      ${renderHomeMetric('Messaged', `${stats.recentMessageCoveragePercent || 0}%`, `last ${home.rules?.activityDays || 7} days`)}
+    </div>
+    ${renderHomeTabs(activeTab)}
+    ${tabContent}
+  `;
 }
 
 function renderDetailMetric(label, value, tone = '') {
@@ -1726,6 +2326,7 @@ function renderPlanningVisibilityMenu() {
 function renderSectionTitleActions(sectionKey, planningSection) {
   return `
     <div class="section-title-actions">
+      ${sectionKey === 'coachTasks' ? '<button class="section-link add-planning-item" type="button" data-section-key="coachTasks">+ Add</button>' : ''}
       ${planningSection ? renderPlanningVisibilityMenu() : ''}
       ${renderSectionActions(sectionKey)}
     </div>
@@ -1948,6 +2549,10 @@ function renderPlanningControls(sectionKey, itemIndex, normalized) {
           ${renderSelectOptions(planningStatusOptions, normalized.planningStatus.value)}
         </select>
       </label>
+      <label>
+        <span>Due</span>
+        <input type="date" value="${escapeHtml(normalized.dueDate || '')}" data-planning-field="dueDate" data-section-key="${escapeHtml(sectionKey)}" data-item-index="${escapeHtml(String(itemIndex))}" />
+      </label>
     </div>
   `;
 }
@@ -1956,10 +2561,20 @@ function renderPlanningChips(normalized) {
   const priorityChip = normalized.priority.value === 'none'
     ? ''
     : `<span class="planning-chip ${escapeHtml(normalized.priority.className)}">${escapeHtml(normalized.priority.label)}</span>`;
+  const dueState = getDueDateState(normalized.dueDate);
+  const dueLabel = dueState === 'overdue'
+    ? `Overdue ${formatDate(normalized.dueDate)}`
+    : dueState === 'due-today'
+      ? 'Due today'
+      : `Due ${formatDate(normalized.dueDate)}`;
+  const dueChip = normalized.dueDate
+    ? `<span class="planning-chip due-chip ${escapeHtml(dueState)}">${escapeHtml(dueLabel)}</span>`
+    : '';
   return `
     <div class="planning-chip-row">
       ${priorityChip}
       <span class="planning-chip ${escapeHtml(normalized.planningStatus.className)}">${escapeHtml(normalized.planningStatus.label)}</span>
+      ${dueChip}
     </div>
   `;
 }
@@ -2127,6 +2742,7 @@ function renderSourceDrawer(source) {
     <details
       class="raw-source"
       data-session-source
+      data-source-id="${escapeHtml(source.sourceId || '')}"
       data-source-type="${escapeHtml(source.sourceType || 'unknown')}"
     >
       <summary>
@@ -2140,6 +2756,26 @@ function renderSourceDrawer(source) {
       <pre>${escapeHtml(source.rawText || '')}</pre>
     </details>
   `;
+}
+
+function openCitedSource(sourceId) {
+  const normalizedSourceId = String(sourceId || '').trim();
+  if (!normalizedSourceId || !state.selectedClientDetail) {
+    showToast('Source is not available locally.', 'error');
+    return;
+  }
+  state.detailPage = 'notes';
+  renderClientDetail(state.selectedClientDetail);
+  const drawer = [...els.detailContent.querySelectorAll('[data-session-source]')]
+    .find((candidate) => candidate.dataset.sourceId === normalizedSourceId);
+  if (!drawer) {
+    showToast('Source is not available in the local archive.', 'error');
+    return;
+  }
+  drawer.open = true;
+  drawer.classList.add('is-targeted-source');
+  drawer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  window.setTimeout(() => drawer.classList.remove('is-targeted-source'), 1800);
 }
 
 function getSessionNoteTypeOptions(sources = []) {
@@ -2479,6 +3115,16 @@ function applyPlanningPatch(item, patch) {
   if (Object.prototype.hasOwnProperty.call(patch, 'planningStatus')) {
     next.planningStatus = normalizePlanningStatus(patch.planningStatus);
   }
+  if (Object.prototype.hasOwnProperty.call(patch, 'dueDate')) {
+    const dueDate = normalizeDueDateValue(patch.dueDate);
+    if (dueDate) {
+      next.dueDate = dueDate;
+      delete next.dueOrReviewBy;
+    } else {
+      delete next.dueDate;
+      delete next.dueOrReviewBy;
+    }
+  }
   return next;
 }
 
@@ -2490,6 +3136,7 @@ function buildCoachTaskFromMissingInfo(item) {
     details: detail,
     priority: 'none',
     planningStatus: 'active',
+    dueDate: '',
     evidenceIds: normalized.evidenceIds
   };
 }
@@ -2538,7 +3185,7 @@ async function savePlanningField(control) {
   const sectionKey = control?.dataset?.sectionKey || '';
   const field = control?.dataset?.planningField || '';
   const itemIndex = Number(control?.dataset?.itemIndex);
-  if (!isPrioritizableSection(sectionKey) || !['priority', 'planningStatus'].includes(field) || !Number.isInteger(itemIndex)) {
+  if (!isPrioritizableSection(sectionKey) || !['priority', 'planningStatus', 'dueDate'].includes(field) || !Number.isInteger(itemIndex)) {
     return;
   }
   const clientId = state.selectedClientDetail?.client?.id;
@@ -2555,7 +3202,7 @@ async function savePlanningField(control) {
     return;
   }
 
-  setBusy(true, 'Saving priority...');
+  setBusy(true, field === 'dueDate' ? 'Saving due date...' : 'Saving to-do settings...');
   try {
     const detail = await window.coachNotes.updateClientSection({
       clientId,
@@ -2566,10 +3213,10 @@ async function savePlanningField(control) {
     await loadClients();
     renderClientDetail(detail);
     setViewMode('detail');
-    showToast('Priority updated.');
+    showToast(field === 'dueDate' ? 'Due date updated.' : 'To-do settings updated.');
   } catch (error) {
     renderClientDetail(state.selectedClientDetail);
-    showToast(`Priority save failed: ${error.message}`, 'error');
+    showToast(`To-do save failed: ${error.message}`, 'error');
   } finally {
     setBusy(false);
   }
@@ -2622,8 +3269,86 @@ async function saveProfileField(control) {
   }
 }
 
+function openAddTodoDialog(sectionKey = 'coachTasks') {
+  if (!state.selectedClientDetail?.client?.id || sectionKey !== 'coachTasks') {
+    showToast('Select a client before adding a coach to-do.', 'error');
+    return;
+  }
+  state.addTodoSectionKey = sectionKey;
+  els.todoTitleInput.value = '';
+  els.todoDueDateInput.value = '';
+  els.todoPriorityInput.value = 'none';
+  els.todoStatusInput.value = 'active';
+  els.todoDetailsInput.value = '';
+  renderTodoPresetControls();
+  els.addTodoDialog.showModal();
+  els.todoTitleInput.focus();
+}
+
+function buildCoachTodoFromDialog() {
+  const title = sanitizeName(els.todoTitleInput.value);
+  const details = sanitizeName(els.todoDetailsInput.value);
+  if (!title && !details) {
+    return null;
+  }
+  const item = {
+    title: title || 'Coach to-do',
+    details,
+    priority: getPriorityOption(els.todoPriorityInput.value).value,
+    planningStatus: normalizePlanningStatus(els.todoStatusInput.value),
+    evidenceIds: []
+  };
+  const dueDate = normalizeDueDateValue(els.todoDueDateInput.value);
+  if (dueDate) {
+    item.dueDate = dueDate;
+  }
+  return item;
+}
+
+async function submitAddTodo(event) {
+  event.preventDefault();
+  const clientId = state.selectedClientDetail?.client?.id;
+  const sectionKey = state.addTodoSectionKey || 'coachTasks';
+  const currentSection = Array.isArray(state.selectedClientDetail?.baseline?.structured?.[sectionKey])
+    ? state.selectedClientDetail.baseline.structured[sectionKey]
+    : [];
+  if (!clientId || sectionKey !== 'coachTasks') {
+    showToast('Coach to-dos are not available for this client yet.', 'error');
+    return;
+  }
+  const item = buildCoachTodoFromDialog();
+  if (!item) {
+    showToast('Enter a to-do title or details first.', 'error');
+    els.todoTitleInput.focus();
+    return;
+  }
+
+  setBusy(true, 'Adding coach to-do...');
+  try {
+    const detail = await window.coachNotes.updateClientSection({
+      clientId,
+      sectionKey,
+      value: [...currentSection, item]
+    });
+    els.addTodoDialog.close();
+    state.selectedClientDetail = detail;
+    await loadClients();
+    renderClientDetail(detail);
+    setViewMode('detail');
+    showToast('Coach to-do added.');
+  } catch (error) {
+    showToast(`To-do add failed: ${error.message}`, 'error');
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function submitAddedNote(event) {
   event.preventDefault();
+  if (state.noteRetryBlocked) {
+    showToast('Reopen the client before retrying this note to avoid a duplicate.', 'error');
+    return;
+  }
   clearNoteError();
   addPastedNoteSource({ silent: true });
   if (!state.noteSources.length) {
@@ -2633,6 +3358,8 @@ async function submitAddedNote(event) {
 
   const sources = [...state.noteSources];
   let reopenDialogOnError = false;
+  let updateCompleted = false;
+  let refreshFailedAfterUpdate = false;
   els.addNoteDialog.close();
   setBusy(true, 'Updating client dashboard...');
   try {
@@ -2640,7 +3367,7 @@ async function submitAddedNote(event) {
       clientId: state.selectedClientDetail.client.id,
       sources
     });
-    resetNoteDialog();
+    updateCompleted = true;
     state.selectedClientDetail = result.detail || result;
     const changedSections = Array.isArray(result.changedSections) ? result.changedSections : [];
     state.lastUpdateNotice = {
@@ -2651,37 +3378,53 @@ async function submitAddedNote(event) {
     await loadClients();
     renderClientDetail(state.selectedClientDetail);
     setViewMode('detail');
+    resetNoteDialog();
     const changeCount = changedSections.length || (Array.isArray(result.changes) ? result.changes.length : 0);
     showToast(changeCount ? `Dashboard updated: ${changeCount} section${changeCount === 1 ? '' : 's'} changed.` : 'Dashboard updated.');
   } catch (error) {
     reopenDialogOnError = true;
-    showNoteError(formatAddNoteError(error));
+    if (updateCompleted) {
+      refreshFailedAfterUpdate = true;
+      state.noteRetryBlocked = true;
+      els.updateNoteSubmitBtn.disabled = true;
+      showNoteError(formatAddNoteRefreshError(error));
+    } else {
+      showNoteError(formatAddNoteError(error));
+    }
   } finally {
     setBusy(false);
     if (reopenDialogOnError && !els.addNoteDialog.open) {
       renderNoteSources();
       els.addNoteDialog.showModal();
     }
-    if (reopenDialogOnError) {
+    if (refreshFailedAfterUpdate) {
+      showToast('Dashboard may have updated. Reopen the client before retrying.', 'error');
+    } else if (reopenDialogOnError) {
       showToast('Update failed. The source is still in the dialog so you can retry.', 'error');
     }
   }
 }
 
 function formatDate(value) {
-  const date = new Date(value || '');
+  const dateOnly = String(value || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const date = dateOnly
+    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    : new Date(value || '');
   if (Number.isNaN(date.getTime())) {
     return '';
   }
   return date.toLocaleDateString();
 }
 
-async function selectClient(clientId) {
+async function selectClient(clientId, options = {}) {
   setBusy(true, 'Loading client...');
   try {
     const detail = await window.coachNotes.getClientDetail({ clientId });
+    const requestedDetailPage = options.detailPage || '';
     if (state.selectedClientId !== clientId) {
-      state.detailPage = 'snapshot';
+      state.detailPage = requestedDetailPage || 'snapshot';
+    } else if (requestedDetailPage) {
+      state.detailPage = requestedDetailPage;
     }
     state.selectedClientId = clientId;
     renderClients();
@@ -2694,14 +3437,44 @@ async function selectClient(clientId) {
   }
 }
 
+async function loadCoachHome() {
+  state.coachHome = await window.coachNotes.getCoachHome();
+  renderCoachHome();
+}
+
 async function loadClients() {
   state.clients = await window.coachNotes.getClients();
+  await loadCoachHome();
   if (state.selectedClientId && !state.clients.some((client) => client.id === state.selectedClientId)) {
     state.selectedClientId = null;
+    state.selectedClientDetail = null;
     els.clientDetailPanel.hidden = true;
   }
   renderClients();
   updateStatusLine();
+}
+
+async function openCoachHome(options = {}) {
+  if (!state.clients.length) {
+    setViewMode('intake');
+    return;
+  }
+  if (options.refresh) {
+    setBusy(true, 'Refreshing Coach Home...');
+    try {
+      await loadClients();
+    } catch (error) {
+      showToast(`Coach Home refresh failed: ${error.message}`, 'error');
+    } finally {
+      setBusy(false);
+    }
+  } else {
+    renderCoachHome();
+  }
+  state.selectedClientId = null;
+  state.selectedClientDetail = null;
+  renderClients();
+  setViewMode('home');
 }
 
 async function deleteSelectedClient() {
@@ -2724,7 +3497,7 @@ async function deleteSelectedClient() {
     state.lastUpdateNotice = null;
     await loadClients();
     if (state.clients.length) {
-      await selectClient(state.clients[0].id);
+      await openCoachHome();
     } else {
       resetIntake({ keepMode: true });
       setViewMode('intake');
@@ -2828,19 +3601,23 @@ async function saveSettings(event) {
 }
 
 async function init() {
-  loadPlanningHiddenStatuses();
+  loadLocalPreferences();
   setBusy(true, 'Opening CoachNotes...');
   try {
     const appState = await window.coachNotes.getState();
     state.settings = appState.settings || {};
     state.clients = appState.clients || [];
+    state.coachHome = appState.coachHome || null;
     renderIntakeProgramSettings();
     renderSources();
     renderNoteSources();
+    renderNotePresetControls();
+    renderTodoPresetControls();
     renderClients();
+    renderCoachHome();
     updateStatusLine();
     if (state.clients.length) {
-      await selectClient(state.clients[0].id);
+      setViewMode('home');
     } else {
       setViewMode('intake');
     }
@@ -2852,13 +3629,41 @@ async function init() {
 
   els.onboardBtn.addEventListener('click', handleTopbarPrimaryAction);
   els.settingsBtn.addEventListener('click', openSettings);
+  els.coachHomeBtn.addEventListener('click', () => openCoachHome());
+  els.refreshCoachHomeBtn.addEventListener('click', () => openCoachHome({ refresh: true }));
+  els.coachHomeContent.addEventListener('click', (event) => {
+    const tabButton = event.target.closest('[data-home-tab]');
+    if (tabButton) {
+      state.coachHomeTab = tabButton.dataset.homeTab || 'attention';
+      renderCoachHome();
+      return;
+    }
+    const clientButton = event.target.closest('[data-home-client-id]');
+    if (clientButton) {
+      const clientId = Number(clientButton.dataset.homeClientId);
+      if (Number.isFinite(clientId)) {
+        selectClient(clientId, { detailPage: clientButton.dataset.homeDetailPage || 'snapshot' });
+      }
+    }
+  });
   els.clientSearchInput.addEventListener('input', () => {
     state.clientSearchQuery = sanitizeName(els.clientSearchInput.value);
     renderClients();
   });
-  els.clientProfileTagFilter.addEventListener('change', () => {
-    state.clientProfileTagFilter = els.clientProfileTagFilter.value || 'all';
+  els.clientProfileTagFilter.addEventListener('input', () => {
+    state.clientProfileTagFilter = sanitizeName(els.clientProfileTagFilter.value);
     renderClients();
+  });
+  els.clientSortButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      state.clientSortMode = button.dataset.clientSort === 'updated' ? 'updated' : 'name';
+      try {
+        localStorage.setItem(clientSortStorageKey, state.clientSortMode);
+      } catch {
+        // Sort preference is convenience state.
+      }
+      renderClients();
+    });
   });
   els.askClientBtn.addEventListener('click', openAskDialog);
   els.addNoteBtn.addEventListener('click', openAddNoteDialog);
@@ -2916,6 +3721,16 @@ async function init() {
     if (hiddenToggle) {
       setPlanningSectionExpanded(hiddenToggle.dataset.sectionKey, hiddenToggle.dataset.expanded === 'true');
       renderClientDetail(state.selectedClientDetail);
+      return;
+    }
+    const citationButton = event.target.closest('.citation-chip[data-source-id]');
+    if (citationButton && citationButton.dataset.sourceId) {
+      openCitedSource(citationButton.dataset.sourceId);
+      return;
+    }
+    const addPlanningButton = event.target.closest('.add-planning-item');
+    if (addPlanningButton) {
+      openAddTodoDialog(addPlanningButton.dataset.sectionKey);
       return;
     }
     const missingInfoButton = event.target.closest('.missing-info-action');
@@ -3006,11 +3821,46 @@ async function init() {
   });
   els.askForm.addEventListener('submit', submitAsk);
   els.askOutputTypeInput.addEventListener('change', applyAskOutputPreset);
+  els.askResultOutput.addEventListener('click', (event) => {
+    const citationButton = event.target.closest('.ask-citation[data-source-id]');
+    if (citationButton && citationButton.dataset.sourceId) {
+      openAskCitationSource(citationButton.dataset.sourceId);
+    }
+  });
   els.cancelAskBtn.addEventListener('click', () => els.askDialog.close());
   els.copyAskResultBtn.addEventListener('click', copyAskResult);
   els.saveAskResultBtn.addEventListener('click', saveAskResultAsNote);
   els.addNoteForm.addEventListener('submit', submitAddedNote);
   els.cancelAddNoteBtn.addEventListener('click', () => els.addNoteDialog.close());
+  els.saveNoteTitlePresetBtn.addEventListener('click', saveNoteTitlePreset);
+  els.saveNoteAnnotationPresetBtn.addEventListener('click', saveNoteAnnotationPreset);
+  els.noteTitlePresetList.addEventListener('click', (event) => {
+    const button = event.target.closest('.preset-chip');
+    const index = Number(button?.dataset?.presetIndex);
+    if (Number.isInteger(index) && state.noteTitlePresets[index]) {
+      els.noteTitleInput.value = state.noteTitlePresets[index];
+      els.noteTitleInput.focus();
+    }
+  });
+  els.noteAnnotationPresetList.addEventListener('click', (event) => {
+    const button = event.target.closest('.preset-chip');
+    const index = Number(button?.dataset?.presetIndex);
+    if (Number.isInteger(index) && state.noteAnnotationPresets[index]) {
+      els.noteAnnotationInput.value = state.noteAnnotationPresets[index];
+      els.noteAnnotationInput.focus();
+    }
+  });
+  els.addTodoForm.addEventListener('submit', submitAddTodo);
+  els.cancelAddTodoBtn.addEventListener('click', () => els.addTodoDialog.close());
+  els.saveTodoTitlePresetBtn.addEventListener('click', saveTodoTitlePreset);
+  els.todoTitlePresetList.addEventListener('click', (event) => {
+    const button = event.target.closest('.preset-chip');
+    const index = Number(button?.dataset?.presetIndex);
+    if (Number.isInteger(index) && state.todoTitlePresets[index]) {
+      els.todoTitleInput.value = state.todoTitlePresets[index];
+      els.todoTitleInput.focus();
+    }
+  });
   els.clearNoteSourcesBtn.addEventListener('click', () => {
     state.noteSources = [];
     renderNoteSources();

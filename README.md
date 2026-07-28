@@ -52,7 +52,7 @@ npm run dev:desktop
 
 In CoachNotes settings, set:
 
-- Proxy base URL: `http://localhost:3001` for local development, or the Vercel deployment URL for production.
+- Proxy base URL: `http://localhost:3011` for local development, or the Vercel deployment URL for production.
 - Invite token: one value from `INVITE_TOKENS`.
 
 ## Proxy API

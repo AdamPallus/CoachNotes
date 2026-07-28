@@ -22,7 +22,7 @@ app.options('/*rest', (_req, res) => {
   res.status(200).json({ ok: true });
 });
 
-const port = Number(process.env.PORT || 3001);
+const port = Number(process.env.PORT || 3011);
 app.listen(port, () => {
   process.stdout.write(`CoachNotes proxy listening on http://localhost:${port}\n`);
 });

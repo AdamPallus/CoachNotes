@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('coachNotes', {
   saveAskResultAsNote: (payload) => ipcRenderer.invoke('app:save-ask-result-as-note', payload),
   deleteClient: (payload) => ipcRenderer.invoke('app:delete-client', payload),
   getClients: () => ipcRenderer.invoke('app:get-clients'),
+  getCoachHome: () => ipcRenderer.invoke('app:get-coach-home'),
   getClientDetail: (payload) => ipcRenderer.invoke('app:get-client-detail', payload),
   revealVault: () => ipcRenderer.invoke('app:reveal-vault')
 });

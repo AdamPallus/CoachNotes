@@ -16,6 +16,9 @@ const APP_NAME = app.isPackaged ? 'CoachNotes' : 'CoachNotes Dev';
 const ASK_MAX_SOURCES = 12;
 const ASK_MAX_TOTAL_CHARS = 84000;
 const COACH_TEMPLATE_SETTING_KEY = 'coachTemplate';
+const HOME_ACTIVITY_DAYS = 7;
+const HOME_STALE_DAYS = 14;
+const HOME_DUE_SOON_DAYS = 7;
 const ASK_STOP_WORDS = new Set([
   'about',
   'after',
@@ -92,7 +95,7 @@ const BASELINE_ARRAY_SECTION_KEYS = new Set([
   'confidenceNotes'
 ]);
 const PLANNING_SECTION_KEYS = new Set(['coachTasks', 'goalsValues']);
-const PLANNING_METADATA_KEYS = ['priority', 'planningStatus'];
+const PLANNING_METADATA_KEYS = ['priority', 'planningStatus', 'dueDate', 'dueOrReviewBy'];
 const CLIENT_PROFILE_METADATA_KEYS = [
   'curriculumType',
   'programType',
@@ -1071,6 +1074,399 @@ function getUndoCounts(baselineId) {
   ).all(baselineId).map((row) => [row.sectionKey, row.count]));
 }
 
+function normalizePlanningStatusValue(value) {
+  const normalized = String(value || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+  if (['done', 'complete', 'completed'].includes(normalized)) {
+    return 'completed';
+  }
+  if (['abandoned', 'dropped', 'stopped'].includes(normalized)) {
+    return 'abandoned';
+  }
+  if (['outdated', 'stale', 'obsolete'].includes(normalized)) {
+    return 'outdated';
+  }
+  return normalized || 'active';
+}
+
+function normalizeDueDateValue(value) {
+  const match = String(value || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : '';
+}
+
+function getCoachTaskDueDate(item) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    return '';
+  }
+  return normalizeDueDateValue(item.dueDate || item.dueOrReviewBy || item.reviewBy || item.due || '');
+}
+
+function getOpenCoachTaskDueCounts(tasks) {
+  const now = new Date();
+  const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  let dueTaskCount = 0;
+  let overdueTaskCount = 0;
+  for (const task of Array.isArray(tasks) ? tasks : []) {
+    const status = normalizePlanningStatusValue(task?.planningStatus || task?.status);
+    if (['completed', 'abandoned', 'outdated'].includes(status)) {
+      continue;
+    }
+    const dueDate = getCoachTaskDueDate(task);
+    if (!dueDate || dueDate > todayKey) {
+      continue;
+    }
+    dueTaskCount += 1;
+    if (dueDate < todayKey) {
+      overdueTaskCount += 1;
+    }
+  }
+  return { dueTaskCount, overdueTaskCount };
+}
+
+function dateKeyFromDate(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function addDaysToKey(dateKey, days) {
+  const parsed = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return dateKey;
+  }
+  parsed.setDate(parsed.getDate() + days);
+  return dateKeyFromDate(parsed);
+}
+
+function getDaysSinceDateKey(dateKey, todayKey = dateKeyFromDate(new Date())) {
+  const parsed = new Date(`${dateKey}T00:00:00`);
+  const today = new Date(`${todayKey}T00:00:00`);
+  if (Number.isNaN(parsed.getTime()) || Number.isNaN(today.getTime())) {
+    return null;
+  }
+  return Math.max(0, Math.floor((today - parsed) / 86400000));
+}
+
+function getHomeItemText(item, keys) {
+  if (typeof item === 'string') {
+    return sanitizeName(item);
+  }
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    return '';
+  }
+  return keys.map((key) => sanitizeName(item[key])).find(Boolean) || '';
+}
+
+function getHomeItemTitle(item) {
+  return getHomeItemText(item, ['title', 'label', 'name', 'resource', 'date']) || getHomeItemDetail(item) || 'Untitled item';
+}
+
+function getHomeItemDetail(item) {
+  if (typeof item === 'string') {
+    return '';
+  }
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    return '';
+  }
+  const direct = getHomeItemText(item, ['details', 'currentStatus', 'status', 'urgency', 'summary', 'note', 'notes']);
+  if (direct) {
+    return direct;
+  }
+  return Object.entries(item)
+    .filter(([key]) => ![
+      'title',
+      'label',
+      'name',
+      'resource',
+      'date',
+      'details',
+      'currentStatus',
+      'status',
+      'planningStatus',
+      'priority',
+      'urgency',
+      'summary',
+      'note',
+      'notes',
+      'dueDate',
+      'dueOrReviewBy',
+      'reviewBy',
+      'due',
+      'evidenceIds'
+    ].includes(key))
+    .map(([key, value]) => `${key}: ${sanitizeName(value)}`)
+    .filter((entry) => entry && !entry.endsWith(':'))
+    .join(' · ');
+}
+
+function getHomePriorityValue(item) {
+  return String(item?.priority || 'none').trim().toLowerCase() || 'none';
+}
+
+function isOpenPlanningStatus(status) {
+  return !['completed', 'abandoned', 'outdated'].includes(normalizePlanningStatusValue(status));
+}
+
+function getSectionArray(structured, sectionKey) {
+  return Array.isArray(structured?.[sectionKey]) ? structured[sectionKey] : [];
+}
+
+function buildHomeItem(client, structured, sectionKey, item, index) {
+  const planningStatus = normalizePlanningStatusValue(item?.planningStatus || item?.status || '');
+  return {
+    clientId: client.id,
+    clientName: client.name,
+    sectionKey,
+    itemIndex: index,
+    title: normalizeMultilineText(getHomeItemTitle(item), 180),
+    detail: normalizeMultilineText(getHomeItemDetail(item), 260),
+    priority: getHomePriorityValue(item),
+    planningStatus,
+    dueDate: getCoachTaskDueDate(item),
+    updatedAt: client.updatedAt,
+    profileTags: client.profileTags || [],
+    summary: normalizeMultilineText(structured.overview || '', 180)
+  };
+}
+
+function addSegmentGroup(groups, label, client) {
+  const normalized = sanitizeName(label);
+  if (!normalized) {
+    return;
+  }
+  const key = normalized.toLowerCase();
+  if (!groups.has(key)) {
+    groups.set(key, {
+      label: normalized,
+      count: 0,
+      clients: []
+    });
+  }
+  const group = groups.get(key);
+  if (!group.clients.some((entry) => entry.id === client.id)) {
+    group.clients.push({ id: client.id, name: client.name });
+    group.count = group.clients.length;
+  }
+}
+
+function sortedSegmentGroups(groups) {
+  return [...groups.values()]
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+}
+
+function getClientSourceActivity(clientId, todayKey) {
+  const sinceKey = addDaysToKey(todayKey, -HOME_ACTIVITY_DAYS + 1);
+  const rows = db.prepare(
+    `SELECT source_type AS sourceType, source_date AS sourceDate, created_at AS createdAt
+     FROM intake_sources
+     WHERE client_id = ?`
+  ).all(clientId);
+  let recentSourceCount = 0;
+  let recentMessageCount = 0;
+  let lastSourceDate = '';
+  const byType = new Map();
+  for (const row of rows) {
+    const type = sanitizeName(row.sourceType || 'unknown') || 'unknown';
+    byType.set(type, (byType.get(type) || 0) + 1);
+    const dateKey = parseDate(row.sourceDate || row.createdAt || '');
+    if (dateKey && (!lastSourceDate || dateKey > lastSourceDate)) {
+      lastSourceDate = dateKey;
+    }
+    if (dateKey && dateKey >= sinceKey && dateKey <= todayKey) {
+      recentSourceCount += 1;
+      if (type.toLowerCase() === 'message') {
+        recentMessageCount += 1;
+      }
+    }
+  }
+  return {
+    sourceCount: rows.length,
+    recentSourceCount,
+    recentMessageCount,
+    hasRecentMessage: recentMessageCount > 0,
+    lastSourceDate,
+    byType: Object.fromEntries([...byType.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0])))
+  };
+}
+
+function getAcceptedClientRows() {
+  return db.prepare(
+    `SELECT
+      c.id,
+      c.display_name AS name,
+      b.id AS baselineId,
+      b.accepted_at AS acceptedAt,
+      b.updated_at AS updatedAt,
+      b.structured_json AS structuredJson,
+      b.source_ids_json AS sourceIdsJson
+     FROM clients c
+     JOIN client_baselines b ON b.id = (
+       SELECT bx.id
+       FROM client_baselines bx
+       WHERE bx.client_id = c.id AND bx.status = 'accepted'
+       ORDER BY bx.accepted_at DESC, bx.id DESC
+       LIMIT 1
+     )
+     WHERE COALESCE(c.archived, 0) = 0
+     ORDER BY LOWER(c.display_name) ASC`
+  ).all();
+}
+
+function getCoachHome() {
+  requireDb();
+  const todayKey = dateKeyFromDate(new Date());
+  const dueSoonKey = addDaysToKey(todayKey, HOME_DUE_SOON_DAYS);
+  const staleCutoffKey = addDaysToKey(todayKey, -HOME_STALE_DAYS);
+  const profileGroups = new Map();
+  const tagGroups = new Map();
+  const flagGroups = new Map();
+  const sourceTypeGroups = new Map();
+  const attention = {
+    overdueTasks: [],
+    dueTodayTasks: [],
+    dueThisWeekTasks: [],
+    highPriorityItems: [],
+    missingInfoItems: [],
+    flagItems: []
+  };
+  const activity = {
+    recentlyUpdated: [],
+    staleClients: []
+  };
+  let recentSourceCount = 0;
+  let recentMessageClientCount = 0;
+
+  const clients = getAcceptedClientRows().map((row) => {
+    const structured = parseJsonObject(row.structuredJson);
+    const clientProfile = structured.clientProfile && typeof structured.clientProfile === 'object' && !Array.isArray(structured.clientProfile)
+      ? structured.clientProfile
+      : {};
+    const profileTags = getClientProfileFilterTags(clientProfile);
+    const sourceIds = parseJsonArray(row.sourceIdsJson).map((id) => Number(id)).filter(Number.isFinite);
+    const sourceActivity = getClientSourceActivity(row.id, todayKey);
+    const updatedDate = parseDate(row.updatedAt || row.acceptedAt || sourceActivity.lastSourceDate || '');
+    const client = {
+      id: row.id,
+      name: row.name,
+      baselineId: row.baselineId,
+      acceptedAt: row.acceptedAt,
+      updatedAt: row.updatedAt,
+      updatedDate,
+      daysSinceUpdate: updatedDate ? getDaysSinceDateKey(updatedDate, todayKey) : null,
+      sourceCount: sourceIds.length || sourceActivity.sourceCount,
+      recentSourceCount: sourceActivity.recentSourceCount,
+      hasRecentMessage: sourceActivity.hasRecentMessage,
+      lastSourceDate: sourceActivity.lastSourceDate,
+      summary: normalizeMultilineText(structured.overview || '', 220),
+      profileTags
+    };
+
+    recentSourceCount += sourceActivity.recentSourceCount;
+    if (sourceActivity.hasRecentMessage) {
+      recentMessageClientCount += 1;
+    }
+    for (const [sourceType, count] of Object.entries(sourceActivity.byType)) {
+      sourceTypeGroups.set(sourceType, (sourceTypeGroups.get(sourceType) || 0) + count);
+    }
+    for (const tag of profileTags) {
+      addSegmentGroup(profileGroups, tag, client);
+    }
+    for (const tag of normalizeArray(structured.suggestedTags || [], 20)) {
+      addSegmentGroup(tagGroups, tag, client);
+    }
+
+    getSectionArray(structured, 'coachTasks').forEach((item, index) => {
+      const homeItem = buildHomeItem(client, structured, 'coachTasks', item, index);
+      if (isOpenPlanningStatus(homeItem.planningStatus)) {
+        if (homeItem.dueDate && homeItem.dueDate < todayKey) {
+          attention.overdueTasks.push(homeItem);
+        } else if (homeItem.dueDate === todayKey) {
+          attention.dueTodayTasks.push(homeItem);
+        } else if (homeItem.dueDate && homeItem.dueDate <= dueSoonKey) {
+          attention.dueThisWeekTasks.push(homeItem);
+        }
+        if (homeItem.priority === 'high') {
+          attention.highPriorityItems.push(homeItem);
+        }
+      }
+    });
+    getSectionArray(structured, 'goalsValues').forEach((item, index) => {
+      const homeItem = buildHomeItem(client, structured, 'goalsValues', item, index);
+      if (isOpenPlanningStatus(homeItem.planningStatus) && homeItem.priority === 'high') {
+        attention.highPriorityItems.push(homeItem);
+      }
+    });
+    getSectionArray(structured, 'missingInfo').forEach((item, index) => {
+      attention.missingInfoItems.push(buildHomeItem(client, structured, 'missingInfo', item, index));
+    });
+    getSectionArray(structured, 'flags').forEach((item, index) => {
+      const homeItem = buildHomeItem(client, structured, 'flags', item, index);
+      attention.flagItems.push(homeItem);
+      addSegmentGroup(flagGroups, homeItem.title, client);
+    });
+
+    activity.recentlyUpdated.push(client);
+    if (updatedDate && updatedDate <= staleCutoffKey) {
+      activity.staleClients.push(client);
+    }
+    return client;
+  });
+
+  const sortByDue = (left, right) => (
+    String(left.dueDate || '9999-99-99').localeCompare(String(right.dueDate || '9999-99-99'))
+    || left.clientName.localeCompare(right.clientName)
+  );
+  const sortByClient = (left, right) => left.clientName.localeCompare(right.clientName) || left.title.localeCompare(right.title);
+  attention.overdueTasks.sort(sortByDue);
+  attention.dueTodayTasks.sort(sortByDue);
+  attention.dueThisWeekTasks.sort(sortByDue);
+  attention.highPriorityItems.sort(sortByClient);
+  attention.missingInfoItems.sort(sortByClient);
+  attention.flagItems.sort(sortByClient);
+  activity.recentlyUpdated.sort((left, right) => (
+    String(right.updatedAt || '').localeCompare(String(left.updatedAt || ''))
+    || left.name.localeCompare(right.name)
+  ));
+  activity.staleClients.sort((left, right) => (
+    Number(right.daysSinceUpdate || 0) - Number(left.daysSinceUpdate || 0)
+    || left.name.localeCompare(right.name)
+  ));
+
+  const clientCount = clients.length;
+  const sourceTypes = [...sourceTypeGroups.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+  return {
+    generatedAt: nowIso(),
+    rules: {
+      activityDays: HOME_ACTIVITY_DAYS,
+      staleDays: HOME_STALE_DAYS,
+      dueSoonDays: HOME_DUE_SOON_DAYS
+    },
+    stats: {
+      clientCount,
+      overdueTaskCount: attention.overdueTasks.length,
+      dueTodayTaskCount: attention.dueTodayTasks.length,
+      dueThisWeekTaskCount: attention.dueThisWeekTasks.length,
+      highPriorityCount: attention.highPriorityItems.length,
+      missingInfoCount: attention.missingInfoItems.length,
+      flagCount: attention.flagItems.length,
+      staleClientCount: activity.staleClients.length,
+      recentSourceCount,
+      recentMessageClientCount,
+      recentMessageCoveragePercent: clientCount ? Math.round((recentMessageClientCount / clientCount) * 100) : 0
+    },
+    attention,
+    activity: {
+      ...activity,
+      recentlyUpdated: activity.recentlyUpdated.slice(0, 24),
+      sourceTypes
+    },
+    segments: {
+      profileSegments: sortedSegmentGroups(profileGroups),
+      suggestedTags: sortedSegmentGroups(tagGroups),
+      flagThemes: sortedSegmentGroups(flagGroups)
+    }
+  };
+}
+
 function getClients() {
   requireDb();
   return db.prepare(
@@ -1102,6 +1498,7 @@ function getClients() {
     const sourceIds = parseJsonArray(row.sourceIdsJson);
     const flags = Array.isArray(structured.flags) ? structured.flags : [];
     const tasks = Array.isArray(structured.coachTasks) ? structured.coachTasks : [];
+    const dueCounts = getOpenCoachTaskDueCounts(tasks);
     const clientProfile = structured.clientProfile && typeof structured.clientProfile === 'object' && !Array.isArray(structured.clientProfile)
       ? structured.clientProfile
       : {};
@@ -1116,7 +1513,9 @@ function getClients() {
       tags: normalizeArray(structured.suggestedTags || [], 5),
       profileTags: getClientProfileFilterTags(clientProfile),
       flagCount: flags.length,
-      taskCount: tasks.length
+      taskCount: tasks.length,
+      dueTaskCount: dueCounts.dueTaskCount,
+      overdueTaskCount: dueCounts.overdueTaskCount
     };
   });
 }
@@ -1808,7 +2207,8 @@ async function askClient(payload) {
       title: source.displayTitle || source.title,
       sourceType: source.sourceType || 'notes',
       date: source.date || '',
-      displayNumber: index + 1
+      displayNumber: index + 1,
+      excerpt: normalizeTextContent(source.text || '').slice(0, 720)
     }))
   };
 }
@@ -2075,7 +2475,8 @@ function setupIpc() {
       ...getAppSettings(),
       vaultFolder: await ensureVaultRootFolder()
     },
-    clients: getClients()
+    clients: getClients(),
+    coachHome: getCoachHome()
   }));
 
   ipcMain.handle('app:save-settings', async (_event, payload) => {
@@ -2112,6 +2513,7 @@ function setupIpc() {
   ipcMain.handle('app:save-ask-result-as-note', async (_event, payload) => saveAskResultAsNote(payload || {}));
   ipcMain.handle('app:delete-client', async (_event, payload) => deleteClient(payload || {}));
   ipcMain.handle('app:get-clients', async () => getClients());
+  ipcMain.handle('app:get-coach-home', async () => getCoachHome());
   ipcMain.handle('app:get-client-detail', async (_event, payload) => getClientDetail(payload || {}));
   ipcMain.handle('app:reveal-vault', async () => revealVault());
 }

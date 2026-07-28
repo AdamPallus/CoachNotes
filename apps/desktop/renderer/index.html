@@ -22,9 +22,12 @@
       <main class="workspace">
         <aside class="client-rail">
           <div class="rail-head">
-            <div>
-              <p class="section-kicker">Clients</p>
-              <h2>Client Profiles</h2>
+            <div class="rail-title-row">
+              <div>
+                <p class="section-kicker">Clients</p>
+                <h2>Client Profiles</h2>
+              </div>
+              <button id="coachHomeBtn" class="home-nav-button active" type="button" aria-pressed="true">Home</button>
             </div>
             <label class="rail-filter">
               Search
@@ -32,10 +35,16 @@
             </label>
             <label class="rail-filter">
               Bio tag
-              <select id="clientProfileTagFilter">
-                <option value="all">All bio tags</option>
-              </select>
+              <input id="clientProfileTagFilter" type="search" list="clientProfileTagOptions" placeholder="Any bio tag" autocomplete="off" />
             </label>
+            <datalist id="clientProfileTagOptions"></datalist>
+            <div class="rail-filter sort-filter">
+              <span>Sort</span>
+              <div class="segmented-control" role="group" aria-label="Sort clients">
+                <button type="button" data-client-sort="name" aria-pressed="true">A-Z</button>
+                <button type="button" data-client-sort="updated" aria-pressed="false">Recent</button>
+              </div>
+            </div>
           </div>
           <div id="clientList" class="client-list"></div>
           <div class="rail-foot">
@@ -44,6 +53,20 @@
         </aside>
 
         <section class="main-surface">
+          <section id="coachHomePanel" class="coach-home-panel" hidden>
+            <div class="surface-head compact coach-home-head">
+              <div>
+                <p class="section-kicker">Coach Home</p>
+                <h2>Mission Control</h2>
+                <p>Deterministic cross-client views from local dashboard fields and source metadata.</p>
+              </div>
+              <div class="surface-actions">
+                <button id="refreshCoachHomeBtn" class="btn btn-ghost" type="button">Refresh</button>
+              </div>
+            </div>
+            <div id="coachHomeContent" class="coach-home-content"></div>
+          </section>
+
           <section id="intakePanel" class="intake-panel" aria-labelledby="intakeTitle">
             <div class="surface-head">
               <div>
@@ -306,18 +329,30 @@
               <option value="other">Other</option>
             </select>
           </label>
-          <label>
+          <div class="preset-field">
+            <label>
             Title
-            <input id="noteTitleInput" type="text" placeholder="New check-in, call transcript, message thread" />
-          </label>
+              <input id="noteTitleInput" type="text" placeholder="New check-in, call transcript, message thread" />
+            </label>
+            <div class="field-preset-bar">
+              <button id="saveNoteTitlePresetBtn" class="preset-save" type="button">Save</button>
+              <div id="noteTitlePresetList" class="preset-pills"></div>
+            </div>
+          </div>
           <label>
             Date
             <input id="noteDateInput" type="date" />
           </label>
-          <label class="span-all">
-            Annotation
-            <input id="noteAnnotationInput" type="text" placeholder="Optional: what should the AI pay attention to?" />
-          </label>
+          <div class="preset-field span-all">
+            <label>
+              Annotation
+              <input id="noteAnnotationInput" type="text" placeholder="Optional: what should the AI pay attention to?" />
+            </label>
+            <div class="field-preset-bar">
+              <button id="saveNoteAnnotationPresetBtn" class="preset-save" type="button">Save</button>
+              <div id="noteAnnotationPresetList" class="preset-pills"></div>
+            </div>
+          </div>
           <label class="span-all">
             Paste note
             <textarea id="noteTextInput" rows="8" placeholder="Paste the new source text here."></textarea>
@@ -330,7 +365,57 @@
         <div id="noteSourceList" class="source-list"></div>
         <div class="dialog-actions">
           <button id="cancelAddNoteBtn" class="btn btn-ghost" type="button">Cancel</button>
-          <button class="btn btn-primary" type="submit">Update Dashboard</button>
+          <button id="updateNoteSubmitBtn" class="btn btn-primary" type="submit">Update Dashboard</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="addTodoDialog">
+      <form method="dialog" id="addTodoForm" class="dialog-form todo-dialog-form">
+        <h2>Add Coach To-Do</h2>
+        <p class="dialog-help">Add one follow-up item without editing the whole dashboard section.</p>
+        <div class="source-composer todo-composer">
+          <label>
+            Title
+            <input id="todoTitleInput" type="text" placeholder="Follow up on missing info" />
+          </label>
+          <label>
+            Due date
+            <input id="todoDueDateInput" type="date" />
+          </label>
+          <label>
+            Priority
+            <select id="todoPriorityInput">
+              <option value="none">No priority</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </label>
+          <label>
+            Status
+            <select id="todoStatusInput">
+              <option value="active">In Progress</option>
+              <option value="recommended">Recommended</option>
+              <option value="future">Future</option>
+              <option value="blocked">Blocked</option>
+            </select>
+          </label>
+          <label class="span-all">
+            Details
+            <textarea id="todoDetailsInput" rows="4" placeholder="Optional detail for this follow-up."></textarea>
+          </label>
+          <div class="preset-row span-all">
+            <div>
+              <span>Saved to-do titles</span>
+              <button id="saveTodoTitlePresetBtn" class="section-link" type="button">Save current</button>
+            </div>
+            <div id="todoTitlePresetList" class="preset-pills"></div>
+          </div>
+        </div>
+        <div class="dialog-actions">
+          <button id="cancelAddTodoBtn" class="btn btn-ghost" type="button">Cancel</button>
+          <button class="btn btn-primary" type="submit">Add To-Do</button>
         </div>
       </form>
     </dialog>
