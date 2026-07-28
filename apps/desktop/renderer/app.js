@@ -22,6 +22,7 @@ const state = {
   theme: 'light',
   navigationHistory: [],
   restoringNavigation: false,
+  loadingClientId: null,
   askAppliedPresetPrompt: '',
   askCustomPromptDraft: '',
   noteTitlePresets: [],
@@ -69,6 +70,8 @@ const themeStorageKey = 'coachnotes.theme.v1';
 const maxSavedPresets = 12;
 const maxNavigationHistory = 20;
 let clientProfileTagFilterTimer = null;
+let clientNavigationSequence = 0;
+let clientLoadingTimer = null;
 
 const clientProfileExportPrompt = `Create an Everfit client profile from the client intake notes and any related coaching notes.
 
@@ -560,6 +563,46 @@ function setBusy(on, message = 'Working...') {
     els.busyText.textContent = message;
   }
   els.busyOverlay.hidden = state.busyCount === 0;
+}
+
+function setClientNavigationLoading(clientId, active) {
+  window.clearTimeout(clientLoadingTimer);
+  clientLoadingTimer = null;
+  if (!active) {
+    state.loadingClientId = null;
+    els.mainSurface.classList.remove('is-client-loading');
+    els.mainSurface.setAttribute('aria-busy', 'false');
+    els.clientList.querySelectorAll('.client-button.is-loading').forEach((button) => {
+      button.classList.remove('is-loading');
+    });
+    return;
+  }
+
+  const normalizedClientId = Number(clientId);
+  state.loadingClientId = normalizedClientId;
+  els.mainSurface.setAttribute('aria-busy', 'true');
+  clientLoadingTimer = window.setTimeout(() => {
+    if (state.loadingClientId !== normalizedClientId) {
+      return;
+    }
+    els.mainSurface.classList.add('is-client-loading');
+    els.clientList.querySelector(`[data-client-id="${normalizedClientId}"]`)?.classList.add('is-loading');
+  }, 120);
+}
+
+function cancelClientNavigation() {
+  clientNavigationSequence += 1;
+  setClientNavigationLoading(null, false);
+}
+
+function animateClientSurfaceArrival() {
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    return;
+  }
+  els.detailContent.classList.remove('is-client-arriving');
+  void els.detailContent.offsetWidth;
+  els.detailContent.classList.add('is-client-arriving');
+  window.setTimeout(() => els.detailContent.classList.remove('is-client-arriving'), 180);
 }
 
 function updateStatusLine() {
@@ -1459,6 +1502,7 @@ function resetIntake(options = {}) {
 }
 
 function startOnboarding() {
+  cancelClientNavigation();
   if (state.viewMode !== 'intake') {
     pushNavigationLocation();
   }
@@ -2199,8 +2243,12 @@ function renderClients() {
   clients.forEach((client, clientIndex) => {
     const button = document.createElement('button');
     button.className = 'client-button';
+    button.dataset.clientId = String(client.id);
     if (state.selectedClientId === client.id) {
       button.classList.add('active');
+    }
+    if (state.loadingClientId === client.id && els.mainSurface.classList.contains('is-client-loading')) {
+      button.classList.add('is-loading');
     }
     const clientTags = client.profileTags || [];
     const visibleTags = clientTags.slice(0, 1).map((tag) => `<span>${escapeHtml(tag)}</span>`);
@@ -3753,31 +3801,47 @@ function formatDate(value) {
 }
 
 async function selectClient(clientId, options = {}) {
+  const normalizedClientId = Number(clientId);
+  if (!Number.isFinite(normalizedClientId) || state.loadingClientId === normalizedClientId) {
+    return;
+  }
   const requestedDetailPage = options.detailPage || '';
   const targetDetailPage = requestedDetailPage
-    || (state.selectedClientId === clientId ? getActiveDetailPage() : 'snapshot');
+    || (state.selectedClientId === normalizedClientId ? getActiveDetailPage() : 'snapshot');
   const changesLocation = state.viewMode !== 'detail'
-    || state.selectedClientId !== clientId
+    || state.selectedClientId !== normalizedClientId
     || getActiveDetailPage() !== targetDetailPage;
+  if (!changesLocation && state.selectedClientDetail) {
+    return;
+  }
   if (options.recordHistory !== false && changesLocation) {
     pushNavigationLocation();
   }
-  setBusy(true, 'Loading client...');
+  const navigationSequence = ++clientNavigationSequence;
+  setClientNavigationLoading(normalizedClientId, true);
   try {
-    const detail = await window.coachNotes.getClientDetail({ clientId });
-    if (state.selectedClientId !== clientId) {
+    const detail = await window.coachNotes.getClientDetail({ clientId: normalizedClientId });
+    if (navigationSequence !== clientNavigationSequence) {
+      return;
+    }
+    if (state.selectedClientId !== normalizedClientId) {
       state.detailPage = requestedDetailPage || 'snapshot';
     } else if (requestedDetailPage) {
       state.detailPage = requestedDetailPage;
     }
-    state.selectedClientId = clientId;
+    state.selectedClientId = normalizedClientId;
     renderClients();
     renderClientDetail(detail);
     setViewMode('detail');
+    animateClientSurfaceArrival();
   } catch (error) {
-    showToast(`Load client failed: ${error.message}`, 'error');
+    if (navigationSequence === clientNavigationSequence) {
+      showToast(`Load client failed: ${error.message}`, 'error');
+    }
   } finally {
-    setBusy(false);
+    if (navigationSequence === clientNavigationSequence) {
+      setClientNavigationLoading(null, false);
+    }
   }
 }
 
@@ -3799,6 +3863,7 @@ async function loadClients() {
 }
 
 async function openCoachHome(options = {}) {
+  cancelClientNavigation();
   if (!state.clients.length) {
     setViewMode('intake');
     return;

@@ -6265,3 +6265,165 @@ html[data-theme="dark"] .topbar #onboardBtn:focus-visible {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Field marks and seamless client navigation. */
+
+.main-surface {
+  position: relative;
+}
+
+.main-surface.is-client-loading::before {
+  content: "";
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 24;
+  display: block;
+  width: 34%;
+  height: 2px;
+  margin-bottom: -2px;
+  background: var(--atlas-leaf);
+  transform-origin: left center;
+  animation: clientLoadingTrack 820ms ease-in-out infinite alternate;
+}
+
+@keyframes clientLoadingTrack {
+  from { transform: translateX(0) scaleX(0.28); }
+  to { transform: translateX(194%) scaleX(1); }
+}
+
+.client-button.is-loading {
+  background: rgba(23, 74, 51, 0.08);
+}
+
+.client-button.is-loading::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--atlas-green);
+  border-radius: 70% 20% 70% 20%;
+  transform: translateY(-50%) rotate(-35deg);
+  animation: clientLeafPulse 700ms ease-in-out infinite alternate;
+}
+
+@keyframes clientLeafPulse {
+  from { opacity: 0.35; transform: translateY(-50%) rotate(-35deg) scale(0.8); }
+  to { opacity: 1; transform: translateY(-50%) rotate(-35deg) scale(1.08); }
+}
+
+.detail-content.is-client-arriving {
+  animation: clientSurfaceArrival 160ms ease-out both;
+}
+
+@keyframes clientSurfaceArrival {
+  from { opacity: 0.9; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.client-profile-head,
+.intake-surface-head,
+.note-dialog-form {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.client-profile-head::after,
+.intake-surface-head::after,
+.note-dialog-form::after {
+  content: "";
+  position: absolute;
+  right: 8px;
+  z-index: 0;
+  width: 300px;
+  background-image: url("../assets/field-marks-sprite-v1.png");
+  background-repeat: no-repeat;
+  background-size: 200px 300px;
+  background-position-x: right;
+  filter: invert(31%) sepia(24%) saturate(860%) hue-rotate(95deg) brightness(82%) contrast(88%);
+  opacity: 0.15;
+  pointer-events: none;
+}
+
+.client-profile-head::after {
+  top: 0;
+  right: 300px;
+  bottom: 0;
+  width: 360px;
+  background-size: 230px 345px;
+  background-position-y: top;
+  opacity: 0.21;
+}
+
+.intake-surface-head::after {
+  top: 0;
+  right: 170px;
+  bottom: 0;
+  background-position-y: center;
+}
+
+.note-dialog-form::after {
+  top: 0;
+  height: 100px;
+  background-position-y: bottom;
+  opacity: 0.11;
+}
+
+.client-profile-head > *,
+.intake-surface-head > *,
+.note-dialog-form > * {
+  position: relative;
+  z-index: 1;
+}
+
+.add-note-button {
+  gap: 7px;
+}
+
+.button-sprout {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.35;
+}
+
+html[data-theme="dark"] .client-profile-head::after,
+html[data-theme="dark"] .intake-surface-head::after,
+html[data-theme="dark"] .note-dialog-form::after {
+  filter: invert(78%) sepia(29%) saturate(620%) hue-rotate(79deg) brightness(96%) contrast(89%);
+  opacity: 0.14;
+}
+
+html[data-theme="dark"] .client-profile-head::after {
+  opacity: 0.2;
+}
+
+html[data-theme="dark"] .client-button.is-loading {
+  background: rgba(199, 244, 61, 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .main-surface.is-client-loading::before,
+  .client-button.is-loading::after,
+  .detail-content.is-client-arriving {
+    animation: none;
+  }
+}
+
+@media (max-width: 1100px) {
+  .client-profile-head::after {
+    right: 260px;
+    opacity: 0.14;
+  }
+
+  .intake-surface-head::after {
+    right: 130px;
+    opacity: 0.1;
+  }
+}

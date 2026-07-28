@@ -89,7 +89,7 @@
           </section>
 
           <section id="intakePanel" class="intake-panel" aria-labelledby="intakeTitle">
-            <div class="surface-head">
+            <div class="surface-head intake-surface-head">
               <div>
                 <p class="section-kicker">Client Intake</p>
                 <h2 id="intakeTitle">Turn messy client context into a live profile.</h2>
@@ -182,7 +182,7 @@
           </section>
 
           <section id="clientDetailPanel" class="client-detail-panel" hidden>
-            <div class="surface-head compact">
+            <div class="surface-head compact client-profile-head">
               <div>
                 <p class="section-kicker">Client Profile</p>
                 <h2 id="detailClientName">Client</h2>
@@ -191,7 +191,12 @@
               <div class="surface-actions">
                 <button id="deleteClientBtn" class="btn btn-danger" type="button">Delete Client</button>
                 <button id="askClientBtn" class="btn btn-ghost" type="button">Ask</button>
-                <button id="addNoteBtn" class="btn btn-primary" type="button">Add Note</button>
+                <button id="addNoteBtn" class="btn btn-primary add-note-button" type="button">
+                  <svg class="button-sprout" viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="M10 16V7m0 3c-2.7.1-4.6-1.3-5.2-3.9 2.8-.3 4.7.9 5.2 3.9Zm0-1c2.6 0 4.4-1.4 5-4-2.8-.2-4.5 1-5 4ZM6.5 16h7" />
+                  </svg>
+                  <span>Add Note</span>
+                </button>
               </div>
             </div>
             <div id="detailContent" class="detail-content"></div>
