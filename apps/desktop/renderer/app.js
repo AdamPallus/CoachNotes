@@ -13,6 +13,7 @@ const state = {
   askLoading: false,
   coachHome: null,
   coachHomeTab: 'attention',
+  expandedHomeLanes: new Set(),
   sessionNotesQuery: '',
   sessionNotesType: 'all',
   clientSearchQuery: '',
@@ -278,6 +279,8 @@ const els = {
   settingsBtn: document.getElementById('settingsBtn'),
   coachHomeBtn: document.getElementById('coachHomeBtn'),
   clientSearchInput: document.getElementById('clientSearchInput'),
+  clientFilterToggle: document.getElementById('clientFilterToggle'),
+  clientBioFilter: document.getElementById('clientBioFilter'),
   clientProfileTagFilter: document.getElementById('clientProfileTagFilter'),
   clientProfileTagOptions: document.getElementById('clientProfileTagOptions'),
   clientSortButtons: [...document.querySelectorAll('[data-client-sort]')],
@@ -1892,6 +1895,10 @@ function renderClientProfileTagFilter() {
   const tags = getClientProfileTagOptions();
   els.clientProfileTagFilter.placeholder = tags.length ? 'Any bio tag' : 'No bio tags yet';
   els.clientProfileTagOptions.innerHTML = tags.map((tag) => `<option value="${escapeHtml(tag)}"></option>`).join('');
+  const hasFilter = Boolean(state.clientProfileTagFilter);
+  els.clientFilterToggle.classList.toggle('is-active', hasFilter);
+  els.clientFilterToggle.textContent = hasFilter ? `Bio: ${state.clientProfileTagFilter}` : 'Bio filter';
+  els.clientFilterToggle.title = hasFilter ? `Filtering by ${state.clientProfileTagFilter}` : 'Filter the client index by a bio tag';
 }
 
 function renderClientSortControl() {
@@ -1948,7 +1955,7 @@ function renderClients() {
     return;
   }
 
-  for (const client of clients) {
+  clients.forEach((client, clientIndex) => {
     const button = document.createElement('button');
     button.className = 'client-button';
     if (state.selectedClientId === client.id) {
@@ -1969,13 +1976,7 @@ function renderClients() {
         ? `${overdueTaskCount} overdue`
         : `${dueTaskCount} due today`;
     const dueBadgeCount = overdueTaskCount || dueTaskCount;
-    const clientNameForInitials = sanitizeName(client.name).replace(/^\[[^\]]+\]\s*/, '');
-    const clientInitial = clientNameForInitials
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part.charAt(0).toUpperCase())
-      .join('') || 'C';
+    const ledgerNumber = String(clientIndex + 1).padStart(3, '0');
     const dueAlert = dueTaskCount
       ? `
         <span class="client-notification-badge ${overdueTaskCount ? 'overdue' : 'due-today'}" title="${escapeHtml(dueAlertLabel)}">
@@ -1985,7 +1986,7 @@ function renderClients() {
       `
       : '';
     button.innerHTML = `
-      <span class="client-avatar" aria-hidden="true">${escapeHtml(clientInitial)}</span>
+      <span class="client-ledger-index" aria-hidden="true">${escapeHtml(ledgerNumber)}</span>
       <span class="client-card-copy">
         <strong>${escapeHtml(client.name)}</strong>
         <em>${client.sourceCount} sources • ${client.flagCount || 0} flags • ${client.taskCount || 0} to-dos</em>
@@ -1995,7 +1996,7 @@ function renderClients() {
     `;
     button.addEventListener('click', () => selectClient(client.id));
     els.clientList.appendChild(button);
-  }
+  });
   updateStatusLine();
 }
 
@@ -2033,26 +2034,17 @@ function detailPageForHomeSection(sectionKey) {
   return 'snapshot';
 }
 
-function renderHomeMetric(label, value, detail = '', tone = '') {
-  return `
-    <div class="home-metric ${escapeHtml(tone)}">
-      <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(String(value ?? 0))}</strong>
-      ${detail ? `<em>${escapeHtml(detail)}</em>` : ''}
-    </div>
-  `;
-}
-
 function renderHomeTabs(activeTab) {
   const tabs = [
-    { key: 'attention', label: 'Attention' },
-    { key: 'activity', label: 'Activity' },
-    { key: 'segments', label: 'Segments' }
+    { key: 'attention', label: 'Attention', index: '01' },
+    { key: 'activity', label: 'Activity', index: '02' },
+    { key: 'segments', label: 'Segments', index: '03' }
   ];
   return `
     <nav class="home-tabs" aria-label="Coach home views">
       ${tabs.map((tab) => `
         <button class="home-tab ${tab.key === activeTab ? 'active' : ''}" type="button" data-home-tab="${escapeHtml(tab.key)}" aria-pressed="${tab.key === activeTab ? 'true' : 'false'}">
+          <span>${escapeHtml(tab.index)}</span>
           ${escapeHtml(tab.label)}
         </button>
       `).join('')}
@@ -2073,18 +2065,65 @@ function renderHomeItemRows(items = [], emptyText = 'Nothing needs attention her
           item.planningStatus && item.planningStatus !== 'active' ? item.planningStatus : ''
         ].filter(Boolean).join(' • ');
         const page = options.detailPage || detailPageForHomeSection(item.sectionKey);
+        const canComplete = ['coachTasks', 'goalsValues'].includes(item.sectionKey)
+          && !closedPlanningStatuses.has(item.planningStatus);
         return `
-          <button class="home-row" type="button" data-home-client-id="${escapeHtml(String(item.clientId))}" data-home-detail-page="${escapeHtml(page)}">
-            <span class="home-row-main">
-              <strong>${escapeHtml(item.clientName || 'Client')}</strong>
-              <span>${escapeHtml(item.title || 'Untitled item')}</span>
-              ${item.detail ? `<em>${escapeHtml(item.detail)}</em>` : ''}
-            </span>
+          <div class="home-row ${escapeHtml(options.rowTone || '')}">
+            <button class="home-row-open" type="button" data-home-client-id="${escapeHtml(String(item.clientId))}" data-home-detail-page="${escapeHtml(page)}">
+              <span class="home-row-main">
+                <strong>${escapeHtml(item.clientName || 'Client')}</strong>
+                <span>${escapeHtml(item.title || 'Untitled item')}</span>
+                ${item.detail ? `<em>${escapeHtml(item.detail)}</em>` : ''}
+              </span>
+            </button>
             ${meta ? `<span class="home-row-meta">${escapeHtml(meta)}</span>` : ''}
-          </button>
+            <span class="home-row-actions">
+              ${canComplete ? `
+                <button
+                  class="home-row-action complete"
+                  type="button"
+                  data-home-action="complete"
+                  data-home-client-id="${escapeHtml(String(item.clientId))}"
+                  data-home-section-key="${escapeHtml(item.sectionKey)}"
+                  data-home-item-index="${escapeHtml(String(item.itemIndex))}"
+                  title="Mark ${escapeHtml(item.title || 'item')} complete"
+                >Done</button>
+              ` : ''}
+              <button class="home-row-action open" type="button" data-home-client-id="${escapeHtml(String(item.clientId))}" data-home-detail-page="${escapeHtml(page)}">Open</button>
+            </span>
+          </div>
         `;
       }).join('')}
     </div>
+  `;
+}
+
+function homeItemKey(item) {
+  return `${item.clientId}:${item.sectionKey}:${item.itemIndex}`;
+}
+
+function renderAttentionLane(label, caption, items, tone = '') {
+  const expanded = state.expandedHomeLanes.has(tone);
+  const initialLimit = tone === 'overdue' || tone === 'today' ? 8 : 6;
+  const visibleItems = expanded ? items : items.slice(0, initialLimit);
+  const hiddenCount = Math.max(0, items.length - visibleItems.length);
+  return `
+    <section class="attention-lane ${escapeHtml(tone)}">
+      <header class="attention-lane-label">
+        <span class="attention-leaf" aria-hidden="true"></span>
+        <strong>${escapeHtml(label)}</strong>
+        <em>${escapeHtml(String(items.length))}</em>
+        <small>${escapeHtml(caption)}</small>
+      </header>
+      <div class="attention-lane-body">
+        ${renderHomeItemRows(visibleItems, `Nothing in ${label.toLowerCase()}.`, { rowTone: tone })}
+        ${items.length > initialLimit ? `
+          <button class="attention-lane-more" type="button" data-home-lane="${escapeHtml(tone)}">
+            ${expanded ? 'Show fewer' : `Show ${hiddenCount} more`}
+          </button>
+        ` : ''}
+      </div>
+    </section>
   `;
 }
 
@@ -2128,41 +2167,83 @@ function renderHomeGroup(title, subtitle, bodyHtml, tone = '') {
 
 function renderCoachHomeAttention(home) {
   const attention = home.attention || {};
+  const scheduledKeys = new Set([
+    ...(attention.overdueTasks || []),
+    ...(attention.dueTodayTasks || []),
+    ...(attention.dueThisWeekTasks || [])
+  ].map(homeItemKey));
+  const watchItems = (attention.highPriorityItems || []).filter((item) => !scheduledKeys.has(homeItemKey(item)));
+  const signalItems = [
+    ...(attention.missingInfoItems || []),
+    ...(attention.flagItems || [])
+  ];
   return `
-    <div class="home-grid">
-      ${renderHomeGroup(
-        'Overdue',
-        `${attention.overdueTasks?.length || 0} open to-do${attention.overdueTasks?.length === 1 ? '' : 's'}`,
-        renderHomeItemRows(attention.overdueTasks || [], 'No overdue coach to-dos.'),
-        attention.overdueTasks?.length ? 'hot' : ''
-      )}
-      ${renderHomeGroup(
-        'Due Today',
-        `${attention.dueTodayTasks?.length || 0} open to-do${attention.dueTodayTasks?.length === 1 ? '' : 's'}`,
-        renderHomeItemRows(attention.dueTodayTasks || [], 'No coach to-dos due today.')
-      )}
-      ${renderHomeGroup(
-        'Due This Week',
-        `Next ${home.rules?.dueSoonDays || 7} days`,
-        renderHomeItemRows(attention.dueThisWeekTasks || [], 'No upcoming dated to-dos this week.')
-      )}
-      ${renderHomeGroup(
-        'High Priority',
-        `${attention.highPriorityItems?.length || 0} open planning item${attention.highPriorityItems?.length === 1 ? '' : 's'}`,
-        renderHomeItemRows(attention.highPriorityItems || [], 'No open high-priority items.')
-      )}
-      ${renderHomeGroup(
-        'Missing Info',
-        `${attention.missingInfoItems?.length || 0} item${attention.missingInfoItems?.length === 1 ? '' : 's'} across clients`,
-        renderHomeItemRows(attention.missingInfoItems || [], 'No missing info captured.')
-      )}
-      ${renderHomeGroup(
-        'Flags',
-        `${attention.flagItems?.length || 0} flag${attention.flagItems?.length === 1 ? '' : 's'} across clients`,
-        renderHomeItemRows(attention.flagItems || [], 'No flags captured.'),
-        attention.flagItems?.length ? 'warm' : ''
-      )}
+    <div class="attention-ledger">
+      <div class="attention-ledger-head">
+        <div>
+          <span>Priority path</span>
+          <h3>Attention ledger</h3>
+        </div>
+        <p>Work top to bottom. Dated high-priority items appear once, in their due-date lane.</p>
+      </div>
+      ${renderAttentionLane('Overdue', 'Past due', attention.overdueTasks || [], 'overdue')}
+      ${renderAttentionLane('Today', 'Due now', attention.dueTodayTasks || [], 'today')}
+      ${renderAttentionLane('Next', `${home.rules?.dueSoonDays || 7}-day horizon`, attention.dueThisWeekTasks || [], 'next')}
+      ${renderAttentionLane('Watch', 'Undated priorities', watchItems, 'watch')}
+      ${renderAttentionLane('Signals', 'Missing info + flags', signalItems, 'signals')}
     </div>
+  `;
+}
+
+function renderHomeBriefing(home) {
+  const stats = home.stats || {};
+  const now = new Date();
+  const day = new Intl.DateTimeFormat(undefined, { day: '2-digit' }).format(now);
+  const month = new Intl.DateTimeFormat(undefined, { month: 'long' }).format(now);
+  const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(now);
+  const urgentCount = Number(stats.overdueTaskCount || 0) + Number(stats.dueTodayTaskCount || 0);
+  const summary = stats.overdueTaskCount
+    ? `Start with ${stats.overdueTaskCount} overdue item${stats.overdueTaskCount === 1 ? '' : 's'}, then clear today's path.`
+    : stats.dueTodayTaskCount
+      ? `${stats.dueTodayTaskCount} item${stats.dueTodayTaskCount === 1 ? '' : 's'} on today's path.`
+      : 'The immediate path is clear. Make space for deeper client work.';
+  return `
+    <section class="home-briefing">
+      <div class="home-date-block" aria-label="${escapeHtml(`${weekday}, ${month} ${day}`)}">
+        <span>Today</span>
+        <strong>${escapeHtml(day)}</strong>
+        <p>${escapeHtml(month)}<em>${escapeHtml(weekday)}</em></p>
+      </div>
+      <div class="home-brief-copy">
+        <span class="home-brief-signal">${urgentCount ? `${urgentCount} immediate` : 'Path clear'}</span>
+        <h3>${escapeHtml(summary)}</h3>
+        <p>Small, consistent attention compounds. Close loops, plant the next right seed, and keep moving.</p>
+        <div class="home-brief-facts" aria-label="Practice summary">
+          <span><strong>${escapeHtml(String(stats.clientCount || 0))}</strong> clients</span>
+          <span><strong>${escapeHtml(String(stats.missingInfoCount || 0))}</strong> gaps</span>
+          <span><strong>${escapeHtml(String(stats.recentMessageCoveragePercent || 0))}%</strong> messaged</span>
+          <span><strong>${escapeHtml(String(stats.staleClientCount || 0))}</strong> quiet</span>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderPracticeMap(home) {
+  const stats = home.stats || {};
+  return `
+    <aside class="practice-map" aria-label="Practice rhythm map">
+      <div class="practice-map-copy">
+        <span>Practice rhythm map</span>
+        <strong>${escapeHtml(String(stats.clientCount || 0))} active paths</strong>
+        <p>A living view of momentum, gaps, and growth.</p>
+      </div>
+      <div class="practice-map-legend" aria-hidden="true">
+        <span class="steady">Steady</span>
+        <span class="attention">Needs attention</span>
+        <span class="emerging">Emerging</span>
+      </div>
+    </aside>
   `;
 }
 
@@ -2241,7 +2322,7 @@ function renderCoachHomeSegments(home) {
       )}
       ${renderHomeGroup(
         'Client Tags',
-        'AI-suggested client themes',
+        'Themes captured in saved client profiles',
         renderSegmentGroupRows(segments.suggestedTags || [], 'No suggested tags yet.')
       )}
       ${renderHomeGroup(
@@ -2256,7 +2337,6 @@ function renderCoachHomeSegments(home) {
 
 function renderCoachHome() {
   const home = getCoachHomeData();
-  const stats = home.stats || {};
   const activeTab = ['attention', 'activity', 'segments'].includes(state.coachHomeTab)
     ? state.coachHomeTab
     : 'attention';
@@ -2267,16 +2347,14 @@ function renderCoachHome() {
       ? renderCoachHomeSegments(home)
       : renderCoachHomeAttention(home);
   els.coachHomeContent.innerHTML = `
-    <div class="home-metrics">
-      ${renderHomeMetric('Overdue', stats.overdueTaskCount || 0, 'open to-dos', stats.overdueTaskCount ? 'hot' : '')}
-      ${renderHomeMetric('Due Today', stats.dueTodayTaskCount || 0, 'open to-dos', stats.dueTodayTaskCount ? 'today' : '')}
-      ${renderHomeMetric('Missing Info', stats.missingInfoCount || 0, 'items', stats.missingInfoCount ? 'info' : '')}
-      ${renderHomeMetric('Stale', stats.staleClientCount || 0, `${home.rules?.staleDays || 14}+ days`, stats.staleClientCount ? 'warm' : '')}
-      ${renderHomeMetric('Clients', stats.clientCount || 0, 'accepted', 'context')}
-      ${renderHomeMetric('Messaged', `${stats.recentMessageCoveragePercent || 0}%`, `last ${home.rules?.activityDays || 7} days`, 'positive')}
+    <div class="home-atlas">
+      ${renderHomeBriefing(home)}
+      ${renderPracticeMap(home)}
     </div>
-    ${renderHomeTabs(activeTab)}
-    ${tabContent}
+    <div class="home-workbench">
+      ${renderHomeTabs(activeTab)}
+      <div class="home-tab-content">${tabContent}</div>
+    </div>
   `;
 }
 
@@ -3487,6 +3565,39 @@ async function openCoachHome(options = {}) {
   setViewMode('home');
 }
 
+async function completeHomePlanningItem(button) {
+  const clientId = Number(button?.dataset?.homeClientId);
+  const sectionKey = button?.dataset?.homeSectionKey || '';
+  const itemIndex = Number(button?.dataset?.homeItemIndex);
+  if (!Number.isFinite(clientId) || !isPrioritizableSection(sectionKey) || !Number.isInteger(itemIndex)) {
+    showToast('This item could not be updated from Mission Control.', 'error');
+    return;
+  }
+
+  button.disabled = true;
+  setBusy(true, 'Closing the loop...');
+  try {
+    const detail = await window.coachNotes.getClientDetail({ clientId });
+    const currentSection = detail?.baseline?.structured?.[sectionKey];
+    if (!Array.isArray(currentSection) || itemIndex < 0 || itemIndex >= currentSection.length) {
+      throw new Error('The item changed since Mission Control was loaded. Refresh and try again.');
+    }
+    const nextSection = currentSection.map((item, index) => (
+      index === itemIndex ? applyPlanningPatch(item, { planningStatus: 'completed' }) : item
+    ));
+    await window.coachNotes.updateClientSection({ clientId, sectionKey, value: nextSection });
+    await loadClients();
+    renderCoachHome();
+    setViewMode('home');
+    showToast('Loop closed. Item marked completed.');
+  } catch (error) {
+    renderCoachHome();
+    showToast(`Mission Control update failed: ${error.message}`, 'error');
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function deleteSelectedClient() {
   const client = state.selectedClientDetail?.client;
   if (!client?.id) {
@@ -3641,10 +3752,26 @@ async function init() {
   els.settingsBtn.addEventListener('click', openSettings);
   els.coachHomeBtn.addEventListener('click', () => openCoachHome());
   els.refreshCoachHomeBtn.addEventListener('click', () => openCoachHome({ refresh: true }));
-  els.coachHomeContent.addEventListener('click', (event) => {
+  els.coachHomeContent.addEventListener('click', async (event) => {
     const tabButton = event.target.closest('[data-home-tab]');
     if (tabButton) {
       state.coachHomeTab = tabButton.dataset.homeTab || 'attention';
+      renderCoachHome();
+      return;
+    }
+    const homeAction = event.target.closest('[data-home-action]');
+    if (homeAction?.dataset?.homeAction === 'complete') {
+      await completeHomePlanningItem(homeAction);
+      return;
+    }
+    const laneToggle = event.target.closest('[data-home-lane]');
+    if (laneToggle) {
+      const lane = laneToggle.dataset.homeLane || '';
+      if (state.expandedHomeLanes.has(lane)) {
+        state.expandedHomeLanes.delete(lane);
+      } else {
+        state.expandedHomeLanes.add(lane);
+      }
       renderCoachHome();
       return;
     }
@@ -3659,6 +3786,14 @@ async function init() {
   els.clientSearchInput.addEventListener('input', () => {
     state.clientSearchQuery = sanitizeName(els.clientSearchInput.value);
     renderClients();
+  });
+  els.clientFilterToggle.addEventListener('click', () => {
+    const nextExpanded = els.clientFilterToggle.getAttribute('aria-expanded') !== 'true';
+    els.clientFilterToggle.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
+    els.clientBioFilter.hidden = !nextExpanded;
+    if (nextExpanded) {
+      els.clientProfileTagFilter.focus();
+    }
   });
   els.clientProfileTagFilter.addEventListener('input', () => {
     state.clientProfileTagFilter = sanitizeName(els.clientProfileTagFilter.value);

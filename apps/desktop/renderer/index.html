@@ -36,11 +36,16 @@
               </div>
               <button id="coachHomeBtn" class="home-nav-button active" type="button" aria-pressed="true">Home</button>
             </div>
-            <label class="rail-filter">
-              Search
-              <input id="clientSearchInput" type="search" placeholder="Client name" autocomplete="off" />
-            </label>
-            <label class="rail-filter">
+            <div class="rail-find-row">
+              <label class="rail-filter rail-search-filter">
+                Find clients
+                <input id="clientSearchInput" type="search" placeholder="Name" autocomplete="off" />
+              </label>
+              <button id="clientFilterToggle" class="rail-filter-toggle" type="button" aria-expanded="false" aria-controls="clientBioFilter">
+                Bio filter
+              </button>
+            </div>
+            <label id="clientBioFilter" class="rail-filter rail-bio-filter" hidden>
               Bio tag
               <input id="clientProfileTagFilter" type="search" list="clientProfileTagOptions" placeholder="Any bio tag" autocomplete="off" />
             </label>
@@ -63,9 +68,9 @@
           <section id="coachHomePanel" class="coach-home-panel" hidden>
             <div class="surface-head compact coach-home-head">
               <div>
-                <p class="section-kicker">Coach Home</p>
+                <p class="section-kicker">Practice operations</p>
                 <h2>Mission Control</h2>
-                <p>Priorities, follow-ups, and client movement—calculated locally from saved dashboard fields and source metadata.</p>
+                <p>Your live practice briefing, calculated locally from saved client records.</p>
               </div>
               <div class="surface-actions">
                 <button id="refreshCoachHomeBtn" class="btn btn-ghost" type="button">Refresh</button>
