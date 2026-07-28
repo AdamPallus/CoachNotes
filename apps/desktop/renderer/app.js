@@ -42,6 +42,7 @@ const baselineSections = [
   { key: 'overview', label: 'Current Baseline Snapshot', type: 'text', rows: 4 },
   { key: 'coachTasks', label: 'Coach To-Dos', type: 'list', rows: 5 },
   { key: 'flags', label: 'Flags', type: 'list', rows: 6 },
+  { key: 'radarItems', label: 'Keep on My Radar', type: 'list', rows: 5 },
   { key: 'goalsValues', label: 'Client Goals', type: 'list', rows: 5 },
   { key: 'clientValues', label: 'Client Values', type: 'list', rows: 4 },
   { key: 'coachingPlanApproach', label: 'Coaching Plan / Approach', type: 'list', rows: 5 },
@@ -950,6 +951,13 @@ function normalizeDueDateValue(value) {
   return match ? `${match[1]}-${match[2]}-${match[3]}` : '';
 }
 
+function getRadarThroughDate(item) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    return '';
+  }
+  return normalizeDueDateValue(item.throughDate || item.untilDate || item.endDate || item.expiresOn || '');
+}
+
 function getPlanningDueDate(item) {
   if (!item || typeof item !== 'object' || Array.isArray(item)) {
     return '';
@@ -1188,6 +1196,7 @@ function buildDashboardModel(structured = {}) {
     overview: structured.overview || '',
     coachTasks: asArray(structured.coachTasks),
     flags: asArray(structured.flags),
+    radarItems: asArray(structured.radarItems),
     goalsValues: asArray(structured.goalsValues),
     clientValues: asArray(structured.clientValues),
     coachingPlanApproach: asArray(structured.coachingPlanApproach),
@@ -1213,7 +1222,8 @@ function normalizeDetailItem(item, options = {}) {
       evidenceIds: [],
       priority: getPriorityOption('none'),
       planningStatus: planningStatusOptions[0],
-      dueDate: ''
+      dueDate: '',
+      throughDate: ''
     };
   }
   if (!item || typeof item !== 'object') {
@@ -1223,7 +1233,8 @@ function normalizeDetailItem(item, options = {}) {
       evidenceIds: [],
       priority: getPriorityOption('none'),
       planningStatus: planningStatusOptions[0],
-      dueDate: ''
+      dueDate: '',
+      throughDate: ''
     };
   }
   const planningSection = isPrioritizableSection(options.sectionKey);
@@ -1256,6 +1267,11 @@ function normalizeDetailItem(item, options = {}) {
       'dueOrReviewBy',
       'reviewBy',
       'due',
+      'throughDate',
+      'untilDate',
+      'endDate',
+      'expiresOn',
+      'category',
       'evidenceIds'
     ].includes(key))
     .map(([key, entry]) => `${key}: ${entry}`)
@@ -1266,7 +1282,8 @@ function normalizeDetailItem(item, options = {}) {
     evidenceIds: Array.isArray(item.evidenceIds) ? item.evidenceIds : [],
     priority: getPriorityOption(item.priority),
     planningStatus: getPlanningStatusOption(item),
-    dueDate: getPlanningDueDate(item)
+    dueDate: getPlanningDueDate(item),
+    throughDate: getRadarThroughDate(item)
   };
 }
 
@@ -2317,7 +2334,7 @@ function detailPageForHomeSection(sectionKey) {
   if (sectionKey === 'coachTasks' || sectionKey === 'goalsValues') {
     return 'goals';
   }
-  if (sectionKey === 'missingInfo' || sectionKey === 'flags') {
+  if (sectionKey === 'missingInfo' || sectionKey === 'flags' || sectionKey === 'radarItems') {
     return 'snapshot';
   }
   return 'snapshot';
@@ -2348,7 +2365,7 @@ function renderHomeItemRows(items = [], emptyText = 'Nothing needs attention her
     <div class="home-row-list">
       ${items.map((item) => {
         const meta = [
-          item.dueDate ? `Due ${formatDate(item.dueDate)}` : '',
+          item.throughDate ? `Through ${formatDate(item.throughDate)}` : (item.dueDate ? `Due ${formatDate(item.dueDate)}` : ''),
           item.priority === 'high' ? 'High priority' : '',
           item.planningStatus && item.planningStatus !== 'active' ? item.planningStatus : ''
         ].filter(Boolean).join(' • ');
@@ -2475,6 +2492,7 @@ function renderCoachHomeAttention(home) {
       ${renderAttentionLane('Missing Info', 'Context needed before the next decision', attention.missingInfoItems || [], 'missing')}
       ${renderAttentionLane('Next', `${home.rules?.dueSoonDays || 7}-day horizon`, attention.dueThisWeekTasks || [], 'next')}
       ${renderAttentionLane('Watch', 'Undated priorities', watchItems, 'watch')}
+      ${renderAttentionLane('Keep on My Radar', 'Near-term capacity and communication context', attention.radarItems || [], 'radar')}
     </div>
   `;
 }
@@ -2654,7 +2672,7 @@ function countHighPriorityOpenItems(dashboard) {
 
 function renderSectionActions(sectionKey) {
   const undoCount = Number(state.selectedClientDetail?.undoCounts?.[sectionKey] || 0);
-  const editAction = isPrioritizableSection(sectionKey)
+  const editAction = isPrioritizableSection(sectionKey) || sectionKey === 'radarItems'
     ? ''
     : `<button class="section-link edit-section" type="button" data-section-key="${escapeHtml(sectionKey)}">Edit</button>`;
   return `
@@ -2964,6 +2982,48 @@ function renderPlanningChips(normalized) {
   `;
 }
 
+function renderRadarControls(sectionKey, itemIndex, normalized) {
+  return `
+    <details class="item-radar-menu">
+      <summary>Adjust</summary>
+      <div class="item-radar-controls">
+        <label class="radar-copy-field">
+          <span>Situation</span>
+          <input type="text" value="${escapeHtml(normalized.title || '')}" data-radar-input="title" />
+        </label>
+        <label class="radar-copy-field">
+          <span>Why it matters right now</span>
+          <textarea rows="3" data-radar-input="details">${escapeHtml(normalized.detail || '')}</textarea>
+        </label>
+        <label class="radar-date-field">
+          <span>Keep through</span>
+          <input type="date" value="${escapeHtml(normalized.throughDate || '')}" data-radar-input="throughDate" />
+        </label>
+        <div class="radar-adjust-actions">
+          <button
+            class="section-link clear-radar-item"
+            type="button"
+            data-section-key="${escapeHtml(sectionKey)}"
+            data-item-index="${escapeHtml(String(itemIndex))}"
+          >Clear from radar</button>
+          <button
+            class="btn btn-primary save-radar-item"
+            type="button"
+            data-section-key="${escapeHtml(sectionKey)}"
+            data-item-index="${escapeHtml(String(itemIndex))}"
+          >Save changes</button>
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function renderRadarThroughChip(normalized) {
+  return normalized.throughDate
+    ? `<span class="radar-through-chip">Through ${escapeHtml(formatDate(normalized.throughDate))}</span>`
+    : '';
+}
+
 function renderMissingInfoActions(itemIndex) {
   return `
     <div class="missing-info-actions">
@@ -3014,6 +3074,7 @@ function renderDetailList(title, value, sourceLookup, options = {}) {
   }
   const planningSection = isPrioritizableSection(options.sectionKey);
   const missingInfoSection = options.sectionKey === 'missingInfo';
+  const radarSection = options.sectionKey === 'radarItems';
   const rowModels = values.map((item, index) => ({
     item,
     index,
@@ -3033,6 +3094,17 @@ function renderDetailList(title, value, sourceLookup, options = {}) {
     const bodyHtml = titleHtml || detailHtml
       ? `${titleHtml}${detailHtml}`
       : '<span>No details captured yet.</span>';
+    if (radarSection) {
+      return `
+        <li class="radar-item">
+          <div class="radar-item-body">
+            ${bodyHtml}
+            ${renderRadarThroughChip(normalized)}
+          </div>
+          ${renderRadarControls(options.sectionKey, index, normalized)}
+        </li>
+      `;
+    }
     if (missingInfoSection) {
       return `
         <li class="missing-info-item">
@@ -3322,6 +3394,7 @@ function renderClientDetail(detail) {
         ${renderDetailList('Coach To-Dos', dashboard.coachTasks, sourceLookup, { tone: 'priority', sectionKey: 'coachTasks' })}
         ${renderDetailList('Flags', dashboard.flags, sourceLookup, { tone: flagCount ? 'scope' : '', sectionKey: 'flags' })}
         ${renderDetailList('Missing Info', dashboard.missingInfo, sourceLookup, { wide: true, tone: 'missing-focus', sectionKey: 'missingInfo' })}
+        ${renderDetailList('Keep on My Radar', dashboard.radarItems, sourceLookup, { wide: true, tone: 'radar-focus', sectionKey: 'radarItems' })}
       </div>
     </div>
   `;
@@ -3539,6 +3612,31 @@ function applyPlanningPatch(item, patch) {
   return next;
 }
 
+function applyRadarPatch(item, patch) {
+  const next = item && typeof item === 'object' && !Array.isArray(item)
+    ? { ...item }
+    : { details: String(item || '') };
+
+  const title = String(patch.title || '').trim();
+  ['title', 'label', 'resource', 'name', 'date'].forEach((key) => delete next[key]);
+  if (title) {
+    next.title = title;
+  }
+
+  const details = String(patch.details || '').trim();
+  ['details', 'currentStatus', 'urgency', 'summary', 'note', 'notes'].forEach((key) => delete next[key]);
+  if (details) {
+    next.details = details;
+  }
+
+  ['throughDate', 'untilDate', 'endDate', 'expiresOn'].forEach((key) => delete next[key]);
+  const throughDate = normalizeDueDateValue(patch.throughDate);
+  if (throughDate) {
+    next.throughDate = throughDate;
+  }
+  return next;
+}
+
 function buildCoachTaskFromMissingInfo(item) {
   const normalized = normalizeDetailItem(item, { sectionKey: 'missingInfo' });
   const detail = normalized.detail || normalized.title || 'Clarify missing client context.';
@@ -3635,6 +3733,84 @@ async function savePlanningItem(button) {
   } catch (error) {
     renderClientDetail(state.selectedClientDetail);
     showToast(`To-do save failed: ${error.message}`, 'error');
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function saveRadarItem(button) {
+  const sectionKey = button?.dataset?.sectionKey || '';
+  const itemIndex = Number(button?.dataset?.itemIndex);
+  const controls = button?.closest('.item-radar-controls');
+  if (sectionKey !== 'radarItems' || !controls || !Number.isInteger(itemIndex)) {
+    return;
+  }
+  const clientId = state.selectedClientDetail?.client?.id;
+  const currentSection = state.selectedClientDetail?.baseline?.structured?.radarItems;
+  if (!clientId || !Array.isArray(currentSection) || itemIndex < 0 || itemIndex >= currentSection.length) {
+    return;
+  }
+
+  const readValue = (field) => controls.querySelector(`[data-radar-input="${field}"]`)?.value || '';
+  const nextSection = currentSection.map((item, index) => (
+    index === itemIndex
+      ? applyRadarPatch(item, {
+          title: readValue('title'),
+          details: readValue('details'),
+          throughDate: readValue('throughDate')
+        })
+      : item
+  ));
+  if (valuesEqual(currentSection, nextSection)) {
+    return;
+  }
+
+  setBusy(true, 'Saving radar item...');
+  try {
+    const detail = await window.coachNotes.updateClientSection({
+      clientId,
+      sectionKey,
+      value: nextSection
+    });
+    state.selectedClientDetail = detail;
+    await loadClients();
+    await loadCoachHome();
+    renderClientDetail(detail);
+    setViewMode('detail');
+    showToast('Radar item updated.');
+  } catch (error) {
+    renderClientDetail(state.selectedClientDetail);
+    showToast(`Radar save failed: ${error.message}`, 'error');
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function clearRadarItem(button) {
+  const sectionKey = button?.dataset?.sectionKey || '';
+  const itemIndex = Number(button?.dataset?.itemIndex);
+  const clientId = state.selectedClientDetail?.client?.id;
+  const currentSection = state.selectedClientDetail?.baseline?.structured?.radarItems;
+  if (sectionKey !== 'radarItems' || !clientId || !Array.isArray(currentSection) || !Number.isInteger(itemIndex) || itemIndex < 0 || itemIndex >= currentSection.length) {
+    return;
+  }
+
+  setBusy(true, 'Clearing radar item...');
+  try {
+    const detail = await window.coachNotes.updateClientSection({
+      clientId,
+      sectionKey,
+      value: currentSection.filter((_, index) => index !== itemIndex)
+    });
+    state.selectedClientDetail = detail;
+    await loadClients();
+    await loadCoachHome();
+    renderClientDetail(detail);
+    setViewMode('detail');
+    showToast('Cleared from radar. You can undo this section change.');
+  } catch (error) {
+    renderClientDetail(state.selectedClientDetail);
+    showToast(`Radar update failed: ${error.message}`, 'error');
   } finally {
     setBusy(false);
   }
@@ -4282,6 +4458,16 @@ async function init() {
     const savePlanningButton = event.target.closest('.save-planning-item');
     if (savePlanningButton) {
       savePlanningItem(savePlanningButton);
+      return;
+    }
+    const saveRadarButton = event.target.closest('.save-radar-item');
+    if (saveRadarButton) {
+      saveRadarItem(saveRadarButton);
+      return;
+    }
+    const clearRadarButton = event.target.closest('.clear-radar-item');
+    if (clearRadarButton) {
+      clearRadarItem(clearRadarButton);
       return;
     }
     const missingInfoButton = event.target.closest('.missing-info-action');

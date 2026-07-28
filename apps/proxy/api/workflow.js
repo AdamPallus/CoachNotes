@@ -50,6 +50,23 @@ const TIMELINE_ITEM_SCHEMA = {
   evidenceIds: ['source_id']
 };
 
+const RADAR_ITEM_SCHEMA = {
+  title: 'brief temporary situation',
+  details: 'how this near-term situation may affect client capacity, adherence, or communication',
+  category: 'acute_injury | family_situation | bereavement | vacation | work_travel | stressful_period | schedule_change | other',
+  throughDate: 'YYYY-MM-DD only when an end date is supported by the source; otherwise empty',
+  evidenceIds: ['source_id']
+};
+
+const RADAR_RULES = [
+  '- radarItems is the coach\'s Keep on My Radar list: active, temporary, near-term client situations that may affect capacity or bandwidth for adherence or communication, or that should shape how the coach communicates.',
+  '- Examples include acute injuries, acute family situations, bereavement, vacations, work travel, unusually stressful periods at work or home, and temporary schedule changes.',
+  '- Radar items are context, not actions. Do not turn one into a coachTask unless the source also supports a specific action the coach needs to take.',
+  '- Keep durable or chronic client facts in flags or the appropriate profile section, not radarItems. If a radar situation becomes chronic, remove it from radarItems and retain the durable context elsewhere when relevant.',
+  '- Set throughDate only when the source supports a specific end date. Do not invent one.',
+  '- On updates, remove radar items that the new evidence says have ended, been superseded, or become chronic. Also remove an item when its explicit throughDate is before current_date. Preserve active items with no supported end date until later evidence changes them.'
+];
+
 const TIMELINE_RULES = [
   '- Timeline is a curated progress history for coaches: show trajectory over time, preserve relevant historical context, and condense large histories into digestible milestones.',
   '- Timeline dates are client event dates, not automatically the source/import date. Use date_or_range only when the event appears to have happened on that source date or no more specific event date is supported.',
@@ -268,6 +285,8 @@ function renderClientProfileSettingsPrompt(value) {
 
 function renderClientIntakePrompt(body) {
   const client = body.client && typeof body.client === 'object' ? body.client : {};
+  const requestedDate = String(body.currentDate || '').trim();
+  const currentDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : new Date().toISOString().slice(0, 10);
   const sourceBlocks = body.sources.map((source, index) => {
     const sourceId = String(source.source_id || `source_${index + 1}`).trim();
     return [
@@ -286,6 +305,7 @@ function renderClientIntakePrompt(body) {
     '',
     'Client anchors:',
     `name: ${client.name || 'Unknown client'}`,
+    `current_date: ${currentDate}`,
     `program_context: ${client.programContext || '(not provided)'}`,
     `coach_notes: ${client.coachNotes || '(not provided)'}`,
     'coach_selected_profile_settings:',
@@ -327,13 +347,14 @@ function renderClientIntakePrompt(body) {
       flags: [
         {
           title: '',
-          category: 'injury | vacation | red_flag | medical_concern | surgery_procedure | life_event | other',
+          category: 'chronic_injury | red_flag | medical_concern | surgery_procedure | durable_constraint | other',
           details: '',
           status: 'active | improving | resolved | historical | unknown',
           urgency: 'low | medium | high | unknown',
           evidenceIds: ['source_id']
         }
       ],
+      radarItems: [RADAR_ITEM_SCHEMA],
       goalsValues: [
         {
           title: '',
@@ -426,7 +447,8 @@ function renderClientIntakePrompt(body) {
     '- Merge duplicates and near-duplicates across sources. If several notes say the same thing, write one combined item with multiple evidenceIds.',
     '- Use evidenceIds to point back to source_id values. Empty evidenceIds are allowed only for coach-provided anchors.',
     '- Treat coach_selected_profile_settings as coach-entered client profile facts. Preserve them in clientProfile when provided.',
-    '- Flags should include injuries, vacations, red flags, medical concerns, surgeries/procedures, and major life events. Do not put ordinary preferences in flags.',
+    '- Flags should contain durable or chronic client facts, safety or scope-of-practice concerns, ongoing medical considerations, and lasting constraints. Do not put temporary near-term situations or ordinary preferences in flags.',
+    ...RADAR_RULES,
     '- For goalsValues, include only client goals or desired outcomes. Do not include values, identity statements, or general motivations there.',
     '- For clientValues, include stable values, motivations, identity statements, or coaching-relevant preferences that should live with the client profile.',
     '- For coachingPlanApproach, include only things the coach and client have agreed to try, commit to, revisit, or use later to move the client toward their goals.',
@@ -451,6 +473,8 @@ function renderClientIntakePrompt(body) {
 
 function renderClientUpdatePrompt(body) {
   const client = body.client && typeof body.client === 'object' ? body.client : {};
+  const requestedDate = String(body.currentDate || '').trim();
+  const currentDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : new Date().toISOString().slice(0, 10);
   const currentBaseline = body.currentBaseline && typeof body.currentBaseline === 'object' ? body.currentBaseline : {};
   const sourceBlocks = body.sources.map((source, index) => {
     const sourceId = String(source.source_id || `source_${index + 1}`).trim();
@@ -470,6 +494,7 @@ function renderClientUpdatePrompt(body) {
     '',
     'Client:',
     `name: ${client.name || 'Unknown client'}`,
+    `current_date: ${currentDate}`,
     '',
     'Coach/practice template:',
     renderCoachTemplatePrompt(body.coachTemplate),
@@ -483,7 +508,7 @@ function renderClientUpdatePrompt(body) {
       updateSummary: '1-2 concise sentences explaining what changed and why it matters to the coach.',
       changes: [
         {
-          sectionKey: 'flags | programChanges | exerciseThreads | coachingPlanApproach | coachTasks | goalsValues | clientValues | progressTracking | timeline | missingInfo | confidenceNotes',
+          sectionKey: 'flags | radarItems | programChanges | exerciseThreads | coachingPlanApproach | coachTasks | goalsValues | clientValues | progressTracking | timeline | missingInfo | confidenceNotes',
           action: 'add | update | resolve | no_change | needs_review',
           summary: '',
           reason: '',
@@ -511,7 +536,8 @@ function renderClientUpdatePrompt(body) {
         },
         overview: 'brief updated current-state Snapshot for coach scanning',
         coachTasks: ['coach to-do'],
-        flags: ['injury, vacation, red flag, medical concern, surgery/procedure, life event, or other flag'],
+        flags: ['durable or chronic injury, red flag, ongoing medical concern, surgery/procedure context, lasting constraint, or other long-term flag'],
+        radarItems: [RADAR_ITEM_SCHEMA],
         goalsValues: ['specific client goal or desired outcome only'],
         clientValues: ['client value, motivation, identity statement, or stable coaching-relevant preference'],
         coachingPlanApproach: ['agreed approach, planned habit/skill focus, current commitment, or future commitment expected to move goals forward'],
@@ -539,7 +565,8 @@ function renderClientUpdatePrompt(body) {
     '- Cite new evidence using evidenceIds objects or bracket markers like [source_id].',
     '- Do not cite the current baseline as evidence. It is coach context, not a source note.',
     '- Treat coach-entered currentBaseline fields as source of truth. Add new source evidence without erasing coach edits.',
-    '- Flags should include injuries, vacations, red flags, medical concerns, surgeries/procedures, and major life events. Do not put ordinary preferences in flags.',
+    '- Flags should contain durable or chronic client facts, safety or scope-of-practice concerns, ongoing medical considerations, and lasting constraints. Do not put temporary near-term situations or ordinary preferences in flags.',
+    ...RADAR_RULES,
     '- For goalsValues, keep only client goals or desired outcomes. Move values, identity statements, or general motivations into clientValues.',
     '- For clientValues, update stable values, motivations, identity statements, or coaching-relevant preferences when new evidence supports it.',
     '- For coachingPlanApproach, update agreed coaching approach, current commitments, planned habit/skill focus, and future commitments when new evidence supports it.',

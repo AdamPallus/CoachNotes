@@ -61,6 +61,7 @@ const BASELINE_SECTION_KEYS = new Set([
   'overview',
   'coachTasks',
   'flags',
+  'radarItems',
   'goalsValues',
   'clientValues',
   'coachingPlanApproach',
@@ -79,6 +80,7 @@ const BASELINE_SECTION_KEYS = new Set([
 const BASELINE_ARRAY_SECTION_KEYS = new Set([
   'coachTasks',
   'flags',
+  'radarItems',
   'goalsValues',
   'clientValues',
   'coachingPlanApproach',
@@ -814,6 +816,7 @@ async function generateClientBaseline(payload) {
     response = await callProxy('/workflow', {
       model: DEFAULT_LLM_MODEL,
       workflow: 'client_intake_baseline',
+      currentDate: dateKeyFromDate(new Date()),
       client: {
         name: clientName,
         programContext: normalizeMultilineText(payload?.programContext || '', 2000),
@@ -1100,6 +1103,28 @@ function getCoachTaskDueDate(item) {
   return normalizeDueDateValue(item.dueDate || item.dueOrReviewBy || item.reviewBy || item.due || '');
 }
 
+function getRadarThroughDate(item) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    return '';
+  }
+  return normalizeDueDateValue(item.throughDate || item.untilDate || item.endDate || item.expiresOn || '');
+}
+
+function isActiveRadarItem(item, todayKey) {
+  if (typeof item === 'string') {
+    return Boolean(sanitizeName(item));
+  }
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    return false;
+  }
+  const status = String(item.status || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+  if (['resolved', 'ended', 'expired', 'historical', 'chronic', 'inactive'].includes(status)) {
+    return false;
+  }
+  const throughDate = getRadarThroughDate(item);
+  return !throughDate || throughDate >= todayKey;
+}
+
 function getOpenCoachTaskDueCounts(tasks) {
   const now = new Date();
   const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -1189,6 +1214,11 @@ function getHomeItemDetail(item) {
       'dueOrReviewBy',
       'reviewBy',
       'due',
+      'throughDate',
+      'untilDate',
+      'endDate',
+      'expiresOn',
+      'category',
       'evidenceIds'
     ].includes(key))
     .map(([key, value]) => `${key}: ${sanitizeName(value)}`)
@@ -1220,6 +1250,7 @@ function buildHomeItem(client, structured, sectionKey, item, index) {
     priority: getHomePriorityValue(item),
     planningStatus,
     dueDate: getCoachTaskDueDate(item),
+    throughDate: sectionKey === 'radarItems' ? getRadarThroughDate(item) : '',
     updatedAt: client.updatedAt,
     profileTags: client.profileTags || [],
     summary: normalizeMultilineText(structured.overview || '', 180)
@@ -1316,7 +1347,6 @@ function getCoachHome() {
   const staleCutoffKey = addDaysToKey(todayKey, -HOME_STALE_DAYS);
   const profileGroups = new Map();
   const tagGroups = new Map();
-  const flagGroups = new Map();
   const sourceTypeGroups = new Map();
   const attention = {
     overdueTasks: [],
@@ -1324,7 +1354,7 @@ function getCoachHome() {
     dueThisWeekTasks: [],
     highPriorityItems: [],
     missingInfoItems: [],
-    flagItems: []
+    radarItems: []
   };
   const activity = {
     recentlyUpdated: [],
@@ -1396,10 +1426,10 @@ function getCoachHome() {
     getSectionArray(structured, 'missingInfo').forEach((item, index) => {
       attention.missingInfoItems.push(buildHomeItem(client, structured, 'missingInfo', item, index));
     });
-    getSectionArray(structured, 'flags').forEach((item, index) => {
-      const homeItem = buildHomeItem(client, structured, 'flags', item, index);
-      attention.flagItems.push(homeItem);
-      addSegmentGroup(flagGroups, homeItem.title, client);
+    getSectionArray(structured, 'radarItems').forEach((item, index) => {
+      if (isActiveRadarItem(item, todayKey)) {
+        attention.radarItems.push(buildHomeItem(client, structured, 'radarItems', item, index));
+      }
     });
 
     activity.recentlyUpdated.push(client);
@@ -1419,7 +1449,10 @@ function getCoachHome() {
   attention.dueThisWeekTasks.sort(sortByDue);
   attention.highPriorityItems.sort(sortByClient);
   attention.missingInfoItems.sort(sortByClient);
-  attention.flagItems.sort(sortByClient);
+  attention.radarItems.sort((left, right) => (
+    String(left.throughDate || '9999-99-99').localeCompare(String(right.throughDate || '9999-99-99'))
+    || sortByClient(left, right)
+  ));
   activity.recentlyUpdated.sort((left, right) => (
     String(right.updatedAt || '').localeCompare(String(left.updatedAt || ''))
     || left.name.localeCompare(right.name)
@@ -1447,7 +1480,7 @@ function getCoachHome() {
       dueThisWeekTaskCount: attention.dueThisWeekTasks.length,
       highPriorityCount: attention.highPriorityItems.length,
       missingInfoCount: attention.missingInfoItems.length,
-      flagCount: attention.flagItems.length,
+      radarCount: attention.radarItems.length,
       staleClientCount: activity.staleClients.length,
       recentSourceCount,
       recentMessageClientCount,
@@ -1461,8 +1494,7 @@ function getCoachHome() {
     },
     segments: {
       profileSegments: sortedSegmentGroups(profileGroups),
-      suggestedTags: sortedSegmentGroups(tagGroups),
-      flagThemes: sortedSegmentGroups(flagGroups)
+      suggestedTags: sortedSegmentGroups(tagGroups)
     }
   };
 }
@@ -1697,6 +1729,7 @@ async function updateClientFromNote(payload) {
     response = await callProxy('/workflow', {
       model: DEFAULT_LLM_MODEL,
       workflow: 'client_note_update',
+      currentDate: dateKeyFromDate(new Date()),
       client: {
         name: row.clientName
       },
