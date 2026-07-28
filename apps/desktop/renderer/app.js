@@ -19,6 +19,7 @@ const state = {
   clientSearchQuery: '',
   clientProfileTagFilter: '',
   clientSortMode: 'name',
+  theme: 'light',
   noteTitlePresets: [],
   noteAnnotationPresets: [],
   todoTitlePresets: [],
@@ -60,7 +61,9 @@ const clientSortStorageKey = 'coachnotes.clientSortMode.v1';
 const noteTitlePresetsStorageKey = 'coachnotes.noteTitlePresets.v1';
 const noteAnnotationPresetsStorageKey = 'coachnotes.noteAnnotationPresets.v1';
 const todoTitlePresetsStorageKey = 'coachnotes.todoTitlePresets.v1';
+const themeStorageKey = 'coachnotes.theme.v1';
 const maxSavedPresets = 12;
+let clientProfileTagFilterTimer = null;
 
 const clientProfileExportPrompt = `Create an Everfit client profile from the client intake notes and any related coaching notes.
 
@@ -276,6 +279,8 @@ const profileControlKeys = new Set([
 const els = {
   statusLine: document.getElementById('statusLine'),
   onboardBtn: document.getElementById('onboardBtn'),
+  themeToggleBtn: document.getElementById('themeToggleBtn'),
+  themeToggleLabel: document.getElementById('themeToggleLabel'),
   settingsBtn: document.getElementById('settingsBtn'),
   coachHomeBtn: document.getElementById('coachHomeBtn'),
   clientSearchInput: document.getElementById('clientSearchInput'),
@@ -460,7 +465,57 @@ function upsertPresetValue(storageKey, values, value) {
   return next;
 }
 
+function getPreferredTheme() {
+  try {
+    const stored = localStorage.getItem(themeStorageKey);
+    if (stored === 'dark' || stored === 'light') {
+      return stored;
+    }
+  } catch {
+    // Theme preference can fall back to the operating system.
+  }
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function applyTheme(theme, persist = true) {
+  const nextTheme = theme === 'dark' ? 'dark' : 'light';
+  state.theme = nextTheme;
+  document.documentElement.dataset.theme = nextTheme;
+  const darkMode = nextTheme === 'dark';
+  els.themeToggleBtn.setAttribute('aria-pressed', darkMode ? 'true' : 'false');
+  els.themeToggleBtn.title = darkMode ? 'Use light mode' : 'Use dark mode';
+  els.themeToggleLabel.textContent = darkMode ? 'Light' : 'Dark';
+  if (persist) {
+    try {
+      localStorage.setItem(themeStorageKey, nextTheme);
+    } catch {
+      // Theme persistence is a local convenience.
+    }
+  }
+}
+
+function syncChoiceGroups() {
+  document.querySelectorAll('[data-choice-group]').forEach((group) => {
+    const control = document.getElementById(group.dataset.choiceTarget || '');
+    if (!control) {
+      return;
+    }
+    group.querySelectorAll('[data-choice-value]').forEach((button) => {
+      const selected = button.dataset.choiceValue === control.value;
+      button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      button.disabled = control.disabled;
+    });
+  });
+  const scopeLabel = els.askScopeInput?.selectedOptions?.[0]?.textContent || '';
+  const timeLabel = els.askTimeWindowInput?.selectedOptions?.[0]?.textContent || '';
+  const summary = document.getElementById('askContextSummary');
+  if (summary) {
+    summary.textContent = `Context: ${scopeLabel} · ${timeLabel}`;
+  }
+}
+
 function loadLocalPreferences() {
+  applyTheme(getPreferredTheme(), false);
   loadPlanningHiddenStatuses();
   state.noteTitlePresets = loadStringList(noteTitlePresetsStorageKey);
   state.noteAnnotationPresets = loadStringList(noteAnnotationPresetsStorageKey);
@@ -1348,6 +1403,7 @@ function resetNoteDialog() {
   els.noteTextInput.value = '';
   els.updateNoteSubmitBtn.disabled = false;
   clearNoteError();
+  syncChoiceGroups();
   renderNotePresetControls();
   renderNoteSources();
 }
@@ -1411,6 +1467,7 @@ function resetAskDialog() {
   els.askResultMeta.textContent = '';
   els.askResultOutput.innerHTML = '';
   els.askSourceList.innerHTML = '';
+  syncChoiceGroups();
 }
 
 function openAskDialog() {
@@ -1435,6 +1492,7 @@ function applyAskOutputPreset() {
     els.askTimeWindowInput.value = 'all-time';
     els.askPromptInput.value = initialWelcomeMessagePrompt;
   }
+  syncChoiceGroups();
 }
 
 function setAskLoading(on, message = 'Using the selected client context.') {
@@ -1458,6 +1516,7 @@ function setAskLoading(on, message = 'Using the selected client context.') {
       control.disabled = state.askLoading;
     }
   });
+  syncChoiceGroups();
 }
 
 function renderAskCitationChip(chunkId, sourceLookup) {
@@ -2036,15 +2095,14 @@ function detailPageForHomeSection(sectionKey) {
 
 function renderHomeTabs(activeTab) {
   const tabs = [
-    { key: 'attention', label: 'Attention', index: '01' },
-    { key: 'activity', label: 'Activity', index: '02' },
-    { key: 'segments', label: 'Segments', index: '03' }
+    { key: 'attention', label: 'Attention' },
+    { key: 'activity', label: 'Activity' },
+    { key: 'segments', label: 'Segments' }
   ];
   return `
     <nav class="home-tabs" aria-label="Coach home views">
       ${tabs.map((tab) => `
         <button class="home-tab ${tab.key === activeTab ? 'active' : ''}" type="button" data-home-tab="${escapeHtml(tab.key)}" aria-pressed="${tab.key === activeTab ? 'true' : 'false'}">
-          <span>${escapeHtml(tab.index)}</span>
           ${escapeHtml(tab.label)}
         </button>
       `).join('')}
@@ -2173,10 +2231,6 @@ function renderCoachHomeAttention(home) {
     ...(attention.dueThisWeekTasks || [])
   ].map(homeItemKey));
   const watchItems = (attention.highPriorityItems || []).filter((item) => !scheduledKeys.has(homeItemKey(item)));
-  const signalItems = [
-    ...(attention.missingInfoItems || []),
-    ...(attention.flagItems || [])
-  ];
   return `
     <div class="attention-ledger">
       <div class="attention-ledger-head">
@@ -2188,62 +2242,34 @@ function renderCoachHomeAttention(home) {
       </div>
       ${renderAttentionLane('Overdue', 'Past due', attention.overdueTasks || [], 'overdue')}
       ${renderAttentionLane('Today', 'Due now', attention.dueTodayTasks || [], 'today')}
+      ${renderAttentionLane('Missing Info', 'Context needed before the next decision', attention.missingInfoItems || [], 'missing')}
       ${renderAttentionLane('Next', `${home.rules?.dueSoonDays || 7}-day horizon`, attention.dueThisWeekTasks || [], 'next')}
       ${renderAttentionLane('Watch', 'Undated priorities', watchItems, 'watch')}
-      ${renderAttentionLane('Signals', 'Missing info + flags', signalItems, 'signals')}
+      ${renderAttentionLane('Flags', 'Client constraints and watch-outs', attention.flagItems || [], 'flags')}
     </div>
   `;
 }
 
 function renderHomeBriefing(home) {
   const stats = home.stats || {};
-  const now = new Date();
-  const day = new Intl.DateTimeFormat(undefined, { day: '2-digit' }).format(now);
-  const month = new Intl.DateTimeFormat(undefined, { month: 'long' }).format(now);
-  const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(now);
   const urgentCount = Number(stats.overdueTaskCount || 0) + Number(stats.dueTodayTaskCount || 0);
-  const summary = stats.overdueTaskCount
-    ? `Start with ${stats.overdueTaskCount} overdue item${stats.overdueTaskCount === 1 ? '' : 's'}, then clear today's path.`
-    : stats.dueTodayTaskCount
-      ? `${stats.dueTodayTaskCount} item${stats.dueTodayTaskCount === 1 ? '' : 's'} on today's path.`
-      : 'The immediate path is clear. Make space for deeper client work.';
+  const summary = urgentCount
+    ? `${urgentCount} client action${urgentCount === 1 ? '' : 's'} need attention now.`
+    : 'No client actions are due right now.';
   return `
-    <section class="home-briefing">
-      <div class="home-date-block" aria-label="${escapeHtml(`${weekday}, ${month} ${day}`)}">
-        <span>Today</span>
-        <strong>${escapeHtml(day)}</strong>
-        <p>${escapeHtml(month)}<em>${escapeHtml(weekday)}</em></p>
-      </div>
+    <section class="home-briefing" aria-label="Practice status">
       <div class="home-brief-copy">
-        <span class="home-brief-signal">${urgentCount ? `${urgentCount} immediate` : 'Path clear'}</span>
+        <span class="home-brief-signal">Needs attention now</span>
         <h3>${escapeHtml(summary)}</h3>
-        <p>Small, consistent attention compounds. Close loops, plant the next right seed, and keep moving.</p>
-        <div class="home-brief-facts" aria-label="Practice summary">
-          <span><strong>${escapeHtml(String(stats.clientCount || 0))}</strong> clients</span>
-          <span><strong>${escapeHtml(String(stats.missingInfoCount || 0))}</strong> gaps</span>
-          <span><strong>${escapeHtml(String(stats.recentMessageCoveragePercent || 0))}%</strong> messaged</span>
-          <span><strong>${escapeHtml(String(stats.staleClientCount || 0))}</strong> quiet</span>
-        </div>
+        <p>Start with overdue and missing-context work, then move through today's follow-ups.</p>
+      </div>
+      <div class="home-brief-facts" aria-label="Practice summary">
+        <span class="overdue"><strong>${escapeHtml(String(stats.overdueTaskCount || 0))}</strong> overdue</span>
+        <span class="today"><strong>${escapeHtml(String(stats.dueTodayTaskCount || 0))}</strong> due today</span>
+        <span class="missing"><strong>${escapeHtml(String(stats.missingInfoCount || 0))}</strong> missing info</span>
+        <span class="quiet"><strong>${escapeHtml(String(stats.staleClientCount || 0))}</strong> quiet clients</span>
       </div>
     </section>
-  `;
-}
-
-function renderPracticeMap(home) {
-  const stats = home.stats || {};
-  return `
-    <aside class="practice-map" aria-label="Practice rhythm map">
-      <div class="practice-map-copy">
-        <span>Practice rhythm map</span>
-        <strong>${escapeHtml(String(stats.clientCount || 0))} active paths</strong>
-        <p>A living view of momentum, gaps, and growth.</p>
-      </div>
-      <div class="practice-map-legend" aria-hidden="true">
-        <span class="steady">Steady</span>
-        <span class="attention">Needs attention</span>
-        <span class="emerging">Emerging</span>
-      </div>
-    </aside>
   `;
 }
 
@@ -2349,7 +2375,6 @@ function renderCoachHome() {
   els.coachHomeContent.innerHTML = `
     <div class="home-atlas">
       ${renderHomeBriefing(home)}
-      ${renderPracticeMap(home)}
     </div>
     <div class="home-workbench">
       ${renderHomeTabs(activeTab)}
@@ -2414,7 +2439,7 @@ function renderPlanningVisibilityMenu() {
 function renderSectionTitleActions(sectionKey, planningSection) {
   return `
     <div class="section-title-actions">
-      ${sectionKey === 'coachTasks' ? '<button class="section-link add-planning-item" type="button" data-section-key="coachTasks">+ Add</button>' : ''}
+      ${sectionKey === 'coachTasks' ? '<button class="section-add-button add-planning-item" type="button" data-section-key="coachTasks"><span aria-hidden="true">+</span> Add to-do</button>' : ''}
       ${planningSection ? renderPlanningVisibilityMenu() : ''}
       ${renderSectionActions(sectionKey)}
     </div>
@@ -2624,24 +2649,27 @@ function renderSelectOptions(options, selectedValue) {
 
 function renderPlanningControls(sectionKey, itemIndex, normalized) {
   return `
-    <div class="item-planning-controls">
-      <label>
-        <span>Priority</span>
-        <select data-planning-field="priority" data-section-key="${escapeHtml(sectionKey)}" data-item-index="${escapeHtml(String(itemIndex))}">
-          ${renderSelectOptions(priorityOptions, normalized.priority.value)}
-        </select>
-      </label>
-      <label>
-        <span>Status</span>
-        <select data-planning-field="planningStatus" data-section-key="${escapeHtml(sectionKey)}" data-item-index="${escapeHtml(String(itemIndex))}">
-          ${renderSelectOptions(planningStatusOptions, normalized.planningStatus.value)}
-        </select>
-      </label>
-      <label>
-        <span>Due</span>
-        <input type="date" value="${escapeHtml(normalized.dueDate || '')}" data-planning-field="dueDate" data-section-key="${escapeHtml(sectionKey)}" data-item-index="${escapeHtml(String(itemIndex))}" />
-      </label>
-    </div>
+    <details class="item-planning-menu">
+      <summary>Adjust</summary>
+      <div class="item-planning-controls">
+        <label>
+          <span>Priority</span>
+          <select data-planning-field="priority" data-section-key="${escapeHtml(sectionKey)}" data-item-index="${escapeHtml(String(itemIndex))}">
+            ${renderSelectOptions(priorityOptions, normalized.priority.value)}
+          </select>
+        </label>
+        <label>
+          <span>Status</span>
+          <select data-planning-field="planningStatus" data-section-key="${escapeHtml(sectionKey)}" data-item-index="${escapeHtml(String(itemIndex))}">
+            ${renderSelectOptions(planningStatusOptions, normalized.planningStatus.value)}
+          </select>
+        </label>
+        <label>
+          <span>Due</span>
+          <input type="date" value="${escapeHtml(normalized.dueDate || '')}" data-planning-field="dueDate" data-section-key="${escapeHtml(sectionKey)}" data-item-index="${escapeHtml(String(itemIndex))}" />
+        </label>
+      </div>
+    </details>
   `;
 }
 
@@ -2775,6 +2803,14 @@ function renderDetailList(title, value, sourceLookup, options = {}) {
   `;
 }
 
+function formatObjectLabel(key) {
+  const spaced = String(key || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim();
+  return spaced.replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
 function renderObjectSection(title, value, sourceLookup, options = {}) {
   const sectionKey = options.sectionKey || 'clientProfile';
   if ((!value || typeof value !== 'object' || Array.isArray(value)) && !sectionKey) {
@@ -2784,7 +2820,7 @@ function renderObjectSection(title, value, sourceLookup, options = {}) {
     .filter(([key]) => sectionKey !== 'clientProfile' || !profileControlKeys.has(key));
   const rows = entries.length ? entries.map(([key, entry]) => `
     <div class="object-row">
-      <span>${escapeHtml(key)}</span>
+      <span>${escapeHtml(formatObjectLabel(key))}</span>
       <strong>${renderEvidenceText(entry, sourceLookup)}</strong>
     </div>
   `).join('') : '<p class="empty-section-copy">No entries yet.</p>';
@@ -2945,9 +2981,10 @@ function renderClientDetail(detail) {
   const tags = dashboard.suggestedTags.length
     ? `<div class="detail-tags">${dashboard.suggestedTags.map((tag) => `<span>${renderEvidenceText(tag, sourceLookup)}</span>`).join('')}</div>`
     : '';
-  const taskCount = dashboard.coachTasks.length;
+  const taskCount = dashboard.coachTasks.filter((item) => !closedPlanningStatuses.has(getPlanningStatusOption(item).value)).length;
   const flagCount = dashboard.flags.length;
   const highPriorityCount = countHighPriorityOpenItems(dashboard);
+  const missingInfoCount = dashboard.missingInfo.length;
   const sourceDrawers = sources.map((source, index) => renderSourceDrawer({
     ...source,
     displayNumber: index + 1
@@ -2970,10 +3007,10 @@ function renderClientDetail(detail) {
         </div>
       </div>
       <div class="metric-stack hero-stack">
-        ${renderDetailMetric('Sources', sources.length)}
-        ${renderDetailMetric('To-Dos', taskCount, taskCount ? 'warm' : '')}
-        ${renderDetailMetric('Flags', flagCount, flagCount ? 'alert' : '')}
+        ${renderDetailMetric('Open To-Dos', taskCount, taskCount ? 'warm' : '')}
         ${renderDetailMetric('High Priority', highPriorityCount, highPriorityCount ? 'priority-hot' : '')}
+        ${renderDetailMetric('Missing Info', missingInfoCount, missingInfoCount ? 'missing-hot' : '')}
+        ${renderDetailMetric('Flags', flagCount, flagCount ? 'alert' : '')}
       </div>
     </section>
   `;
@@ -3011,8 +3048,8 @@ function renderClientDetail(detail) {
       </div>
       <div class="detail-grid">
         ${renderDetailList('Coach To-Dos', dashboard.coachTasks, sourceLookup, { tone: 'priority', sectionKey: 'coachTasks' })}
+        ${renderDetailList('Missing Info', dashboard.missingInfo, sourceLookup, { tone: 'missing-focus', sectionKey: 'missingInfo' })}
         ${renderDetailList('Flags', dashboard.flags, sourceLookup, { tone: flagCount ? 'scope' : '', sectionKey: 'flags' })}
-        ${renderDetailList('Missing Info', dashboard.missingInfo, sourceLookup, { sectionKey: 'missingInfo' })}
       </div>
     </div>
   `;
@@ -3723,6 +3760,7 @@ async function saveSettings(event) {
 
 async function init() {
   loadLocalPreferences();
+  syncChoiceGroups();
   setBusy(true, 'Opening CoachNotes...');
   try {
     const appState = await window.coachNotes.getState();
@@ -3749,6 +3787,9 @@ async function init() {
   }
 
   els.onboardBtn.addEventListener('click', handleTopbarPrimaryAction);
+  els.themeToggleBtn.addEventListener('click', () => {
+    applyTheme(state.theme === 'dark' ? 'light' : 'dark');
+  });
   els.settingsBtn.addEventListener('click', openSettings);
   els.coachHomeBtn.addEventListener('click', () => openCoachHome());
   els.refreshCoachHomeBtn.addEventListener('click', () => openCoachHome({ refresh: true }));
@@ -3796,8 +3837,11 @@ async function init() {
     }
   });
   els.clientProfileTagFilter.addEventListener('input', () => {
-    state.clientProfileTagFilter = sanitizeName(els.clientProfileTagFilter.value);
-    renderClients();
+    window.clearTimeout(clientProfileTagFilterTimer);
+    clientProfileTagFilterTimer = window.setTimeout(() => {
+      state.clientProfileTagFilter = sanitizeName(els.clientProfileTagFilter.value);
+      renderClients();
+    }, 180);
   });
   els.clientSortButtons.forEach((button) => {
     button.addEventListener('click', () => {
@@ -3965,6 +4009,17 @@ async function init() {
     }
   });
   els.askForm.addEventListener('submit', submitAsk);
+  document.addEventListener('click', (event) => {
+    const choiceButton = event.target.closest('[data-choice-value]');
+    const group = choiceButton?.closest('[data-choice-group]');
+    const control = group ? document.getElementById(group.dataset.choiceTarget || '') : null;
+    if (!choiceButton || !control || choiceButton.disabled) {
+      return;
+    }
+    control.value = choiceButton.dataset.choiceValue || '';
+    control.dispatchEvent(new Event('change', { bubbles: true }));
+    syncChoiceGroups();
+  });
   els.askOutputTypeInput.addEventListener('change', applyAskOutputPreset);
   els.askResultOutput.addEventListener('click', (event) => {
     const citationButton = event.target.closest('.ask-citation[data-source-id]');

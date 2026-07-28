@@ -22,6 +22,11 @@
         </div>
         <div class="topbar-actions">
           <button id="onboardBtn" class="btn btn-primary" type="button">Onboard New Client</button>
+          <button id="themeToggleBtn" class="theme-toggle" type="button" aria-pressed="false" title="Use dark mode">
+            <svg class="theme-icon moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15.3A8.4 8.4 0 0 1 8.7 4 8.5 8.5 0 1 0 20 15.3Z" /></svg>
+            <svg class="theme-icon sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.5" /><path d="M12 2v2.2M12 19.8V22M4.9 4.9l1.6 1.6M17.5 17.5l1.6 1.6M2 12h2.2M19.8 12H22M4.9 19.1l1.6-1.6M17.5 6.5l1.6-1.6" /></svg>
+            <span id="themeToggleLabel">Dark</span>
+          </button>
           <button id="settingsBtn" class="btn btn-ghost" type="button">Settings</button>
         </div>
       </header>
@@ -34,7 +39,10 @@
                 <p class="section-kicker">Clients</p>
                 <h2>Client Profiles</h2>
               </div>
-              <button id="coachHomeBtn" class="home-nav-button active" type="button" aria-pressed="true">Home</button>
+              <button id="coachHomeBtn" class="home-nav-button active" type="button" aria-pressed="true">
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10h14M10 3l-7 7 7 7" /></svg>
+                Mission Control
+              </button>
             </div>
             <div class="rail-find-row">
               <label class="rail-filter rail-search-filter">
@@ -53,8 +61,14 @@
             <div class="rail-filter sort-filter">
               <span>Sort</span>
               <div class="segmented-control" role="group" aria-label="Sort clients">
-                <button type="button" data-client-sort="name" aria-pressed="true">A-Z</button>
-                <button type="button" data-client-sort="updated" aria-pressed="false">Recent</button>
+                <button type="button" data-client-sort="name" aria-pressed="true" aria-label="Sort alphabetically" title="Alphabetical">
+                  <span class="sort-alpha" aria-hidden="true">A↓</span>
+                  <span class="sr-only">Alphabetical</span>
+                </button>
+                <button type="button" data-client-sort="updated" aria-pressed="false" aria-label="Sort by recently updated" title="Recently updated">
+                  <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" /><path d="M10 6v4l3 2" /></svg>
+                  <span class="sr-only">Recently updated</span>
+                </button>
               </div>
             </div>
           </div>
@@ -261,35 +275,56 @@
       <form method="dialog" id="askForm" class="dialog-form ask-dialog-form">
         <h2 id="askTitle">Ask CoachNotes</h2>
         <p class="dialog-help">Ask for an answer, client message draft, or session prep using this client’s saved context.</p>
-        <div class="ask-control-grid">
-          <label>
-            Output
-            <select id="askOutputTypeInput">
+        <fieldset class="choice-field ask-output-field" data-choice-group data-choice-target="askOutputTypeInput">
+          <legend>What do you need?</legend>
+          <select id="askOutputTypeInput" class="choice-source-control" tabindex="-1" aria-hidden="true">
               <option value="client-message">Client message draft</option>
               <option value="initial-welcome-message">Initial welcome message</option>
               <option value="session-prep">Session prep</option>
               <option value="client-profile-export">Client profile export</option>
               <option value="general-answer">General answer</option>
-            </select>
-          </label>
-          <label>
-            Context
-            <select id="askScopeInput">
-              <option value="recent-notes">Recent notes + dashboard</option>
-              <option value="dashboard">Current dashboard only</option>
-              <option value="all-sources">All sources for this client</option>
-            </select>
-          </label>
-          <label>
-            Time window
-            <select id="askTimeWindowInput">
-              <option value="last-3-weeks">Last 3 weeks</option>
-              <option value="latest-note">Latest note</option>
-              <option value="last-90-days">Last 90 days</option>
-              <option value="all-time">All time</option>
-            </select>
-          </label>
-        </div>
+          </select>
+          <div class="choice-button-grid ask-output-choices">
+            <button type="button" data-choice-value="client-message" aria-pressed="true"><strong>Message</strong><span>Draft a client reply</span></button>
+            <button type="button" data-choice-value="session-prep" aria-pressed="false"><strong>Session prep</strong><span>Prepare for a meeting</span></button>
+            <button type="button" data-choice-value="initial-welcome-message" aria-pressed="false"><strong>Welcome</strong><span>Welcome a new client</span></button>
+            <button type="button" data-choice-value="client-profile-export" aria-pressed="false"><strong>Everfit profile</strong><span>Generate the export</span></button>
+            <button type="button" data-choice-value="general-answer" aria-pressed="false"><strong>Answer</strong><span>Ask anything grounded</span></button>
+          </div>
+        </fieldset>
+        <details class="ask-context-settings">
+          <summary id="askContextSummary">Context: recent notes · last 3 weeks</summary>
+          <div class="ask-control-grid">
+            <fieldset class="choice-field" data-choice-group data-choice-target="askScopeInput">
+              <legend>Context</legend>
+              <select id="askScopeInput" class="choice-source-control" tabindex="-1" aria-hidden="true">
+                <option value="recent-notes">Recent notes + dashboard</option>
+                <option value="dashboard">Current dashboard only</option>
+                <option value="all-sources">All sources for this client</option>
+              </select>
+              <div class="choice-button-grid compact">
+                <button type="button" data-choice-value="recent-notes" aria-pressed="true">Recent + dashboard</button>
+                <button type="button" data-choice-value="dashboard" aria-pressed="false">Dashboard</button>
+                <button type="button" data-choice-value="all-sources" aria-pressed="false">All sources</button>
+              </div>
+            </fieldset>
+            <fieldset class="choice-field" data-choice-group data-choice-target="askTimeWindowInput">
+              <legend>Time window</legend>
+              <select id="askTimeWindowInput" class="choice-source-control" tabindex="-1" aria-hidden="true">
+                <option value="last-3-weeks">Last 3 weeks</option>
+                <option value="latest-note">Latest note</option>
+                <option value="last-90-days">Last 90 days</option>
+                <option value="all-time">All time</option>
+              </select>
+              <div class="choice-button-grid compact">
+                <button type="button" data-choice-value="last-3-weeks" aria-pressed="true">3 weeks</button>
+                <button type="button" data-choice-value="latest-note" aria-pressed="false">Latest</button>
+                <button type="button" data-choice-value="last-90-days" aria-pressed="false">90 days</button>
+                <button type="button" data-choice-value="all-time" aria-pressed="false">All time</button>
+              </div>
+            </fieldset>
+          </div>
+        </details>
         <label>
           Request
           <textarea id="askPromptInput" rows="5" placeholder="Based on the recent check-in, draft a message telling her..."></textarea>
@@ -328,9 +363,9 @@
         <p class="dialog-help">Add a new message, transcript, check-in, or coach note. CoachNotes will save the raw source locally and update the dashboard using the current baseline plus this new context.</p>
         <div id="noteErrorPanel" class="dialog-error" hidden></div>
         <div class="source-composer note-composer">
-          <label>
-            Source type
-            <select id="noteSourceTypeInput">
+          <fieldset class="choice-field note-type-field span-all" data-choice-group data-choice-target="noteSourceTypeInput">
+            <legend>What are you adding?</legend>
+            <select id="noteSourceTypeInput" class="choice-source-control" tabindex="-1" aria-hidden="true">
               <option value="notes">Notes</option>
               <option value="everfit">Everfit</option>
               <option value="chatgpt">ChatGPT thread</option>
@@ -340,7 +375,17 @@
               <option value="manual">Manual summary</option>
               <option value="other">Other</option>
             </select>
-          </label>
+            <div class="choice-button-grid note-type-choices compact">
+              <button type="button" data-choice-value="notes" aria-pressed="true">Coach note</button>
+              <button type="button" data-choice-value="message" aria-pressed="false">Message</button>
+              <button type="button" data-choice-value="check-in" aria-pressed="false">Check-in</button>
+              <button type="button" data-choice-value="transcript" aria-pressed="false">Transcript</button>
+              <button type="button" data-choice-value="everfit" aria-pressed="false">Everfit</button>
+              <button type="button" data-choice-value="chatgpt" aria-pressed="false">ChatGPT</button>
+              <button type="button" data-choice-value="manual" aria-pressed="false">Summary</button>
+              <button type="button" data-choice-value="other" aria-pressed="false">Other</button>
+            </div>
+          </fieldset>
           <div class="preset-field">
             <label>
             Title
