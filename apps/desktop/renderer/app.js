@@ -1955,9 +1955,9 @@ function renderClients() {
       button.classList.add('active');
     }
     const clientTags = client.profileTags || [];
-    const visibleTags = clientTags.slice(0, 3).map((tag) => `<span>${escapeHtml(tag)}</span>`);
-    if (clientTags.length > 3) {
-      visibleTags.push(`<span>+${clientTags.length - 3} more</span>`);
+    const visibleTags = clientTags.slice(0, 1).map((tag) => `<span>${escapeHtml(tag)}</span>`);
+    if (clientTags.length > 1) {
+      visibleTags.push(`<span>+${clientTags.length - 1}</span>`);
     }
     const tags = visibleTags.join('');
     const dueTaskCount = Number(client.dueTaskCount || 0);
@@ -1969,6 +1969,13 @@ function renderClients() {
         ? `${overdueTaskCount} overdue`
         : `${dueTaskCount} due today`;
     const dueBadgeCount = overdueTaskCount || dueTaskCount;
+    const clientNameForInitials = sanitizeName(client.name).replace(/^\[[^\]]+\]\s*/, '');
+    const clientInitial = clientNameForInitials
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join('') || 'C';
     const dueAlert = dueTaskCount
       ? `
         <span class="client-notification-badge ${overdueTaskCount ? 'overdue' : 'due-today'}" title="${escapeHtml(dueAlertLabel)}">
@@ -1978,10 +1985,13 @@ function renderClients() {
       `
       : '';
     button.innerHTML = `
-      <strong>${escapeHtml(client.name)}</strong>
-      <em>${client.sourceCount} sources • ${client.flagCount || 0} flags • ${client.taskCount || 0} to-dos</em>
-      ${dueAlert}
-      ${tags ? `<div class="tag-strip">${tags}</div>` : ''}
+      <span class="client-avatar" aria-hidden="true">${escapeHtml(clientInitial)}</span>
+      <span class="client-card-copy">
+        <strong>${escapeHtml(client.name)}</strong>
+        <em>${client.sourceCount} sources • ${client.flagCount || 0} flags • ${client.taskCount || 0} to-dos</em>
+        ${dueAlert}
+        ${tags ? `<span class="tag-strip">${tags}</span>` : ''}
+      </span>
     `;
     button.addEventListener('click', () => selectClient(client.id));
     els.clientList.appendChild(button);
@@ -2091,7 +2101,7 @@ function renderHomeClientRows(clients = [], emptyText = 'No clients in this grou
           `${client.sourceCount || 0} sources`
         ].filter(Boolean).join(' • ');
         return `
-          <button class="home-row" type="button" data-home-client-id="${escapeHtml(String(client.id))}" data-home-detail-page="snapshot">
+          <button class="home-row home-client-row" type="button" data-home-client-id="${escapeHtml(String(client.id))}" data-home-detail-page="snapshot">
             <span class="home-row-main">
               <strong>${escapeHtml(client.name || 'Client')}</strong>
               ${client.summary ? `<span>${escapeHtml(client.summary)}</span>` : '<span>No overview captured yet.</span>'}
@@ -2258,12 +2268,12 @@ function renderCoachHome() {
       : renderCoachHomeAttention(home);
   els.coachHomeContent.innerHTML = `
     <div class="home-metrics">
-      ${renderHomeMetric('Clients', stats.clientCount || 0, 'accepted')}
       ${renderHomeMetric('Overdue', stats.overdueTaskCount || 0, 'open to-dos', stats.overdueTaskCount ? 'hot' : '')}
-      ${renderHomeMetric('Due Today', stats.dueTodayTaskCount || 0, 'open to-dos')}
-      ${renderHomeMetric('Missing Info', stats.missingInfoCount || 0, 'items')}
+      ${renderHomeMetric('Due Today', stats.dueTodayTaskCount || 0, 'open to-dos', stats.dueTodayTaskCount ? 'today' : '')}
+      ${renderHomeMetric('Missing Info', stats.missingInfoCount || 0, 'items', stats.missingInfoCount ? 'info' : '')}
       ${renderHomeMetric('Stale', stats.staleClientCount || 0, `${home.rules?.staleDays || 14}+ days`, stats.staleClientCount ? 'warm' : '')}
-      ${renderHomeMetric('Messaged', `${stats.recentMessageCoveragePercent || 0}%`, `last ${home.rules?.activityDays || 7} days`)}
+      ${renderHomeMetric('Clients', stats.clientCount || 0, 'accepted', 'context')}
+      ${renderHomeMetric('Messaged', `${stats.recentMessageCoveragePercent || 0}%`, `last ${home.rules?.activityDays || 7} days`, 'positive')}
     </div>
     ${renderHomeTabs(activeTab)}
     ${tabContent}

@@ -10,8 +10,15 @@
     <div class="app-shell">
       <header class="topbar">
         <div class="brand-block">
-          <h1>CoachNotes</h1>
-          <p id="statusLine">Starting...</p>
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" role="presentation">
+              <path d="M23.7 7.2c-7.2.5-12.4 3.6-14.5 8.5-1.3 3-.9 6.2 1 8.6 2.5-6.8 6.1-10.7 10.8-13.2-3.9 3.3-6.6 7.4-8.1 12.6 2.8.9 5.9.2 8.1-2 3.7-3.8 3.8-9.6 2.7-14.5Z" />
+            </svg>
+          </span>
+          <div>
+            <h1>CoachNotes</h1>
+            <p id="statusLine">Starting...</p>
+          </div>
         </div>
         <div class="topbar-actions">
           <button id="onboardBtn" class="btn btn-primary" type="button">Onboard New Client</button>
@@ -58,7 +65,7 @@
               <div>
                 <p class="section-kicker">Coach Home</p>
                 <h2>Mission Control</h2>
-                <p>Deterministic cross-client views from local dashboard fields and source metadata.</p>
+                <p>Priorities, follow-ups, and client movement—calculated locally from saved dashboard fields and source metadata.</p>
               </div>
               <div class="surface-actions">
                 <button id="refreshCoachHomeBtn" class="btn btn-ghost" type="button">Refresh</button>
