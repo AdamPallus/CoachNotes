@@ -2810,10 +2810,41 @@ dialog::backdrop {
 }
 
 .item-planning-controls select,
-.item-planning-controls input {
+.item-planning-controls input,
+.item-planning-controls textarea {
   width: 100%;
   min-width: 0;
   background: var(--paper-strong);
+}
+
+.planning-copy-field,
+.planning-adjust-actions {
+  grid-column: 1 / -1;
+}
+
+.planning-details-field textarea {
+  min-height: 76px;
+  resize: vertical;
+}
+
+.planning-adjust-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 2px;
+}
+
+.planning-adjust-actions span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.planning-adjust-actions .btn {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  font-size: 11px;
 }
 
 .choice-field {
@@ -4221,7 +4252,9 @@ summary:focus-visible,
 }
 
 dialog {
-  max-height: calc(100vh - 36px);
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow: hidden;
   border: 0;
   border-radius: 18px;
   background: var(--paper);
@@ -4234,8 +4267,14 @@ dialog::backdrop {
 }
 
 .dialog-form {
-  max-height: calc(100vh - 36px);
-  overflow: auto;
+  width: 100%;
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: 25px;
   gap: 16px;
 }
@@ -4252,7 +4291,7 @@ dialog::backdrop {
 
 .dialog-actions {
   position: sticky;
-  bottom: -25px;
+  bottom: 0;
   z-index: 3;
   margin: 1px -25px -25px;
   padding: 15px 25px;
@@ -6452,6 +6491,11 @@ html[data-theme="dark"] .archive-filter-count {
   position: relative;
   isolation: isolate;
   overflow: hidden;
+}
+
+.note-dialog-form {
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .client-profile-head::after,

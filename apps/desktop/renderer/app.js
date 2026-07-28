@@ -2475,7 +2475,6 @@ function renderCoachHomeAttention(home) {
       ${renderAttentionLane('Missing Info', 'Context needed before the next decision', attention.missingInfoItems || [], 'missing')}
       ${renderAttentionLane('Next', `${home.rules?.dueSoonDays || 7}-day horizon`, attention.dueThisWeekTasks || [], 'next')}
       ${renderAttentionLane('Watch', 'Undated priorities', watchItems, 'watch')}
-      ${renderAttentionLane('Flags', 'Client constraints and watch-outs', attention.flagItems || [], 'flags')}
     </div>
   `;
 }
@@ -2582,12 +2581,6 @@ function renderCoachHomeSegments(home) {
         'Themes captured in saved client profiles',
         renderSegmentGroupRows(segments.suggestedTags || [], 'No suggested tags yet.')
       )}
-      ${renderHomeGroup(
-        'Flag Themes',
-        'Grouped by flag title',
-        renderSegmentGroupRows(segments.flagThemes || [], 'No flags yet.'),
-        segments.flagThemes?.length ? 'warm' : ''
-      )}
     </div>
   `;
 }
@@ -2661,9 +2654,12 @@ function countHighPriorityOpenItems(dashboard) {
 
 function renderSectionActions(sectionKey) {
   const undoCount = Number(state.selectedClientDetail?.undoCounts?.[sectionKey] || 0);
+  const editAction = isPrioritizableSection(sectionKey)
+    ? ''
+    : `<button class="section-link edit-section" type="button" data-section-key="${escapeHtml(sectionKey)}">Edit</button>`;
   return `
     <div class="section-actions">
-      <button class="section-link edit-section" type="button" data-section-key="${escapeHtml(sectionKey)}">Edit</button>
+      ${editAction}
       <button class="section-link undo-section" type="button" data-section-key="${escapeHtml(sectionKey)}" ${undoCount ? '' : 'disabled'}>
         Undo${undoCount ? ` ${undoCount}` : ''}
       </button>
@@ -2908,22 +2904,39 @@ function renderPlanningControls(sectionKey, itemIndex, normalized) {
     <details class="item-planning-menu">
       <summary>Adjust</summary>
       <div class="item-planning-controls">
+        <label class="planning-copy-field planning-title-field">
+          <span>Title</span>
+          <input type="text" value="${escapeHtml(normalized.title || '')}" data-planning-input="title" />
+        </label>
+        <label class="planning-copy-field planning-details-field">
+          <span>Details</span>
+          <textarea rows="3" data-planning-input="details">${escapeHtml(normalized.detail || '')}</textarea>
+        </label>
         <label>
           <span>Priority</span>
-          <select data-planning-field="priority" data-section-key="${escapeHtml(sectionKey)}" data-item-index="${escapeHtml(String(itemIndex))}">
+          <select data-planning-input="priority">
             ${renderSelectOptions(priorityOptions, normalized.priority.value)}
           </select>
         </label>
         <label>
           <span>Status</span>
-          <select data-planning-field="planningStatus" data-section-key="${escapeHtml(sectionKey)}" data-item-index="${escapeHtml(String(itemIndex))}">
+          <select data-planning-input="planningStatus">
             ${renderSelectOptions(planningStatusOptions, normalized.planningStatus.value)}
           </select>
         </label>
         <label>
           <span>Due</span>
-          <input type="date" value="${escapeHtml(normalized.dueDate || '')}" data-planning-field="dueDate" data-section-key="${escapeHtml(sectionKey)}" data-item-index="${escapeHtml(String(itemIndex))}" />
+          <input type="date" value="${escapeHtml(normalized.dueDate || '')}" data-planning-input="dueDate" />
         </label>
+        <div class="planning-adjust-actions">
+          <span>Text and scheduling stay together.</span>
+          <button
+            class="btn btn-primary save-planning-item"
+            type="button"
+            data-section-key="${escapeHtml(sectionKey)}"
+            data-item-index="${escapeHtml(String(itemIndex))}"
+          >Save changes</button>
+        </div>
       </div>
     </details>
   `;
@@ -3307,8 +3320,8 @@ function renderClientDetail(detail) {
       </div>
       <div class="detail-grid">
         ${renderDetailList('Coach To-Dos', dashboard.coachTasks, sourceLookup, { tone: 'priority', sectionKey: 'coachTasks' })}
-        ${renderDetailList('Missing Info', dashboard.missingInfo, sourceLookup, { tone: 'missing-focus', sectionKey: 'missingInfo' })}
         ${renderDetailList('Flags', dashboard.flags, sourceLookup, { tone: flagCount ? 'scope' : '', sectionKey: 'flags' })}
+        ${renderDetailList('Missing Info', dashboard.missingInfo, sourceLookup, { wide: true, tone: 'missing-focus', sectionKey: 'missingInfo' })}
       </div>
     </div>
   `;
@@ -3493,6 +3506,20 @@ function applyPlanningPatch(item, patch) {
     ? { ...item }
     : { details: String(item || '') };
 
+  if (Object.prototype.hasOwnProperty.call(patch, 'title')) {
+    const title = String(patch.title || '').trim();
+    ['title', 'label', 'resource', 'name', 'date'].forEach((key) => delete next[key]);
+    if (title) {
+      next.title = title;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'details')) {
+    const details = String(patch.details || '').trim();
+    ['details', 'currentStatus', 'urgency', 'summary', 'note', 'notes'].forEach((key) => delete next[key]);
+    if (details) {
+      next.details = details;
+    }
+  }
   if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
     next.priority = getPriorityOption(patch.priority).value;
   }
@@ -3565,11 +3592,11 @@ async function saveMissingInfoAction(button) {
   }
 }
 
-async function savePlanningField(control) {
-  const sectionKey = control?.dataset?.sectionKey || '';
-  const field = control?.dataset?.planningField || '';
-  const itemIndex = Number(control?.dataset?.itemIndex);
-  if (!isPrioritizableSection(sectionKey) || !['priority', 'planningStatus', 'dueDate'].includes(field) || !Number.isInteger(itemIndex)) {
+async function savePlanningItem(button) {
+  const sectionKey = button?.dataset?.sectionKey || '';
+  const itemIndex = Number(button?.dataset?.itemIndex);
+  const controls = button?.closest('.item-planning-controls');
+  if (!controls || !isPrioritizableSection(sectionKey) || !Number.isInteger(itemIndex)) {
     return;
   }
   const clientId = state.selectedClientDetail?.client?.id;
@@ -3578,7 +3605,14 @@ async function savePlanningField(control) {
     return;
   }
 
-  const patch = { [field]: control.value };
+  const readValue = (field) => controls.querySelector(`[data-planning-input="${field}"]`)?.value || '';
+  const patch = {
+    title: readValue('title'),
+    details: readValue('details'),
+    priority: readValue('priority'),
+    planningStatus: readValue('planningStatus'),
+    dueDate: readValue('dueDate')
+  };
   const nextSection = currentSection.map((item, index) => (
     index === itemIndex ? applyPlanningPatch(item, patch) : item
   ));
@@ -3586,7 +3620,7 @@ async function savePlanningField(control) {
     return;
   }
 
-  setBusy(true, field === 'dueDate' ? 'Saving due date...' : 'Saving to-do settings...');
+  setBusy(true, 'Saving to-do...');
   try {
     const detail = await window.coachNotes.updateClientSection({
       clientId,
@@ -3597,7 +3631,7 @@ async function savePlanningField(control) {
     await loadClients();
     renderClientDetail(detail);
     setViewMode('detail');
-    showToast(field === 'dueDate' ? 'Due date updated.' : 'To-do settings updated.');
+    showToast('To-do updated.');
   } catch (error) {
     renderClientDetail(state.selectedClientDetail);
     showToast(`To-do save failed: ${error.message}`, 'error');
@@ -4245,6 +4279,11 @@ async function init() {
       openAddTodoDialog(addPlanningButton.dataset.sectionKey);
       return;
     }
+    const savePlanningButton = event.target.closest('.save-planning-item');
+    if (savePlanningButton) {
+      savePlanningItem(savePlanningButton);
+      return;
+    }
     const missingInfoButton = event.target.closest('.missing-info-action');
     if (missingInfoButton) {
       saveMissingInfoAction(missingInfoButton);
@@ -4293,10 +4332,6 @@ async function init() {
     if (profileControl) {
       saveProfileField(profileControl);
       return;
-    }
-    const control = event.target.closest('[data-planning-field]');
-    if (control) {
-      savePlanningField(control);
     }
   });
   els.noteSourceList.addEventListener('click', (event) => {
