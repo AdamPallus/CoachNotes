@@ -3868,6 +3868,22 @@ async function openCoachHome(options = {}) {
     setViewMode('intake');
     return;
   }
+  const resetToAttention = options.resetToAttention === true;
+  const alreadyHome = state.viewMode === 'home';
+  if (alreadyHome && !options.refresh && resetToAttention) {
+    const atAttentionOrigin = state.coachHomeTab === 'attention'
+      && Math.max(0, Number(els.mainSurface?.scrollTop || 0)) <= 1;
+    if (atAttentionOrigin) {
+      return;
+    }
+    if (options.recordHistory !== false) {
+      pushNavigationLocation();
+    }
+    state.coachHomeTab = 'attention';
+    renderCoachHome();
+    els.mainSurface.scrollTop = 0;
+    return;
+  }
   if (options.recordHistory !== false && state.viewMode !== 'home') {
     pushNavigationLocation();
   }
@@ -3881,12 +3897,18 @@ async function openCoachHome(options = {}) {
       setBusy(false);
     }
   } else {
+    if (resetToAttention) {
+      state.coachHomeTab = 'attention';
+    }
     renderCoachHome();
   }
   state.selectedClientId = null;
   state.selectedClientDetail = null;
   renderClients();
   setViewMode('home');
+  if (resetToAttention) {
+    els.mainSurface.scrollTop = 0;
+  }
 }
 
 async function completeHomePlanningItem(button) {
@@ -4079,7 +4101,7 @@ async function init() {
     applyTheme(state.theme === 'dark' ? 'light' : 'dark');
   });
   els.settingsBtn.addEventListener('click', openSettings);
-  els.coachHomeBtn.addEventListener('click', () => openCoachHome());
+  els.coachHomeBtn.addEventListener('click', () => openCoachHome({ resetToAttention: true }));
   els.refreshCoachHomeBtn.addEventListener('click', () => openCoachHome({ refresh: true }));
   els.coachHomeContent.addEventListener('click', async (event) => {
     const jumpButton = event.target.closest('[data-home-jump]');

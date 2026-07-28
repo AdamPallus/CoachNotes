@@ -6260,6 +6260,115 @@ html[data-theme="dark"] .topbar #onboardBtn:focus-visible {
   }
 }
 
+/* Daily navigation hierarchy and dark-surface contrast repairs. */
+
+.topbar #coachHomeBtn {
+  position: relative;
+  min-height: 44px;
+  margin-right: 7px;
+  border-color: rgba(199, 244, 61, 0.7);
+  padding: 8px 15px 8px 10px;
+  background: rgba(199, 244, 61, 0.13);
+  box-shadow: inset 0 0 0 1px rgba(199, 244, 61, 0.08);
+  color: #efffbd;
+}
+
+.topbar #coachHomeBtn::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: -8px;
+  width: 1px;
+  height: 30px;
+  background: rgba(255, 255, 255, 0.18);
+  pointer-events: none;
+}
+
+.topbar #coachHomeBtn:hover,
+.topbar #coachHomeBtn:focus-visible {
+  border-color: var(--atlas-leaf);
+  background: rgba(199, 244, 61, 0.2);
+  color: #fff;
+}
+
+.topbar #coachHomeBtn.active {
+  border-color: var(--atlas-leaf);
+  background: var(--atlas-leaf);
+  box-shadow: 0 0 0 2px rgba(199, 244, 61, 0.16);
+  color: var(--atlas-ink);
+}
+
+.mission-compass-mark {
+  width: 19px !important;
+  height: 19px !important;
+}
+
+body:not([data-view-mode="intake"]) .topbar #onboardBtn,
+html[data-theme="dark"] body:not([data-view-mode="intake"]) .topbar #onboardBtn,
+body:not([data-view-mode="intake"]) .topbar #onboardBtn:hover,
+html[data-theme="dark"] body:not([data-view-mode="intake"]) .topbar #onboardBtn:hover,
+body:not([data-view-mode="intake"]) .topbar #onboardBtn:focus-visible,
+html[data-theme="dark"] body:not([data-view-mode="intake"]) .topbar #onboardBtn:focus-visible {
+  border-color: rgba(255, 255, 255, 0.24) !important;
+  background: rgba(255, 255, 255, 0.07) !important;
+  color: rgba(248, 253, 250, 0.92) !important;
+}
+
+body:not([data-view-mode="intake"]) .topbar #onboardBtn:hover,
+html[data-theme="dark"] body:not([data-view-mode="intake"]) .topbar #onboardBtn:hover,
+body:not([data-view-mode="intake"]) .topbar #onboardBtn:focus-visible,
+html[data-theme="dark"] body:not([data-view-mode="intake"]) .topbar #onboardBtn:focus-visible {
+  border-color: rgba(199, 244, 61, 0.58) !important;
+  background: rgba(199, 244, 61, 0.12) !important;
+  color: #efffbd !important;
+}
+
+html[data-theme="dark"] .planning-item.status-blocked {
+  border-left-color: #a87996;
+  background: #30252c;
+  color: var(--ink);
+}
+
+html[data-theme="dark"] .planning-item.status-blocked:hover {
+  background: #392b34;
+}
+
+html[data-theme="dark"] .planning-chip.status-blocked {
+  border-color: #755367;
+  background: #493442;
+  color: #edcadf;
+}
+
+html[data-theme="dark"] .computed-week {
+  border-color: var(--line);
+  background: var(--paper-strong);
+  color: var(--ink);
+}
+
+html[data-theme="dark"] .computed-week span {
+  color: var(--muted);
+}
+
+html[data-theme="dark"] .archive-filter-bar {
+  border-color: var(--line);
+  background: var(--paper-muted);
+  color: var(--ink);
+}
+
+html[data-theme="dark"] .archive-filter-count {
+  border-color: var(--line-strong);
+  background: var(--paper-strong);
+  color: var(--ink);
+}
+
+@media (max-width: 1100px) {
+  .topbar #coachHomeBtn {
+    width: 44px;
+    min-width: 44px;
+    padding-inline: 8px;
+  }
+}
+
 @media (max-width: 760px) {
   .choice-button-grid.note-type-choices {
     grid-template-columns: repeat(2, minmax(0, 1fr));
