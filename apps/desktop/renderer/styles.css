@@ -6260,6 +6260,11 @@ html[data-theme="dark"] .topbar #onboardBtn:focus-visible {
   }
 }
 
+html[data-theme="dark"] .home-brief-signal {
+  background: #a8cf55;
+  color: #071a12;
+}
+
 /* Daily navigation hierarchy and dark-surface contrast repairs. */
 
 .topbar #coachHomeBtn {
