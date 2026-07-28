@@ -6298,6 +6298,15 @@ html[data-theme="dark"] .topbar #onboardBtn:focus-visible {
   color: var(--atlas-ink);
 }
 
+html[data-theme="dark"] .topbar #coachHomeBtn.active,
+html[data-theme="dark"] .topbar #coachHomeBtn.active:hover,
+html[data-theme="dark"] .topbar #coachHomeBtn.active:focus-visible {
+  border-color: #a8cf55;
+  background: #a8cf55;
+  box-shadow: 0 0 0 2px rgba(168, 207, 85, 0.14);
+  color: #071a12 !important;
+}
+
 .mission-compass-mark {
   width: 19px !important;
   height: 19px !important;
