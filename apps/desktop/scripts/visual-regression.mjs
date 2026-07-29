@@ -102,15 +102,19 @@ async function prepareScreen(client, screen, theme) {
       state.coachHomeTab = 'attention';
       await openCoachHome({ recordHistory: false });
       renderCoachHome();
+      document.activeElement?.blur();
     } else if (prepare === 'client') {
       await selectClient(state.clients[0].id, { recordHistory: false, detailPage: 'snapshot' });
+      document.activeElement?.blur();
     } else if (prepare === 'add-note') {
       await selectClient(state.clients[0].id, { recordHistory: false, detailPage: 'snapshot' });
       openAddNoteDialog();
       els.noteDateInput.value = ${JSON.stringify(visualDate)};
+      els.noteTextInput.focus();
     } else if (prepare === 'ask') {
       await selectClient(state.clients[0].id, { recordHistory: false, detailPage: 'snapshot' });
       openAskDialog();
+      els.askPromptInput.focus();
     } else if (prepare === 'onboarding') {
       startOnboarding();
       els.clientNameInput.focus();
