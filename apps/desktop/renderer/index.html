@@ -33,7 +33,6 @@
             </svg>
             <span>Mission Control</span>
           </button>
-          <button id="runIntakeTopbarBtn" class="btn btn-primary" type="button" hidden>Run Intake</button>
           <button id="themeToggleBtn" class="theme-toggle" type="button" aria-pressed="false" title="Use dark mode">
             <svg class="theme-icon moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15.3A8.4 8.4 0 0 1 8.7 4 8.5 8.5 0 1 0 20 15.3Z" /></svg>
             <svg class="theme-icon sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.5" /><path d="M12 2v2.2M12 19.8V22M4.9 4.9l1.6 1.6M17.5 17.5l1.6 1.6M2 12h2.2M19.8 12H22M4.9 19.1l1.6-1.6M17.5 6.5l1.6-1.6" /></svg>
@@ -116,10 +115,11 @@
                 <h2 id="intakeTitle">Turn messy client context into a live profile.</h2>
                 <p>Paste or import what you have for one client. CoachNotes saves the raw sources locally, structures the current dashboard, and opens the rendered profile for editing.</p>
               </div>
-              <div class="surface-actions">
-                <button id="resetIntakeBtn" class="btn btn-ghost" type="button">Reset</button>
-                <button id="runIntakeBtn" class="btn btn-primary" type="button">Run Intake</button>
-              </div>
+            </div>
+
+            <div class="intake-command-shelf" aria-label="Intake actions">
+              <button id="resetIntakeBtn" class="btn btn-ghost" type="button">Reset</button>
+              <button id="runIntakeBtn" class="btn btn-primary" type="button">Run Intake</button>
             </div>
 
             <div class="intake-grid">

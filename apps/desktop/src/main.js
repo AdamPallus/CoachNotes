@@ -2487,6 +2487,7 @@ async function revealVault() {
 }
 
 function createWindow() {
+  const isVisualFixture = !app.isPackaged && process.env.COACHNOTES_VISUAL_FIXTURE === '1';
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
@@ -2495,10 +2496,14 @@ function createWindow() {
     title: 'CoachNotes',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 18, y: 18 },
+    show: !isVisualFixture,
+    focusable: !isVisualFixture,
+    skipTaskbar: isVisualFixture,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      backgroundThrottling: false
     }
   });
 
@@ -2562,6 +2567,7 @@ function setupIpc() {
 app.whenReady().then(async () => {
   ensureDb();
   if (!app.isPackaged && process.env.COACHNOTES_VISUAL_FIXTURE === '1') {
+    app.dock?.hide();
     const { seedVisualFixture } = require('../scripts/visual-fixture');
     seedVisualFixture(db, app.getPath('userData'));
   }

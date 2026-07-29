@@ -289,7 +289,6 @@ const profileControlKeys = new Set([
 const els = {
   statusLine: document.getElementById('statusLine'),
   backBtn: document.getElementById('backBtn'),
-  runIntakeTopbarBtn: document.getElementById('runIntakeTopbarBtn'),
   themeToggleBtn: document.getElementById('themeToggleBtn'),
   themeToggleLabel: document.getElementById('themeToggleLabel'),
   settingsBtn: document.getElementById('settingsBtn'),
@@ -710,18 +709,14 @@ function setViewMode(mode) {
   els.coachHomeBtn.classList.toggle('active', showHome);
   els.coachHomeBtn.setAttribute('aria-pressed', showHome ? 'true' : 'false');
   document.body.dataset.viewMode = state.viewMode;
-  updateTopbarIntakeAction();
+  updateIntakeActionState();
   updateBackButton();
 }
 
-function updateTopbarIntakeAction() {
-  const showRunIntake = !els.intakePanel.hidden;
-  els.runIntakeTopbarBtn.hidden = !showRunIntake;
-  els.runIntakeTopbarBtn.title = showRunIntake
-    ? 'Create this client profile from the intake below'
-    : '';
-  els.onboardClientBtn.disabled = showRunIntake;
-  els.onboardClientBtn.title = showRunIntake
+function updateIntakeActionState() {
+  const intakeIsOpen = !els.intakePanel.hidden;
+  els.onboardClientBtn.disabled = intakeIsOpen;
+  els.onboardClientBtn.title = intakeIsOpen
     ? 'Client onboarding is already open'
     : 'Start onboarding a new client';
 }
@@ -4370,7 +4365,6 @@ async function init() {
   }
 
   els.backBtn.addEventListener('click', goBack);
-  els.runIntakeTopbarBtn.addEventListener('click', runIntake);
   els.onboardClientBtn.addEventListener('click', startOnboarding);
   els.themeToggleBtn.addEventListener('click', () => {
     applyTheme(state.theme === 'dark' ? 'light' : 'dark');

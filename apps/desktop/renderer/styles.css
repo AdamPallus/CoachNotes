@@ -3660,6 +3660,22 @@ body {
   stroke-width: 1.45;
 }
 
+.intake-command-shelf {
+  position: sticky;
+  top: 12px;
+  z-index: 18;
+  display: flex;
+  align-items: center;
+  width: max-content;
+  margin: 12px 0 20px auto;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 5px;
+  background: var(--paper);
+  box-shadow: var(--shadow-xs);
+}
+
 .main-surface {
   background: rgba(252, 253, 250, 0.98);
 }
@@ -6404,14 +6420,6 @@ html[data-theme="dark"] .citation-tooltip {
   border-color: var(--line-strong);
   background: #233029;
   color: var(--ink);
-}
-
-html[data-theme="dark"] .topbar #runIntakeTopbarBtn,
-html[data-theme="dark"] .topbar #runIntakeTopbarBtn:hover,
-html[data-theme="dark"] .topbar #runIntakeTopbarBtn:focus-visible {
-  border-color: #a8cf55;
-  background: #a8cf55;
-  color: #071a12;
 }
 
 @media (max-width: 1100px) {
