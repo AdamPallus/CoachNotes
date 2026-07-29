@@ -1,0 +1,89 @@
+:root {
+  --surface-page: #e9e1cf;
+  --surface-card: #f5f0e4;
+  --surface-chrome: #09251a;
+  --action: #174a33;
+  --highlight: #c7f43d;
+  --risk: #c85f3e;
+
+  --bg: #e7ede8;
+  --paper: #f7f9f5;
+  --paper-strong: #fffefb;
+  --paper-muted: #eef3ef;
+  --ink: #1c2a25;
+  --muted: #69766f;
+  --faint: #8d9993;
+  --line: #d6ded8;
+  --line-strong: #bcc9c0;
+  --forest: #153e33;
+  --moss: #2f6f5a;
+  --moss-dark: #245746;
+  --moss-bright: #4d8d72;
+  --moss-soft: #e3f0e8;
+  --mint: #f0f7f3;
+  --clay: #ae6043;
+  --clay-soft: #f8e7df;
+  --amber: #a86f24;
+  --amber-soft: #fff2d7;
+  --danger: #b1443c;
+  --danger-soft: #fbe7e3;
+  --focus-ring: rgba(47, 111, 90, 0.2);
+  --shadow: 0 22px 60px rgba(25, 54, 43, 0.13);
+  --shadow-sm: 0 7px 24px rgba(25, 54, 43, 0.09);
+  --shadow-xs: 0 2px 8px rgba(25, 54, 43, 0.08);
+  --radius: 12px;
+  --radius-lg: 18px;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --display: "New York", "Iowan Old Style", Georgia, serif;
+  --mono: "SF Mono", "Menlo", "Consolas", monospace;
+
+  --atlas-ink: var(--surface-chrome);
+  --atlas-green: var(--action);
+  --atlas-leaf: var(--highlight);
+  --atlas-paper: var(--surface-card);
+  --atlas-paper-deep: var(--surface-page);
+  --atlas-clay: var(--risk);
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-page: #0d1410;
+  --surface-card: #18211c;
+  --surface-chrome: #06170f;
+  --action: #78ac8d;
+  --highlight: #c7f43d;
+  --risk: #ef8d6a;
+
+  --bg: #101713;
+  --paper: #18211c;
+  --paper-strong: #1e2923;
+  --paper-muted: #222f28;
+  --ink: #edf2ee;
+  --muted: #acb8b0;
+  --faint: #849188;
+  --line: #34433b;
+  --line-strong: #526159;
+  --forest: #071a12;
+  --moss: #78ac8d;
+  --moss-dark: #9dceb0;
+  --moss-bright: #8cc5a1;
+  --moss-soft: #243a2f;
+  --mint: #1d3027;
+  --clay: #df8969;
+  --clay-soft: #412b25;
+  --amber: #d0a153;
+  --amber-soft: #3b3221;
+  --danger: #ec8a76;
+  --danger-soft: #402723;
+  --focus-ring: rgba(199, 244, 61, 0.22);
+  --shadow: 0 22px 60px rgba(0, 0, 0, 0.38);
+  --shadow-sm: 0 7px 24px rgba(0, 0, 0, 0.28);
+  --shadow-xs: 0 2px 8px rgba(0, 0, 0, 0.24);
+
+  --atlas-ink: #edf2ee;
+  --atlas-green: #78ac8d;
+  --atlas-leaf: var(--highlight);
+  --atlas-paper: var(--surface-card);
+  --atlas-paper-deep: #222f28;
+  --atlas-clay: var(--risk);
+}
