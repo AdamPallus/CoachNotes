@@ -33,7 +33,7 @@
             </svg>
             <span>Mission Control</span>
           </button>
-          <button id="onboardBtn" class="btn btn-primary" type="button">Onboard New Client</button>
+          <button id="runIntakeTopbarBtn" class="btn btn-primary" type="button" hidden>Run Intake</button>
           <button id="themeToggleBtn" class="theme-toggle" type="button" aria-pressed="false" title="Use dark mode">
             <svg class="theme-icon moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15.3A8.4 8.4 0 0 1 8.7 4 8.5 8.5 0 1 0 20 15.3Z" /></svg>
             <svg class="theme-icon sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.5" /><path d="M12 2v2.2M12 19.8V22M4.9 4.9l1.6 1.6M17.5 17.5l1.6 1.6M2 12h2.2M19.8 12H22M4.9 19.1l1.6-1.6M17.5 6.5l1.6-1.6" /></svg>
@@ -84,7 +84,13 @@
           </div>
           <div id="clientList" class="client-list"></div>
           <div class="rail-foot">
-            <button id="revealVaultBtn" class="btn btn-subtle" type="button">Open Vault</button>
+            <button id="onboardClientBtn" class="btn rail-onboard-button" type="button">
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <circle cx="8" cy="7" r="3" />
+                <path d="M3.5 16c.6-3 2.1-4.5 4.5-4.5s3.9 1.5 4.5 4.5M15 6v6M12 9h6" />
+              </svg>
+              <span>Onboard New Client</span>
+            </button>
           </div>
         </aside>
 
@@ -235,6 +241,10 @@
               <button id="chooseVaultBtn" class="btn btn-subtle" type="button">Choose</button>
             </div>
           </label>
+          <div class="settings-utility-row">
+            <span>Need the underlying files?</span>
+            <button id="revealVaultBtn" class="btn btn-subtle" type="button">Open Vault in Finder</button>
+          </div>
           <label>
             Proxy base URL
             <input id="proxyInput" type="url" placeholder="https://your-proxy.vercel.app" />

@@ -1853,6 +1853,21 @@ dialog::backdrop {
   line-height: 1.45;
 }
 
+.settings-utility-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  color: var(--muted);
+  font-size: var(--fs-record);
+}
+
+.settings-utility-row .btn {
+  flex: 0 0 auto;
+}
+
 .dialog-error {
   border: 1px solid rgba(148, 59, 50, 0.42);
   border-radius: var(--radius);
@@ -3606,6 +3621,43 @@ body {
 
 .rail-foot .btn {
   width: 100%;
+}
+
+.rail-onboard-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-color: var(--action-border);
+  background: var(--moss-soft);
+  color: var(--moss-dark);
+}
+
+.rail-onboard-button:hover,
+.rail-onboard-button:focus-visible {
+  border-color: var(--moss);
+  background: var(--mint);
+  color: var(--moss-dark);
+}
+
+.rail-onboard-button:disabled {
+  cursor: default;
+  border-color: var(--line);
+  background: var(--paper-muted);
+  color: var(--muted);
+  opacity: 0.72;
+  transform: none;
+  box-shadow: none;
+}
+
+.rail-onboard-button svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.45;
 }
 
 .main-surface {
@@ -6354,9 +6406,9 @@ html[data-theme="dark"] .citation-tooltip {
   color: var(--ink);
 }
 
-html[data-theme="dark"] .topbar #onboardBtn,
-html[data-theme="dark"] .topbar #onboardBtn:hover,
-html[data-theme="dark"] .topbar #onboardBtn:focus-visible {
+html[data-theme="dark"] .topbar #runIntakeTopbarBtn,
+html[data-theme="dark"] .topbar #runIntakeTopbarBtn:hover,
+html[data-theme="dark"] .topbar #runIntakeTopbarBtn:focus-visible {
   border-color: #a8cf55;
   background: #a8cf55;
   color: #071a12;
@@ -6439,26 +6491,6 @@ html[data-theme="dark"] .topbar #coachHomeBtn.active:focus-visible {
 .topbar-nav-button .mission-compass-mark {
   width: 19px;
   height: 19px;
-}
-
-body:not([data-view-mode="intake"]) .topbar #onboardBtn,
-html[data-theme="dark"] body:not([data-view-mode="intake"]) .topbar #onboardBtn,
-body:not([data-view-mode="intake"]) .topbar #onboardBtn:hover,
-html[data-theme="dark"] body:not([data-view-mode="intake"]) .topbar #onboardBtn:hover,
-body:not([data-view-mode="intake"]) .topbar #onboardBtn:focus-visible,
-html[data-theme="dark"] body:not([data-view-mode="intake"]) .topbar #onboardBtn:focus-visible {
-  border-color: rgba(255, 255, 255, 0.24);
-  background: rgba(255, 255, 255, 0.07);
-  color: rgba(248, 253, 250, 0.92);
-}
-
-body:not([data-view-mode="intake"]) .topbar #onboardBtn:hover,
-html[data-theme="dark"] body:not([data-view-mode="intake"]) .topbar #onboardBtn:hover,
-body:not([data-view-mode="intake"]) .topbar #onboardBtn:focus-visible,
-html[data-theme="dark"] body:not([data-view-mode="intake"]) .topbar #onboardBtn:focus-visible {
-  border-color: rgba(199, 244, 61, 0.58);
-  background: rgba(199, 244, 61, 0.12);
-  color: #efffbd;
 }
 
 html[data-theme="dark"] .planning-item.status-blocked {

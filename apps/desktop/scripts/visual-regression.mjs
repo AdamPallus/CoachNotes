@@ -122,6 +122,7 @@ async function prepareScreen(client, screen, theme) {
     els.statusLine.textContent = state.clients.length + ' accepted clients • visual fixture';
     document.querySelector('.main-surface')?.scrollTo(0, 0);
     document.querySelector('.client-list')?.scrollTo(0, 0);
+    document.activeElement?.blur();
     await document.fonts.ready;
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     return true;

@@ -289,7 +289,7 @@ const profileControlKeys = new Set([
 const els = {
   statusLine: document.getElementById('statusLine'),
   backBtn: document.getElementById('backBtn'),
-  onboardBtn: document.getElementById('onboardBtn'),
+  runIntakeTopbarBtn: document.getElementById('runIntakeTopbarBtn'),
   themeToggleBtn: document.getElementById('themeToggleBtn'),
   themeToggleLabel: document.getElementById('themeToggleLabel'),
   settingsBtn: document.getElementById('settingsBtn'),
@@ -301,6 +301,7 @@ const els = {
   clientProfileTagOptions: document.getElementById('clientProfileTagOptions'),
   clientSortButtons: [...document.querySelectorAll('[data-client-sort]')],
   clientList: document.getElementById('clientList'),
+  onboardClientBtn: document.getElementById('onboardClientBtn'),
   revealVaultBtn: document.getElementById('revealVaultBtn'),
   mainSurface: document.querySelector('.main-surface'),
   coachHomePanel: document.getElementById('coachHomePanel'),
@@ -709,23 +710,20 @@ function setViewMode(mode) {
   els.coachHomeBtn.classList.toggle('active', showHome);
   els.coachHomeBtn.setAttribute('aria-pressed', showHome ? 'true' : 'false');
   document.body.dataset.viewMode = state.viewMode;
-  updateTopbarPrimaryAction();
+  updateTopbarIntakeAction();
   updateBackButton();
 }
 
-function updateTopbarPrimaryAction() {
-  els.onboardBtn.hidden = !els.intakePanel.hidden;
-  els.onboardBtn.textContent = 'Onboard New Client';
-  els.onboardBtn.title = 'Start onboarding a new client';
-  els.onboardBtn.setAttribute('aria-label', els.onboardBtn.textContent);
-}
-
-function handleTopbarPrimaryAction() {
-  if (!els.intakePanel.hidden) {
-    runIntake();
-    return;
-  }
-  startOnboarding();
+function updateTopbarIntakeAction() {
+  const showRunIntake = !els.intakePanel.hidden;
+  els.runIntakeTopbarBtn.hidden = !showRunIntake;
+  els.runIntakeTopbarBtn.title = showRunIntake
+    ? 'Create this client profile from the intake below'
+    : '';
+  els.onboardClientBtn.disabled = showRunIntake;
+  els.onboardClientBtn.title = showRunIntake
+    ? 'Client onboarding is already open'
+    : 'Start onboarding a new client';
 }
 
 function truncateText(value, maxLength = 620) {
@@ -4316,6 +4314,7 @@ function openSettings() {
   els.tokenInput.value = state.settings?.inviteToken || '';
   setSettingsTemplateInputs();
   els.settingsDialog.showModal();
+  els.settingsForm.scrollTop = 0;
 }
 
 async function saveSettings(event) {
@@ -4371,7 +4370,8 @@ async function init() {
   }
 
   els.backBtn.addEventListener('click', goBack);
-  els.onboardBtn.addEventListener('click', handleTopbarPrimaryAction);
+  els.runIntakeTopbarBtn.addEventListener('click', runIntake);
+  els.onboardClientBtn.addEventListener('click', startOnboarding);
   els.themeToggleBtn.addEventListener('click', () => {
     applyTheme(state.theme === 'dark' ? 'light' : 'dark');
   });
