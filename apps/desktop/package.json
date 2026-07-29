@@ -8,7 +8,9 @@
   "scripts": {
     "dev": "electron .",
     "start": "electron .",
-    "lint": "node --check src/main.js src/preload.js renderer/app.js",
+    "lint": "node --check src/main.js src/preload.js renderer/app.js scripts/visual-fixture.js scripts/visual-regression.mjs",
+    "visual:check": "node scripts/visual-regression.mjs",
+    "visual:update": "node scripts/visual-regression.mjs --update",
     "rebuild-native": "electron-rebuild -f -w better-sqlite3",
     "dist:mac": "electron-builder --mac dmg zip --x64 --arm64 --publish never",
     "postinstall": "npm run rebuild-native"
@@ -61,6 +63,8 @@
   "devDependencies": {
     "@electron/rebuild": "^4.0.3",
     "electron": "37.2.6",
-    "electron-builder": "^26.0.12"
+    "electron-builder": "^26.0.12",
+    "pixelmatch": "^7.2.0",
+    "pngjs": "^7.0.0"
   }
 }

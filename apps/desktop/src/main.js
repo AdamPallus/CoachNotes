@@ -204,7 +204,10 @@ const DEFAULT_COACH_TEMPLATE = {
 
 app.setName(APP_NAME);
 if (!app.isPackaged) {
-  app.setPath('userData', path.join(app.getPath('appData'), APP_NAME));
+  const visualUserDataPath = String(process.env.COACHNOTES_VISUAL_USER_DATA || '').trim();
+  app.setPath('userData', visualUserDataPath
+    ? path.resolve(visualUserDataPath)
+    : path.join(app.getPath('appData'), APP_NAME));
 }
 
 let db;
@@ -212,8 +215,13 @@ let mainWindow;
 let ipcRegistered = false;
 let pdfJsModulePromise = null;
 
+function currentDate() {
+  const visualDate = !app.isPackaged ? String(process.env.COACHNOTES_VISUAL_DATE || '').trim() : '';
+  return visualDate ? new Date(`${visualDate}T12:00:00.000Z`) : new Date();
+}
+
 function nowIso() {
-  return new Date().toISOString();
+  return currentDate().toISOString();
 }
 
 function sanitizeName(value) {
@@ -693,7 +701,7 @@ function buildIntakeSourceContent({ title, clientName, sourceType, sourceDate, a
   const frontmatter = [
     '---',
     `client: ${yamlQuote(clientName)}`,
-    `date: ${yamlQuote(sourceDate || new Date().toISOString().slice(0, 10))}`,
+    `date: ${yamlQuote(sourceDate || currentDate().toISOString().slice(0, 10))}`,
     `source_type: ${yamlQuote(sourceType)}`,
     `tags: ["intake-source", ${yamlQuote(sourceType)}]`
   ];
@@ -717,7 +725,7 @@ async function saveIntakeSource({ clientId, clientName, rootFolder, source }) {
   const importDirectory = path.join(rootFolder, clientName, CLIENT_IMPORTS_DIRNAME);
   await fsp.mkdir(importDirectory, { recursive: true });
 
-  const sourceDate = source.sourceDate || new Date().toISOString().slice(0, 10);
+  const sourceDate = source.sourceDate || currentDate().toISOString().slice(0, 10);
   const stem = `${sourceDate}-${source.sourceType}-${slugifyFileStem(source.title)}`.slice(0, 140);
   const vaultPath = await getUniqueFilePath(importDirectory, stem, '.md');
   const content = buildIntakeSourceContent({
@@ -816,7 +824,7 @@ async function generateClientBaseline(payload) {
     response = await callProxy('/workflow', {
       model: DEFAULT_LLM_MODEL,
       workflow: 'client_intake_baseline',
-      currentDate: dateKeyFromDate(new Date()),
+      currentDate: dateKeyFromDate(currentDate()),
       client: {
         name: clientName,
         programContext: normalizeMultilineText(payload?.programContext || '', 2000),
@@ -1126,7 +1134,7 @@ function isActiveRadarItem(item, todayKey) {
 }
 
 function getOpenCoachTaskDueCounts(tasks) {
-  const now = new Date();
+  const now = currentDate();
   const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   let dueTaskCount = 0;
   let overdueTaskCount = 0;
@@ -1160,7 +1168,7 @@ function addDaysToKey(dateKey, days) {
   return dateKeyFromDate(parsed);
 }
 
-function getDaysSinceDateKey(dateKey, todayKey = dateKeyFromDate(new Date())) {
+function getDaysSinceDateKey(dateKey, todayKey = dateKeyFromDate(currentDate())) {
   const parsed = new Date(`${dateKey}T00:00:00`);
   const today = new Date(`${todayKey}T00:00:00`);
   if (Number.isNaN(parsed.getTime()) || Number.isNaN(today.getTime())) {
@@ -1342,7 +1350,7 @@ function getAcceptedClientRows() {
 
 function getCoachHome() {
   requireDb();
-  const todayKey = dateKeyFromDate(new Date());
+  const todayKey = dateKeyFromDate(currentDate());
   const dueSoonKey = addDaysToKey(todayKey, HOME_DUE_SOON_DAYS);
   const staleCutoffKey = addDaysToKey(todayKey, -HOME_STALE_DAYS);
   const profileGroups = new Map();
@@ -1729,7 +1737,7 @@ async function updateClientFromNote(payload) {
     response = await callProxy('/workflow', {
       model: DEFAULT_LLM_MODEL,
       workflow: 'client_note_update',
-      currentDate: dateKeyFromDate(new Date()),
+      currentDate: dateKeyFromDate(currentDate()),
       client: {
         name: row.clientName
       },
@@ -2269,7 +2277,7 @@ async function saveAskResultAsNote(payload) {
   );
   const scopeLabel = askScopeLabel(normalizeAskChoice(payload?.scope, new Set(['dashboard', 'recent-notes', 'all-sources']), 'recent-notes'));
   const timeWindowLabel = askTimeWindowLabel(normalizeAskChoice(payload?.timeWindow, new Set(['latest-note', 'last-3-weeks', 'last-90-days', 'all-time']), 'last-3-weeks'));
-  const createdDate = new Date().toISOString().slice(0, 10);
+  const createdDate = currentDate().toISOString().slice(0, 10);
   const rawText = normalizeTextContent([
     `ASK output type: ${askOutputLabel(outputType)}`,
     `Context: ${scopeLabel}`,
@@ -2553,6 +2561,10 @@ function setupIpc() {
 
 app.whenReady().then(async () => {
   ensureDb();
+  if (!app.isPackaged && process.env.COACHNOTES_VISUAL_FIXTURE === '1') {
+    const { seedVisualFixture } = require('../scripts/visual-fixture');
+    seedVisualFixture(db, app.getPath('userData'));
+  }
   await ensureVaultRootFolder();
   setupIpc();
   createWindow();

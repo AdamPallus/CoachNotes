@@ -420,12 +420,17 @@ function sanitizeName(value) {
   return String(value || '').trim().replace(/\s+/g, ' ');
 }
 
+function currentLocalDate() {
+  const visualDate = String(window.coachNotes?.visualDate || '').trim();
+  return visualDate ? new Date(`${visualDate}T12:00:00`) : new Date();
+}
+
 function makeLocalId() {
   return `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function todayLocalDate() {
-  const date = new Date();
+  const date = currentLocalDate();
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
@@ -971,7 +976,7 @@ function getDueDateState(dueDate) {
   if (!due) {
     return '';
   }
-  const now = new Date();
+  const now = currentLocalDate();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (due < today) {
     return 'overdue';
@@ -1122,7 +1127,7 @@ function parseLocalDate(value) {
   return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
 }
 
-function calculateProgramWeek(startDateValue, now = new Date()) {
+function calculateProgramWeek(startDateValue, now = currentLocalDate()) {
   const startDate = parseLocalDate(startDateValue);
   if (!startDate) {
     return '';

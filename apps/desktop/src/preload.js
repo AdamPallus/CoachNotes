@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('coachNotes', {
+  visualDate: process.env.COACHNOTES_VISUAL_DATE || '',
   getState: () => ipcRenderer.invoke('app:get-state'),
   saveSettings: (payload) => ipcRenderer.invoke('app:save-settings', payload),
   selectVaultFolder: () => ipcRenderer.invoke('app:select-vault-folder'),
