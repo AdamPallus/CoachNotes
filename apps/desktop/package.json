@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "electron .",
     "start": "electron .",
-    "lint": "node --check src/main.js src/preload.js renderer/app.js scripts/visual-fixture.js scripts/visual-regression.mjs",
+    "lint": "node --check src/main.js src/preload.js renderer/app.js scripts/style-contract.mjs scripts/visual-fixture.js scripts/visual-regression.mjs && npm run style:check",
+    "style:check": "node scripts/style-contract.mjs",
     "visual:check": "node scripts/visual-regression.mjs",
     "visual:update": "node scripts/visual-regression.mjs --update",
     "rebuild-native": "electron-rebuild -f -w better-sqlite3",
