@@ -15,6 +15,7 @@ const matches = (source, pattern) => [...source.matchAll(pattern)].map((match) =
 const valuesFor = (property) => new Set(
   matches(styles, new RegExp(`${property}:\\s*[^;]+`, 'g'))
     .map((declaration) => declaration.replace(new RegExp(`^${property}:\\s*`), '').trim())
+    .filter((value) => !value.includes('var('))
 );
 
 const rootCount = matches(tokens, /(^|\n):root\s*\{/g).length;
@@ -37,8 +38,8 @@ const legacyLimits = {
   uniqueHexValues: 89,
   importantDeclarations: 12,
   fontSizeValues: 36,
-  borderRadiusValues: 22,
-  boxShadowValues: 33
+  borderRadiusValues: 20,
+  boxShadowValues: 30
 };
 
 if (hexValues.length > legacyLimits.hexOccurrences || uniqueHexValues.size > legacyLimits.uniqueHexValues) {
