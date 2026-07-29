@@ -1507,6 +1507,12 @@ label,
   gap: 7px !important;
 }
 
+.missing-info-item > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
 .missing-info-actions {
   display: flex;
   flex-wrap: wrap;
