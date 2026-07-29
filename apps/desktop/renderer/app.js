@@ -714,11 +714,9 @@ function setViewMode(mode) {
 }
 
 function updateTopbarPrimaryAction() {
-  const showRunIntake = !els.intakePanel.hidden;
-  els.onboardBtn.textContent = showRunIntake ? 'Run Intake' : 'Onboard New Client';
-  els.onboardBtn.title = showRunIntake
-    ? 'Run intake for the current onboarding form'
-    : 'Start onboarding a new client';
+  els.onboardBtn.hidden = !els.intakePanel.hidden;
+  els.onboardBtn.textContent = 'Onboard New Client';
+  els.onboardBtn.title = 'Start onboarding a new client';
   els.onboardBtn.setAttribute('aria-label', els.onboardBtn.textContent);
 }
 

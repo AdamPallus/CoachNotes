@@ -6686,6 +6686,87 @@ body .main-surface .is-recently-updated {
   animation: updateSettle 1900ms ease-out both;
 }
 
+/* Command hierarchy and readable operational type ----------------------- */
+
+.main-surface .btn,
+dialog .btn {
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-body);
+}
+
+.main-surface .btn-primary,
+dialog .btn-primary {
+  border-color: var(--action-border);
+  background: var(--action);
+  box-shadow: none;
+  color: var(--on-action);
+}
+
+.main-surface .btn-primary:hover,
+.main-surface .btn-primary:focus-visible,
+dialog .btn-primary:hover,
+dialog .btn-primary:focus-visible {
+  border-color: var(--action-border);
+  background: var(--action-hover);
+  color: var(--on-action);
+}
+
+.main-surface .btn-danger,
+dialog .btn-danger {
+  color: var(--risk);
+}
+
+.topbar .btn {
+  font-size: var(--fs-record);
+}
+
+.topbar-nav-button,
+.rail-filter-toggle,
+.segmented-control button,
+.detail-page-tab,
+.home-tab {
+  font-size: var(--fs-label);
+}
+
+.client-button em,
+.home-row-main em,
+.home-row-meta,
+.planning-chip,
+.radar-through-chip {
+  font-size: var(--fs-label);
+}
+
+.section-link,
+.choice-button-grid button,
+.preset-chip,
+.client-profile-tag-option {
+  font-size: var(--fs-record);
+}
+
+.home-row-action {
+  font-size: var(--fs-label);
+}
+
+.client-notification-badge.overdue {
+  border-color: var(--risk);
+  border-radius: var(--radius-pill);
+  background: var(--risk);
+  box-shadow: none;
+  color: var(--on-risk);
+}
+
+.client-notification-badge.due-today {
+  border: 1px solid var(--risk);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  box-shadow: none;
+  color: var(--risk);
+}
+
+.client-notification-badge.due-today + .client-alert-text {
+  color: var(--risk);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .main-surface.is-client-loading::before,
   .client-button.is-loading::after,
