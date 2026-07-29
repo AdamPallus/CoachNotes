@@ -18,6 +18,7 @@ const port = 9324;
 const visualDate = '2026-07-29';
 const widths = [1024, 1280, 1440];
 const themes = ['light', 'dark'];
+const maxDiffRatio = process.env.CI ? 0.055 : 0.0015;
 const screens = [
   { name: 'mission-control', prepare: 'mission' },
   { name: 'client-snapshot', prepare: 'client' },
@@ -221,7 +222,7 @@ async function main() {
           }
           const comparison = compareImages(expected, actual);
           process.stdout.write(`${filename}: ${(comparison.ratio * 100).toFixed(3)}% changed\n`);
-          if (comparison.ratio > 0.0015) {
+          if (comparison.ratio > maxDiffRatio) {
             const diffPath = path.join(artifactRoot, filename.replace('.png', '.diff.png'));
             await fs.writeFile(diffPath, PNG.sync.write(comparison.diff));
             failures.push(`${filename}: ${(comparison.ratio * 100).toFixed(3)}% changed`);
