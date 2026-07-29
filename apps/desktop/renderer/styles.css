@@ -359,16 +359,6 @@ textarea:focus {
   box-shadow: 0 5px 14px rgba(186, 122, 38, 0.24);
 }
 
-.client-alert-text {
-  margin-top: 5px !important;
-  color: var(--danger) !important;
-  font-weight: 750;
-}
-
-.client-notification-badge.due-today + .client-alert-text {
-  color: #704714 !important;
-}
-
 .tag-strip,
 .detail-tags {
   margin-top: 9px;
@@ -1098,11 +1088,6 @@ label,
   border-color: rgba(148, 59, 50, 0.34);
 }
 
-.is-recently-updated {
-  border-color: rgba(82, 99, 72, 0.5) !important;
-  box-shadow: 0 0 0 3px rgba(82, 99, 72, 0.12);
-}
-
 .dashboard-band,
 .timeline-section,
 .source-summary {
@@ -1291,7 +1276,7 @@ label,
 }
 
 .planning-hidden-summary {
-  display: flex !important;
+  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
@@ -1471,7 +1456,7 @@ label,
 }
 
 .missing-info-item {
-  gap: 7px !important;
+  gap: 7px;
 }
 
 .missing-info-item > div {
@@ -1624,6 +1609,7 @@ label,
 }
 
 .citation-popover {
+  display: none;
   position: absolute;
   left: 50%;
   bottom: calc(100% + 10px);
@@ -1640,12 +1626,6 @@ label,
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease, transform 120ms ease;
-}
-
-.citation-chip:hover .citation-popover,
-.citation-chip:focus .citation-popover {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
 }
 
 .citation-popover strong,
@@ -2057,6 +2037,7 @@ dialog::backdrop {
 }
 
 .ask-citation-popover {
+  display: none;
   position: absolute;
   left: 50%;
   bottom: calc(100% + 10px);
@@ -2073,12 +2054,6 @@ dialog::backdrop {
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease, transform 120ms ease;
-}
-
-.ask-citation:hover .ask-citation-popover,
-.ask-citation:focus .ask-citation-popover {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
 }
 
 .ask-citation-popover strong,
@@ -3600,16 +3575,6 @@ body {
   background: var(--amber);
 }
 
-.client-alert-text {
-  margin-top: 4px !important;
-  color: var(--danger) !important;
-  font-size: 10.5px !important;
-}
-
-.client-notification-badge.due-today + .client-alert-text {
-  color: #79511d !important;
-}
-
 .client-button .tag-strip {
   max-width: 100%;
   margin-top: 5px;
@@ -4275,10 +4240,6 @@ summary:focus-visible,
   box-shadow: var(--shadow-xs);
 }
 
-.is-recently-updated {
-  animation: updateSettle 1900ms ease-out both;
-}
-
 .intake-grid,
 .source-composer,
 .baseline-field,
@@ -4495,7 +4456,7 @@ dialog::backdrop {
   }
 }
 
-/* Living practice atlas --------------------------------------------------- */
+/* Operational workspace -------------------------------------------------- */
 
 html,
 body {
@@ -4742,12 +4703,6 @@ body {
   letter-spacing: 0.03em;
 }
 
-.client-button.active .client-ledger-index,
-.client-button.active em,
-.client-button.active .client-alert-text {
-  color: rgba(245, 240, 228, 0.68) !important;
-}
-
 .client-button strong {
   font-family: var(--display);
   font-size: 14px;
@@ -4758,6 +4713,23 @@ body {
   font-family: var(--mono);
   font-size: 8.5px;
   letter-spacing: 0.02em;
+}
+
+.client-button .client-alert-text {
+  margin-top: 4px;
+  color: var(--danger);
+  font-size: 10.5px;
+  font-weight: 750;
+}
+
+.client-notification-badge.due-today + .client-alert-text {
+  color: #79511d;
+}
+
+.client-button.active .client-ledger-index,
+.client-button.active em,
+.client-button.active .client-alert-text {
+  color: rgba(245, 240, 228, 0.68);
 }
 
 .client-button .tag-strip {
@@ -5636,7 +5608,7 @@ button:focus-visible,
   }
 }
 
-/* Final cascade: these structural repairs intentionally supersede atlas v1. */
+/* Responsive structural refinements ------------------------------------- */
 
 .home-atlas {
   min-height: 0;
@@ -5965,7 +5937,7 @@ button:focus-visible,
   }
 }
 
-/* Dark-mode corrections that must win the final visual-refresh cascade. */
+/* Dark surface refinements ---------------------------------------------- */
 html[data-theme="dark"] .brand-block h1 {
   color: #edf2ee;
 }
@@ -6274,11 +6246,6 @@ html[data-theme="dark"] .dialog-form h2 {
   padding: 10px 12px;
 }
 
-.citation-popover,
-.ask-citation-popover {
-  display: none !important;
-}
-
 .citation-tooltip {
   position: fixed;
   inset: auto;
@@ -6390,9 +6357,9 @@ html[data-theme="dark"] .citation-tooltip {
 html[data-theme="dark"] .topbar #onboardBtn,
 html[data-theme="dark"] .topbar #onboardBtn:hover,
 html[data-theme="dark"] .topbar #onboardBtn:focus-visible {
-  border-color: #a8cf55 !important;
-  background: #a8cf55 !important;
-  color: #071a12 !important;
+  border-color: #a8cf55;
+  background: #a8cf55;
+  color: #071a12;
 }
 
 @media (max-width: 1100px) {
@@ -6466,12 +6433,12 @@ html[data-theme="dark"] .topbar #coachHomeBtn.active:focus-visible {
   border-color: #a8cf55;
   background: #a8cf55;
   box-shadow: 0 0 0 2px rgba(168, 207, 85, 0.14);
-  color: #071a12 !important;
+  color: #071a12;
 }
 
-.mission-compass-mark {
-  width: 19px !important;
-  height: 19px !important;
+.topbar-nav-button .mission-compass-mark {
+  width: 19px;
+  height: 19px;
 }
 
 body:not([data-view-mode="intake"]) .topbar #onboardBtn,
@@ -6480,18 +6447,18 @@ body:not([data-view-mode="intake"]) .topbar #onboardBtn:hover,
 html[data-theme="dark"] body:not([data-view-mode="intake"]) .topbar #onboardBtn:hover,
 body:not([data-view-mode="intake"]) .topbar #onboardBtn:focus-visible,
 html[data-theme="dark"] body:not([data-view-mode="intake"]) .topbar #onboardBtn:focus-visible {
-  border-color: rgba(255, 255, 255, 0.24) !important;
-  background: rgba(255, 255, 255, 0.07) !important;
-  color: rgba(248, 253, 250, 0.92) !important;
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(248, 253, 250, 0.92);
 }
 
 body:not([data-view-mode="intake"]) .topbar #onboardBtn:hover,
 html[data-theme="dark"] body:not([data-view-mode="intake"]) .topbar #onboardBtn:hover,
 body:not([data-view-mode="intake"]) .topbar #onboardBtn:focus-visible,
 html[data-theme="dark"] body:not([data-view-mode="intake"]) .topbar #onboardBtn:focus-visible {
-  border-color: rgba(199, 244, 61, 0.58) !important;
-  background: rgba(199, 244, 61, 0.12) !important;
-  color: #efffbd !important;
+  border-color: rgba(199, 244, 61, 0.58);
+  background: rgba(199, 244, 61, 0.12);
+  color: #efffbd;
 }
 
 html[data-theme="dark"] .planning-item.status-blocked {
@@ -6546,7 +6513,7 @@ html[data-theme="dark"] .archive-filter-count {
   }
 }
 
-/* Field marks and seamless client navigation. */
+/* Field marks and navigation feedback ----------------------------------- */
 
 .main-surface {
   position: relative;
@@ -6711,6 +6678,12 @@ html[data-theme="dark"] .radar-through-chip {
   border-color: rgba(120, 172, 141, 0.38);
   background: rgba(120, 172, 141, 0.12);
   color: #bfe0ca;
+}
+
+body .main-surface .is-recently-updated {
+  border-color: rgba(82, 99, 72, 0.5);
+  box-shadow: 0 0 0 3px rgba(82, 99, 72, 0.12);
+  animation: updateSettle 1900ms ease-out both;
 }
 
 @media (prefers-reduced-motion: reduce) {
