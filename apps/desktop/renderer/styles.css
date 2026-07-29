@@ -6260,6 +6260,8 @@ html[data-theme="dark"] .dialog-form h2 {
   background-position: right -24px bottom -8px;
   background-size: 430px auto;
   filter: invert(31%) sepia(24%) saturate(860%) hue-rotate(95deg) brightness(82%) contrast(88%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, transparent 24%, #000 68%, #000 100%);
+  mask-image: linear-gradient(to right, transparent 0%, transparent 24%, #000 68%, #000 100%);
   opacity: 0.2;
   z-index: 0;
 }
@@ -6439,7 +6441,11 @@ textarea.auto-grow-annotation {
 
 html[data-theme="dark"] .coach-home-head::after {
   filter: invert(78%) sepia(29%) saturate(620%) hue-rotate(79deg) brightness(96%) contrast(89%);
-  opacity: 0.16;
+  opacity: 0.06;
+}
+
+html[data-theme="dark"] .coach-home-head p:not(.section-kicker) {
+  color: var(--muted);
 }
 
 html[data-theme="dark"] .home-brief-fact {
