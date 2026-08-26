@@ -4,6 +4,10 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const { spawnSync } = require('node:child_process');
 const Database = require('better-sqlite3');
+const {
+  applyPartialUpdate,
+  extractPartialUpdateResponse
+} = require('./workflow-update');
 
 const KEYCHAIN_SERVICE = 'coachnotes-invite-token';
 const KEYCHAIN_ACCOUNT = 'coachnotes';
@@ -1689,20 +1693,6 @@ function undoClientSection(payload) {
   return getClientDetail({ clientId });
 }
 
-function extractUpdatedBaselineResponse(response, currentStructured) {
-  const structured = response.structured && typeof response.structured === 'object' ? response.structured : {};
-  const updatedBaseline = structured.updatedBaseline && typeof structured.updatedBaseline === 'object'
-    ? structured.updatedBaseline
-    : structured.baseline && typeof structured.baseline === 'object'
-      ? structured.baseline
-      : structured;
-  return {
-    updatedBaseline: updatedBaseline && typeof updatedBaseline === 'object' ? updatedBaseline : currentStructured,
-    changes: Array.isArray(structured.changes) ? structured.changes : [],
-    updateSummary: normalizeMultilineText(structured.updateSummary || '', 600)
-  };
-}
-
 async function updateClientFromNote(payload) {
   requireDb();
   const rootFolder = await ensureVaultRootFolder();
@@ -1733,6 +1723,7 @@ async function updateClientFromNote(payload) {
 
   const currentStructured = parseJsonObject(row.structuredJson);
   let response;
+  let partialUpdate;
   try {
     response = await callProxy('/workflow', {
       model: DEFAULT_LLM_MODEL,
@@ -1745,6 +1736,7 @@ async function updateClientFromNote(payload) {
       currentBaseline: currentStructured,
       sources: buildWorkflowSourcePayload(savedSources)
     }, settings);
+    partialUpdate = extractPartialUpdateResponse(response);
   } catch (error) {
     for (const source of savedSources) {
       db.prepare('DELETE FROM intake_sources WHERE id = ?').run(source.id);
@@ -1755,21 +1747,17 @@ async function updateClientFromNote(payload) {
     throw error;
   }
 
-  const { updatedBaseline, changes, updateSummary } = extractUpdatedBaselineResponse(response, currentStructured);
+  const { sectionUpdates, changes, updateSummary } = partialUpdate;
   const nextStructured = preserveClientProfileMetadata(
     currentStructured,
-    preservePlanningMetadata(currentStructured, {
-      ...currentStructured,
-      ...updatedBaseline
-    })
+    preservePlanningMetadata(currentStructured, applyPartialUpdate(currentStructured, sectionUpdates))
   );
-  const changedSections = [...BASELINE_SECTION_KEYS].filter((sectionKey) => (
-    Object.prototype.hasOwnProperty.call(nextStructured, sectionKey)
-    && !jsonValuesEqual(
+  const changedSections = sectionUpdates
+    .map(({ sectionKey }) => sectionKey)
+    .filter((sectionKey) => !jsonValuesEqual(
       comparableBaselineSectionValue(currentStructured, sectionKey),
       comparableBaselineSectionValue(nextStructured, sectionKey)
-    )
-  ));
+    ));
 
   for (const sectionKey of changedSections) {
     pushSectionUndo({

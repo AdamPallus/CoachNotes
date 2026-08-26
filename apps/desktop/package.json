@@ -1,6 +1,6 @@
 {
   "name": "coachnotes-desktop",
-  "version": "0.2.15",
+  "version": "0.2.16",
   "private": true,
   "description": "CoachNotes desktop app for health coach client notes",
   "author": "Adam Pallus",
@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "electron .",
     "start": "electron .",
-    "lint": "node --check src/main.js src/preload.js renderer/app.js scripts/style-contract.mjs scripts/visual-fixture.js scripts/visual-regression.mjs && npm run style:check",
+    "lint": "node --check src/main.js src/preload.js src/workflow-update.js renderer/app.js scripts/style-contract.mjs scripts/visual-fixture.js scripts/visual-regression.mjs && npm run style:check",
+    "test": "node --test test/*.test.js",
     "style:check": "node scripts/style-contract.mjs",
     "visual:check": "node scripts/visual-regression.mjs",
     "visual:update": "node scripts/visual-regression.mjs --update",

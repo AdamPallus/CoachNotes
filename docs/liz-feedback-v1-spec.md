@@ -1,5 +1,7 @@
 # Liz Feedback v1 — Feature Spec
 
+> **Historical, pre-dashboard-pivot design record.** This document references the former `_client-profile.md`, file-watcher, and vector-search architecture. See [README.md](README.md) for current documentation.
+
 **Source:** Liz's Loom recording, Feb 12 2026
 **Priority order:** by user impact × implementation effort
 

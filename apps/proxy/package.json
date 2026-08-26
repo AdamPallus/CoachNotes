@@ -5,7 +5,8 @@
   "type": "commonjs",
   "scripts": {
     "dev": "node dev-server.js",
-    "lint": "node --check dev-server.js api/_shared.js api/index.js api/health.js api/embed.js api/answer.js api/summarize.js api/workflow.js"
+    "lint": "node --check dev-server.js api/_shared.js api/index.js api/health.js api/embed.js api/answer.js api/summarize.js api/workflow-update-contract.js api/workflow.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "express": "^5.1.0",

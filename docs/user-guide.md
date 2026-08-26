@@ -72,6 +72,12 @@ Examples:
 - Invite token is stored in macOS Keychain.
 - Per-note override editing UI is not implemented yet.
 
+## Updating a client from a new note
+
+When a coach adds a note, CoachNotes sends the current dashboard and new source to the proxy for review. The AI returns only the dashboard sections that need to change; omitted sections remain untouched. New items such as current timeline milestones can be appended without regenerating historical entries.
+
+While processing, the original note remains available for retry. If the server cannot finish the update, CoachNotes keeps the entered source in the add-note dialog rather than requiring it to be entered again. After a successful update, the affected sections are highlighted and each changed section retains its normal undo history.
+
 ## Quick way to test with demo notes
 
 If you don’t have notes yet:

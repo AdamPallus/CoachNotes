@@ -37,6 +37,8 @@ Once deployed, your base URL will look like:
 
 `https://<project-name>.vercel.app`
 
+The production CoachNotes project is connected to this GitHub repository with `main` as its production branch. Pushing a proxy change to `main` triggers a production deployment. When a server change requires a matching desktop version, follow the coordinated procedure in [release-desktop.md](release-desktop.md) instead of pushing `main` first.
+
 ## 5) Verify endpoints
 
 ```bash
@@ -68,3 +70,21 @@ In CoachNotes desktop Settings:
 - `Proxy Base URL` => `https://<project-name>.vercel.app`
 - `Invite Token` => token from `INVITE_TOKENS`
 - Save, then run intake or add a note.
+
+## Workflow limits and diagnostics
+
+Note updates use a compact partial-update response contract. Defaults are built into the proxy:
+
+- `WORKFLOW_UPDATE_MAX_OUTPUT_TOKENS`: `4500`
+- `WORKFLOW_TOTAL_BUDGET_MS`: `110000`, leaving time below Vercel's 120-second function limit
+- One formatting retry when enough total request time remains
+
+These may be overridden through Vercel environment variables, but increasing them should not be the first response to a timeout. Vercel logs emit `[workflow model response]` entries containing duration, prompt/output character counts, input/output tokens, cached input tokens, reasoning tokens, completion status, and incomplete reason. Logs do not include client note or dashboard content.
+
+For a coordinated proxy/desktop cutover:
+
+1. Publish the matching desktop tag from a staged branch while leaving `main` unchanged.
+2. Have the user download the desktop installer but keep the current app open until the cutover.
+3. Pause note updates, then fast-forward the staged release commit to `main` and push.
+4. Wait for Vercel production to become Ready and verify `/health`.
+5. Install/open the new desktop and run one note-update smoke test.

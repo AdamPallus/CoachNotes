@@ -1,7 +1,7 @@
 {
   "name": "coachnotes",
   "private": true,
-  "version": "0.2.15",
+  "version": "0.2.16",
   "workspaces": [
     "apps/desktop",
     "apps/proxy"
@@ -10,6 +10,7 @@
     "dev:desktop": "npm --workspace apps/desktop run dev",
     "dev:proxy": "npm --workspace apps/proxy run dev",
     "lint": "npm --workspace apps/proxy run lint && npm --workspace apps/desktop run lint",
+    "test": "npm --workspace apps/proxy test && npm --workspace apps/desktop test",
     "visual:check": "npm --workspace apps/desktop run visual:check",
     "visual:update": "npm --workspace apps/desktop run visual:update"
   }

@@ -9,6 +9,12 @@ const {
   validateWorkflowSources,
   withTimeout
 } = require('./_shared');
+const {
+  CLIENT_UPDATE_SCHEMA_VERSION,
+  MAX_SECTION_UPDATES,
+  UPDATE_SECTION_KEYS,
+  normalizeClientUpdatePatch
+} = require('./workflow-update-contract');
 
 const workflowPrompts = {
   client_intake_baseline: [
@@ -29,6 +35,7 @@ const workflowPrompts = {
   client_note_update: [
     'You are CoachNotes Update.',
     'Your job is to update an existing coach-reviewed client baseline from new source material.',
+    'Return only changed dashboard sections. Never return or reproduce the entire client baseline.',
     'Treat the current baseline as authoritative coach context, even if some fields are uncited.',
     'Do not remove or weaken coach-entered facts just because the new source does not mention them.',
     'Keep the dashboard concise and current. Do not let repeated historical mentions inflate the active lists.',
@@ -84,6 +91,10 @@ const TAG_RULES = [
 ];
 
 const WORKFLOW_JSON_RETRY_ATTEMPTS = 1;
+const DEFAULT_UPDATE_MAX_OUTPUT_TOKENS = 4500;
+const DEFAULT_WORKFLOW_TOTAL_BUDGET_MS = 110 * 1000;
+const MAX_WORKFLOW_TOTAL_BUDGET_MS = 115 * 1000;
+const MIN_WORKFLOW_RETRY_BUDGET_MS = 15 * 1000;
 
 class WorkflowJsonParseError extends Error {
   constructor(message) {
@@ -101,12 +112,27 @@ function normalizeWorkflow(value) {
   return '';
 }
 
-function getWorkflowMaxOutputTokens() {
-  const parsed = Number.parseInt(process.env.WORKFLOW_MAX_OUTPUT_TOKENS || '9000', 10);
+function getWorkflowMaxOutputTokens(workflowName) {
+  const envKey = workflowName === 'client_note_update'
+    ? 'WORKFLOW_UPDATE_MAX_OUTPUT_TOKENS'
+    : 'WORKFLOW_MAX_OUTPUT_TOKENS';
+  const fallback = workflowName === 'client_note_update' ? DEFAULT_UPDATE_MAX_OUTPUT_TOKENS : 9000;
+  const parsed = Number.parseInt(process.env[envKey] || String(fallback), 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    return 9000;
+    return fallback;
   }
   return Math.max(2000, Math.min(parsed, 20000));
+}
+
+function getWorkflowTotalBudgetMs() {
+  const parsed = Number.parseInt(
+    process.env.WORKFLOW_TOTAL_BUDGET_MS || String(DEFAULT_WORKFLOW_TOTAL_BUDGET_MS),
+    10
+  );
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_WORKFLOW_TOTAL_BUDGET_MS;
+  }
+  return Math.max(30 * 1000, Math.min(parsed, MAX_WORKFLOW_TOTAL_BUDGET_MS));
 }
 
 function cleanJsonText(text) {
@@ -146,16 +172,43 @@ function isWorkflowJsonParseError(error) {
   return Boolean(error?.isWorkflowJsonParseError);
 }
 
+function isWorkflowFormatError(error) {
+  return isWorkflowJsonParseError(error) || Boolean(error?.isWorkflowContractError);
+}
+
 function workflowSystemPrompt(workflowName, attempt) {
   if (attempt <= 0) {
     return workflowPrompts[workflowName];
   }
   return [
     workflowPrompts[workflowName],
-    'The previous attempt could not be parsed by CoachNotes.',
-    'Retry by returning one complete valid JSON object only.',
+    'The previous attempt could not be accepted by CoachNotes.',
+    'Retry by following the requested JSON contract exactly and returning one complete valid JSON object only.',
     'Do not include markdown, comments, analysis, prose, or trailing text outside the JSON object.'
   ].join(' ');
+}
+
+function responseDiagnostics(result, { workflowName, model, attempt, prompt, startedAt }) {
+  const usage = result?.usage && typeof result.usage === 'object' ? result.usage : {};
+  const inputDetails = usage.input_tokens_details && typeof usage.input_tokens_details === 'object'
+    ? usage.input_tokens_details
+    : {};
+  const outputDetails = usage.output_tokens_details && typeof usage.output_tokens_details === 'object'
+    ? usage.output_tokens_details
+    : {};
+  return {
+    workflow: workflowName,
+    model,
+    attempt: attempt + 1,
+    durationMs: Date.now() - startedAt,
+    status: result?.status || 'unknown',
+    incompleteReason: result?.incomplete_details?.reason || '',
+    promptChars: prompt.length,
+    inputTokens: usage.input_tokens,
+    cachedInputTokens: inputDetails.cached_tokens,
+    outputTokens: usage.output_tokens,
+    reasoningTokens: outputDetails.reasoning_tokens
+  };
 }
 
 async function createWorkflowResponse({
@@ -167,6 +220,7 @@ async function createWorkflowResponse({
   requestTimeoutMs,
   attempt
 }) {
+  const startedAt = Date.now();
   const result = await withTimeout(
     openai.responses.create({
       model,
@@ -184,27 +238,56 @@ async function createWorkflowResponse({
   );
 
   const outputText = extractResponseOutputText(result).trim();
+  const diagnostics = {
+    ...responseDiagnostics(result, { workflowName, model, attempt, prompt, startedAt }),
+    outputChars: outputText.length
+  };
+  console.info('[workflow model response]', diagnostics);
+
+  if (result?.status === 'incomplete') {
+    throw new WorkflowJsonParseError(
+      `Workflow response was incomplete: ${result?.incomplete_details?.reason || 'unknown reason'}.`
+    );
+  }
+
+  const parsed = parseStructuredOutput(outputText);
   return {
     outputText,
-    structured: parseStructuredOutput(outputText)
+    structured: workflowName === 'client_note_update' ? normalizeClientUpdatePatch(parsed) : parsed
   };
 }
 
 async function createParsedWorkflowResponse(options) {
   let lastError = null;
+  const startedAt = Date.now();
+  const totalBudgetMs = getWorkflowTotalBudgetMs();
   for (let attempt = 0; attempt <= WORKFLOW_JSON_RETRY_ATTEMPTS; attempt += 1) {
+    const remainingBudgetMs = totalBudgetMs - (Date.now() - startedAt);
+    if (remainingBudgetMs < MIN_WORKFLOW_RETRY_BUDGET_MS) {
+      console.warn('[workflow retry skipped]', {
+        workflow: options.workflowName,
+        model: options.model,
+        nextAttempt: attempt + 1,
+        remainingBudgetMs
+      });
+      throw lastError || new Error('Workflow did not finish within its processing budget. Please try again.');
+    }
     try {
-      const response = await createWorkflowResponse({ ...options, attempt });
+      const response = await createWorkflowResponse({
+        ...options,
+        attempt,
+        requestTimeoutMs: Math.min(options.requestTimeoutMs, remainingBudgetMs)
+      });
       return {
         ...response,
         attempts: attempt + 1
       };
     } catch (error) {
-      if (!isWorkflowJsonParseError(error) || attempt >= WORKFLOW_JSON_RETRY_ATTEMPTS) {
+      if (!isWorkflowFormatError(error) || attempt >= WORKFLOW_JSON_RETRY_ATTEMPTS) {
         throw error;
       }
       lastError = error;
-      console.warn('[workflow json retry]', {
+      console.warn('[workflow format retry]', {
         workflow: options.workflowName,
         model: options.model,
         attempt: attempt + 1,
@@ -502,65 +585,38 @@ function renderClientUpdatePrompt(body) {
     'Current accepted baseline JSON:',
     JSON.stringify(currentBaseline, null, 2),
     '',
-    'Return this exact JSON object:',
+    'Return this exact partial-update JSON object. Use the actual updated content in value:',
     JSON.stringify({
-      schemaVersion: 'client_update.v2',
+      schemaVersion: CLIENT_UPDATE_SCHEMA_VERSION,
       updateSummary: '1-2 concise sentences explaining what changed and why it matters to the coach.',
-      changes: [
+      sectionUpdates: [
         {
-          sectionKey: 'flags | radarItems | programChanges | exerciseThreads | coachingPlanApproach | coachTasks | goalsValues | clientValues | progressTracking | timeline | missingInfo | confidenceNotes',
-          action: 'add | update | resolve | no_change | needs_review',
-          summary: '',
-          reason: '',
+          sectionKey: 'one changed dashboard section key',
+          operation: 'replace | append | merge',
+          value: 'the replacement, appended items, or profile field patch',
+          summary: 'brief description of this section change',
+          reason: 'why the new source supports this change',
           evidenceIds: ['source_id']
         }
-      ],
-      updatedBaseline: {
-        schemaVersion: 'client_baseline.v2',
-        clientProfile: {
-          age: '',
-          location: '',
-          curriculum: '',
-          curriculumType: '',
-          trainingProgram: '',
-          programType: '',
-          cohort: '',
-          programFormat: '',
-          primaryTrainingGoal: '',
-          contraindications: [''],
-          curriculumStartDate: '',
-          programStartDate: '',
-          programWeek: 'curriculum week based on curriculumStartDate, not training program start date',
-          trainingProgramWeek: 'training program week based on programStartDate',
-          notes: ''
-        },
-        overview: 'brief updated current-state Snapshot for coach scanning',
-        coachTasks: ['coach to-do'],
-        flags: ['durable or chronic injury, red flag, ongoing medical concern, surgery/procedure context, lasting constraint, or other long-term flag'],
-        radarItems: [RADAR_ITEM_SCHEMA],
-        goalsValues: ['specific client goal or desired outcome only'],
-        clientValues: ['client value, motivation, identity statement, or stable coaching-relevant preference'],
-        coachingPlanApproach: ['agreed approach, planned habit/skill focus, current commitment, or future commitment expected to move goals forward'],
-        programChanges: ['specific training/program modification, exercise swap, avoided movement, temporary/permanent constraint, travel version, progression, regression, or other program adjustment'],
-        progressTracking: ['skills practice, workout completion, strength progression, difficulty, load, compliance, or engagement signal'],
-        engagementNotes: ['Zoom, text, instant message, check-in, responsiveness, tone, or cadence note'],
-        nutritionThreads: ['nutrition common thread: mastered, difficult, improving, watch, or unknown'],
-        mindsetThreads: ['mindset common thread: mastered, difficult, improving, watch, or unknown'],
-        exerciseThreads: ['exercise common thread: mastered, difficult, improving, watch, or unknown'],
-        resourcesShared: ['resource already shared with the client'],
-        suggestedTags: ['up to five sidebar/search tags'],
-        timeline: [TIMELINE_ITEM_SCHEMA],
-        missingInfo: ['important missing context'],
-        confidenceNotes: ['uncertainty or evidence quality note']
-      }
+      ]
     }, null, 2),
     '',
     'Rules:',
     '- Preserve existing baseline content unless the new source gives a clear reason to change it.',
+    '- Return only sections that actually change. Do not return the entire baseline and do not include unchanged sections.',
+    `- sectionKey must be one of: ${[...UPDATE_SECTION_KEYS].join(', ')}.`,
+    `- Return no more than ${MAX_SECTION_UPDATES} sectionUpdates. Most notes should change only 1-5 sections.`,
+    '- For overview, use operation "replace" and value must be the complete updated overview string.',
+    '- For clientProfile, use operation "merge" and value must contain only changed profile fields. Do not reproduce the full clientProfile.',
+    '- For array sections, use operation "append" with only new items when every existing item remains valid and unchanged. This is preferred for adding new timeline milestones, resources, and other genuinely new items.',
+    '- Do not use append when a new item duplicates or should update, resolve, merge, or supersede an existing item.',
+    '- For an array section that needs an existing item changed, merged, removed, or resolved, use operation "replace" and return the complete concise updated array for that section only.',
+    '- For timeline, append only when new entries belong at the end of the existing timeline order. Use replace when inserting or reordering older historical events.',
+    '- For suggestedTags, always use replace and return the complete ordered list of 0-5 tags. Never append tags.',
+    '- Use an empty sectionUpdates array when the source supports no dashboard change. The source will still be saved.',
     '- Keep overview/Snapshot to 2-4 concise sentences. Emphasize current direction, current pain points, momentum, and ongoing considerations.',
     '- Do not use overview/Snapshot to recap all history or repeat the same coach/client to-dos that appear in coachTasks or goalsValues.',
-    '- Return updatedBaseline in the v2 schema shown above and include all v2 baseline sections.',
-    '- Keep arrays focused. Prefer editing, merging, or appending specific items instead of rewriting whole sections.',
+    '- Keep changed arrays focused. Prefer editing, merging, or appending specific items instead of expanding the section.',
     '- If the new source repeats an existing goal, barrier, action plan, or status theme, update the existing item instead of adding a duplicate.',
     '- Cite new evidence using evidenceIds objects or bracket markers like [source_id].',
     '- Do not cite the current baseline as evidence. It is coach context, not a source note.',
@@ -596,7 +652,16 @@ function workflowSourceStats(sources) {
   };
 }
 
+function workflowBaselineStats(value) {
+  const baseline = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    chars: JSON.stringify(baseline).length,
+    sections: Object.keys(baseline).length
+  };
+}
+
 module.exports = async function workflow(req, res) {
+  const startedAt = Date.now();
   const auth = authAndRateLimit(req, res);
   if (!auth.ok) {
     return;
@@ -618,7 +683,7 @@ module.exports = async function workflow(req, res) {
     const model = allowModel(req.body.model, DEFAULT_LLM_MODEL, 'LLM_MODEL_ALLOWLIST');
     const openai = getOpenAIClient();
     const requestTimeoutMs = getOpenAITimeoutMs();
-    const maxOutputTokens = getWorkflowMaxOutputTokens();
+    const maxOutputTokens = getWorkflowMaxOutputTokens(workflowName);
     const prompt = workflowName === 'client_note_update'
       ? renderClientUpdatePrompt(req.body)
       : renderClientIntakePrompt(req.body);
@@ -647,10 +712,12 @@ module.exports = async function workflow(req, res) {
       workflow: workflowName,
       model: req.body?.model || DEFAULT_LLM_MODEL,
       sourceStats: workflowSourceStats(req.body?.sources),
+      baselineStats: workflowBaselineStats(req.body?.currentBaseline),
+      durationMs: Date.now() - startedAt,
       name: err?.name || '',
       message: err?.message || 'Workflow request failed.'
     });
-    const message = isWorkflowJsonParseError(err)
+    const message = isWorkflowFormatError(err)
       ? 'CoachNotes could not finish formatting the AI update. Please try again.'
       : err?.message || 'Workflow request failed.';
     json(res, 502, {

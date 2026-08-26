@@ -1,5 +1,7 @@
 # Liz Feedback v1 Status (Post v0.1.4)
 
+> **Historical, pre-dashboard-pivot status record.** This document references a previous generation of CoachNotes. See [README.md](README.md) for current documentation.
+
 This file tracks what from `docs/liz-feedback-v1-spec.md` is done vs pending.
 
 ## Completed

@@ -1,5 +1,7 @@
 # CoachNotes UI Polish — V2 Consultant Spec
 
+> **Historical design input.** This consultant brief predates the current Mission Control and client-dashboard interface. See [README.md](README.md) and [ux-30-client-coach-story.md](ux-30-client-coach-story.md) for current direction.
+
 Prepared by: Sonja (design consultant)
 Date: Feb 8, 2026
 Context: Monday 10am demo. The app is functional and well-structured. These changes take it from "impressive prototype" to "professional product I'd pay for."

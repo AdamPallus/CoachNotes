@@ -21,11 +21,20 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests
+        run: npm test
+
+      - name: Visual regression
+        run: npm run visual:check
 
       - name: Build macOS artifacts
         run: npm --workspace apps/desktop run dist:mac

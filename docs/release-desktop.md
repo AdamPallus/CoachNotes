@@ -10,18 +10,43 @@
 
 ## Release process
 
-1. Ensure desktop version is bumped in:
-   - `apps/desktop/package.json` (`version`)
-2. Commit and push.
-3. Create and push a version tag matching that version:
+1. Bump the matching version in:
+   - `package.json`
+   - `apps/desktop/package.json`
+   - the root and desktop package entries in `package-lock.json`
+2. Run the release checks:
+
+```bash
+npm test
+npm run lint
+npm run visual:check
+git diff --check
+npm --workspace apps/desktop run dist:mac
+```
+
+3. For a desktop-only release, commit and push `main`.
+4. Create and push a version tag matching that version:
 
 ```bash
 git tag v0.2.0
 git push origin v0.2.0
 ```
 
-4. Wait for workflow `Desktop Release` to finish.
-5. Check GitHub Releases page for generated DMG/ZIP assets.
+5. Wait for workflow `Desktop Release` to finish.
+6. Check GitHub Releases for arm64/x64 DMG and ZIP assets.
+
+## Coordinated proxy and desktop release
+
+The production Vercel project deploys from `main`. A breaking proxy contract must therefore be staged without pushing `main`:
+
+1. Create a `codex/vX.Y.Z-staged` branch from the current `main` and commit the complete server/desktop release there.
+2. Push the staged branch and its matching `vX.Y.Z` tag. The tag builds the GitHub desktop release; the branch may create a Vercel preview, but production remains on `main`.
+3. Verify the GitHub release assets. Ask the user to download the installer, close CoachNotes, and confirm readiness. Do not have them use the new desktop against the old proxy.
+4. Fast-forward `main` to the staged commit and push. This intentionally starts the Vercel production deployment.
+5. Verify the production deployment and `/health`, then have the user install/open the new desktop.
+6. Run a real note-update smoke test and inspect privacy-safe workflow diagnostics.
+
+Do not merge the staged branch into `main` before the user is ready. The old and new note-update contracts are intentionally not backward compatible.
 
 ## User update flow
 

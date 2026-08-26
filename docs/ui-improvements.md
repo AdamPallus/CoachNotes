@@ -1,5 +1,7 @@
 # CoachNotes UI Improvements
 
+> **Historical design input.** The current interface has since been rebuilt around Mission Control and the client dashboard. See [README.md](README.md) and [ux-30-client-coach-story.md](ux-30-client-coach-story.md) for current direction.
+
 Suggestions for polish before the Monday demo and beyond.
 Priority: 🔴 = do before Monday, 🟡 = nice to have, 🟢 = later
 

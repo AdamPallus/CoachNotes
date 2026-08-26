@@ -8,8 +8,8 @@ Current focus:
 - Save raw client sources locally.
 - Generate a structured client profile with source-linked dashboard sections.
 - Edit dashboard sections directly, with per-section undo.
-- Add new notes later and let AI update the existing dashboard.
-- Track coach to-dos, flags, goals/values, coaching plan/approach, progress, engagement, resources, and coaching-domain threads.
+- Add new notes later and let AI update only the dashboard sections supported by the new evidence.
+- Track coach to-dos, flags, client goals, client values, coaching plan/approach, progress, engagement, resources, and coaching-domain threads.
 
 ## Architecture
 
@@ -17,7 +17,7 @@ Current focus:
 - `apps/proxy`: Vercel API proxy for OpenAI requests.
 - `docs`: deployment and release notes.
 
-The desktop app owns the local data. The proxy receives only the context needed for the AI operation being run.
+The desktop app owns the local data. The proxy receives only the context needed for the AI operation being run. Initial intake returns a complete baseline. Later note updates return a validated partial-update contract: unchanged dashboard sections are omitted, new array items can be appended, and the desktop applies the patch locally.
 
 ## Requirements
 
@@ -32,6 +32,7 @@ Install dependencies:
 
 ```bash
 npm install
+npm test
 ```
 
 Run the proxy:
@@ -69,12 +70,14 @@ Authenticated with `Authorization: Bearer <INVITE_TOKEN>`:
 - `POST /answer`
 - `POST /summarize`
 
-The current desktop intake and note-update flows use `/workflow`.
+The current desktop intake and note-update flows use `/workflow`. `client_intake_baseline` returns a complete dashboard. `client_note_update` returns `client_update_patch.v1`, containing only validated `sectionUpdates` rather than reproducing the complete dashboard.
 
 ## Deployment
 
 - Vercel proxy deployment: [docs/deploy-vercel.md](docs/deploy-vercel.md)
 - Desktop release flow: [docs/release-desktop.md](docs/release-desktop.md)
+- Documentation index: [docs/README.md](docs/README.md)
+- Version 0.2.16 release notes: [docs/releases/v0.2.16.md](docs/releases/v0.2.16.md)
 
 ## Release Notes
 
