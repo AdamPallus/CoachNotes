@@ -109,6 +109,7 @@ function seedVisualFixture(db, userDataPath) {
   const reset = db.transaction(() => {
     db.exec(`
       DELETE FROM client_section_undo;
+      DELETE FROM weekly_review_drafts;
       DELETE FROM weekly_reviews;
       DELETE FROM client_baselines;
       DELETE FROM intake_sources;
@@ -180,6 +181,8 @@ function seedVisualFixture(db, userDataPath) {
       weeklyClientReviews.push({
         clientId: String(clientId),
         clientName: name,
+        cohort: structured.clientProfile.cohort,
+        curriculum: structured.clientProfile.curriculum,
         attentionLevel,
         retentionConcern,
         currentFocus: `${name.split(' ')[0]} is working on a repeatable training and nutrition rhythm.`,

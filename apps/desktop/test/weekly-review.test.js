@@ -1,7 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildWeeklyReviewContext } = require('../src/weekly-review');
+const {
+  buildWeeklyReviewBatches,
+  buildWeeklyReviewContext,
+  mergeWeeklyReviewResults
+} = require('../src/weekly-review');
 
 test('builds a compact weekly-review projection without raw source text', () => {
   const context = buildWeeklyReviewContext([{
@@ -47,4 +51,65 @@ test('caps verbose sections and text lengths', () => {
   assert.equal(context.clients[0].overview.length, 720);
   assert.equal(context.clients[0].progress.length, 8);
   assert.equal(context.clients[0].progress[0].detail.length, 360);
+});
+
+test('splits weekly reviews by client count and approximate context size', () => {
+  const context = buildWeeklyReviewContext(Array.from({ length: 25 }, (_, index) => ({
+    id: index + 1,
+    name: `Client ${String(index + 1).padStart(2, '0')}`,
+    structured: { overview: 'x'.repeat(700) }
+  })), { currentDate: '2026-09-01' });
+
+  const countBatches = buildWeeklyReviewBatches(context, { maxClients: 10, targetChars: 100000 });
+  assert.deepEqual(countBatches.map((batch) => batch.context.clientCount), [10, 10, 5]);
+  assert.equal(countBatches.flatMap((batch) => batch.clientIds).length, 25);
+
+  const sizeBatches = buildWeeklyReviewBatches(context, { maxClients: 25, targetChars: 10000 });
+  assert.ok(sizeBatches.length > 1);
+  assert.deepEqual(sizeBatches.flatMap((batch) => batch.clientIds), context.clients.map((client) => client.clientId));
+});
+
+test('merges complete batch results and keeps synthesis from relabeling clients', () => {
+  const context = buildWeeklyReviewContext([
+    { id: 1, name: 'Avery', structured: { clientProfile: { cohort: 'Fall', curriculum: 'Foundations' } } },
+    { id: 2, name: 'Bianca', structured: { clientProfile: { cohort: 'Winter', curriculum: 'Strength' } } }
+  ], { currentDate: '2026-09-01' });
+  const report = mergeWeeklyReviewResults(context, [{ clientReviews: [{
+    clientId: '2', clientName: 'Bianca', attentionLevel: 'routine'
+  }] }, { clientReviews: [{
+    clientId: '1', clientName: 'Avery', attentionLevel: 'needs_attention'
+  }] }], {
+    openingSummary: 'Two clients have clear next steps.',
+    practicePatterns: [{ title: 'Steady plans', summary: 'Keep next steps specific.', clientIds: ['1'] }],
+    clientReviews: [{ clientId: '1', attentionLevel: 'routine' }]
+  });
+
+  assert.deepEqual(report.clientReviews.map((review) => review.clientId), ['1', '2']);
+  assert.equal(report.clientReviews[0].attentionLevel, 'needs_attention');
+  assert.equal(report.clientReviews[0].cohort, 'Fall');
+  assert.equal(report.clientReviews[0].curriculum, 'Foundations');
+  assert.equal(report.openingSummary, 'Two clients have clear next steps.');
+});
+
+test('orders the final document alphabetically instead of by model judgment', () => {
+  const context = buildWeeklyReviewContext([
+    { id: 1, name: 'Avery', structured: {} },
+    { id: 2, name: 'Bianca', structured: {} }
+  ], { currentDate: '2026-09-01' });
+  const report = mergeWeeklyReviewResults(context, [{ clientReviews: [
+    { clientId: '2', clientName: 'Bianca', attentionLevel: 'needs_attention' },
+    { clientId: '1', clientName: 'Avery', attentionLevel: 'routine' }
+  ] }], {});
+  assert.deepEqual(report.clientReviews.map((review) => review.clientName), ['Avery', 'Bianca']);
+});
+
+test('rejects incomplete merged coverage', () => {
+  const context = buildWeeklyReviewContext([
+    { id: 1, name: 'Avery', structured: {} },
+    { id: 2, name: 'Bianca', structured: {} }
+  ], { currentDate: '2026-09-01' });
+  assert.throws(
+    () => mergeWeeklyReviewResults(context, [{ clientReviews: [{ clientId: '1' }] }], {}),
+    /covered 1 of 2/
+  );
 });

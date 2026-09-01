@@ -6517,6 +6517,56 @@ html[data-theme="dark"] .citation-tooltip {
   animation: spin 850ms linear infinite;
 }
 
+.weekly-review-progress {
+  width: min(100%, 720px);
+  margin: 0 auto 26px;
+  padding: 15px 18px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--action);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface) 90%, var(--action) 10%);
+  text-align: left;
+}
+
+.weekly-review-progress.paused,
+.weekly-review-progress.failed {
+  border-left-color: var(--amber);
+}
+
+.weekly-review-progress-copy {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: baseline;
+}
+
+.weekly-review-progress-copy strong {
+  color: var(--atlas-ink);
+  font-size: 14px;
+}
+
+.weekly-review-progress-copy span,
+.weekly-review-progress small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.weekly-review-progress-track {
+  height: 5px;
+  margin: 12px 0 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.weekly-review-progress-track > span {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--action);
+  transition: width 280ms ease;
+}
+
 .weekly-review-document {
   width: min(100%, 1040px);
   margin: 0 auto;
@@ -6586,6 +6636,52 @@ html[data-theme="dark"] .citation-tooltip {
   color: var(--atlas-ink);
   font-family: var(--display);
   font-size: 24px;
+}
+
+.weekly-review-grouping {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.weekly-review-grouping > span {
+  color: var(--muted);
+  font-size: var(--fs-label);
+  font-weight: 720;
+  text-transform: uppercase;
+}
+
+.weekly-review-grouping-options {
+  display: inline-grid;
+  grid-template-columns: repeat(4, auto);
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper-muted);
+}
+
+.weekly-review-grouping-options button {
+  min-height: 30px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.weekly-review-grouping-options button:hover {
+  color: var(--ink);
+}
+
+.weekly-review-grouping-options button[aria-pressed="true"] {
+  background: var(--atlas-ink);
+  color: var(--atlas-paper);
 }
 
 .weekly-practice-patterns {

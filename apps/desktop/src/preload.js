@@ -19,6 +19,11 @@ contextBridge.exposeInMainWorld('coachNotes', {
   getCoachHome: () => ipcRenderer.invoke('app:get-coach-home'),
   getWeeklyReview: () => ipcRenderer.invoke('app:get-weekly-review'),
   generateWeeklyReview: () => ipcRenderer.invoke('app:generate-weekly-review'),
+  onWeeklyReviewProgress: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('app:weekly-review-progress', listener);
+    return () => ipcRenderer.removeListener('app:weekly-review-progress', listener);
+  },
   getClientDetail: (payload) => ipcRenderer.invoke('app:get-client-detail', payload),
   revealVault: () => ipcRenderer.invoke('app:reveal-vault')
 });

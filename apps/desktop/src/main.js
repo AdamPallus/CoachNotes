@@ -2,13 +2,19 @@ const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
+const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const Database = require('better-sqlite3');
 const {
   applyPartialUpdate,
   extractPartialUpdateResponse
 } = require('./workflow-update');
-const { buildWeeklyReviewContext } = require('./weekly-review');
+const {
+  assertExactClientCoverage,
+  buildWeeklyReviewBatches,
+  buildWeeklyReviewContext,
+  mergeWeeklyReviewResults
+} = require('./weekly-review');
 
 const KEYCHAIN_SERVICE = 'coachnotes-invite-token';
 const KEYCHAIN_ACCOUNT = 'coachnotes';
@@ -219,6 +225,7 @@ let db;
 let mainWindow;
 let ipcRegistered = false;
 let pdfJsModulePromise = null;
+let weeklyReviewGenerationPromise = null;
 
 function currentDate() {
   const visualDate = !app.isPackaged ? String(process.env.COACHNOTES_VISUAL_DATE || '').trim() : '';
@@ -533,6 +540,18 @@ function ensureDb() {
       report_json TEXT NOT NULL,
       context_stats_json TEXT,
       usage_json TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS weekly_review_drafts (
+      week_of TEXT PRIMARY KEY NOT NULL,
+      context_hash TEXT NOT NULL,
+      current_date TEXT NOT NULL,
+      model TEXT,
+      client_count INTEGER NOT NULL,
+      batch_count INTEGER NOT NULL,
+      batch_results_json TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     );
   `);
 
@@ -1424,19 +1443,119 @@ function getLatestWeeklyReview() {
   return parseWeeklyReviewRow(row);
 }
 
-function assertWeeklyReviewCoverage(report, context) {
-  const reviews = Array.isArray(report?.clientReviews) ? report.clientReviews : [];
-  const expectedIds = new Set(context.clients.map((client) => String(client.clientId)));
-  const returnedIds = reviews.map((review) => String(review?.clientId || ''));
-  if (returnedIds.length !== expectedIds.size || new Set(returnedIds).size !== expectedIds.size) {
-    throw new Error('Weekly review did not return exactly one assessment for every client.');
-  }
-  if (returnedIds.some((clientId) => !expectedIds.has(clientId))) {
-    throw new Error('Weekly review returned an unknown client.');
-  }
+function weeklyReviewContextHash(context) {
+  return crypto.createHash('sha256').update(JSON.stringify(context)).digest('hex');
 }
 
-async function generateWeeklyReview() {
+function parseWeeklyReviewDraftRow(row) {
+  if (!row) return null;
+  const batchResults = parseJsonObject(row.batchResultsJson);
+  return {
+    weekOf: row.weekOf,
+    contextHash: row.contextHash,
+    currentDate: row.currentDate,
+    model: row.model || DEFAULT_LLM_MODEL,
+    clientCount: Number(row.clientCount || 0),
+    batchCount: Number(row.batchCount || 0),
+    batchResults,
+    completedBatchCount: Object.keys(batchResults).length,
+    startedAt: row.startedAt,
+    updatedAt: row.updatedAt
+  };
+}
+
+function getWeeklyReviewDraft(context = null) {
+  requireDb();
+  const dateKey = context?.currentDate || dateKeyFromDate(currentDate());
+  const row = db.prepare(
+    `SELECT
+      week_of AS weekOf,
+      context_hash AS contextHash,
+      current_date AS currentDate,
+      model,
+      client_count AS clientCount,
+      batch_count AS batchCount,
+      batch_results_json AS batchResultsJson,
+      started_at AS startedAt,
+      updated_at AS updatedAt
+     FROM weekly_review_drafts
+     WHERE week_of = ?`
+  ).get(getWeekStartKey(dateKey));
+  const draft = parseWeeklyReviewDraftRow(row);
+  if (draft && context && draft.contextHash !== weeklyReviewContextHash(context)) return null;
+  return draft;
+}
+
+function weeklyReviewDraftStatus(draft) {
+  if (!draft) return null;
+  const completedClientCount = Object.values(draft.batchResults || {}).reduce((total, result) => (
+    total + (Array.isArray(result?.clientReviews) ? result.clientReviews.length : 0)
+  ), 0);
+  return {
+    weekOf: draft.weekOf,
+    currentDate: draft.currentDate,
+    clientCount: draft.clientCount,
+    batchCount: draft.batchCount,
+    completedBatchCount: draft.completedBatchCount,
+    completedClientCount,
+    startedAt: draft.startedAt,
+    updatedAt: draft.updatedAt
+  };
+}
+
+function saveWeeklyReviewDraft({ weekOf, contextHash, currentDate, model, clientCount, batchCount, batchResults, startedAt }) {
+  const updatedAt = nowIso();
+  db.prepare(
+    `INSERT INTO weekly_review_drafts
+      (week_of, context_hash, current_date, model, client_count, batch_count, batch_results_json, started_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(week_of) DO UPDATE SET
+       context_hash = excluded.context_hash,
+       current_date = excluded.current_date,
+       model = excluded.model,
+       client_count = excluded.client_count,
+       batch_count = excluded.batch_count,
+       batch_results_json = excluded.batch_results_json,
+       started_at = excluded.started_at,
+       updated_at = excluded.updated_at`
+  ).run(
+    weekOf,
+    contextHash,
+    currentDate,
+    model,
+    clientCount,
+    batchCount,
+    JSON.stringify(batchResults),
+    startedAt,
+    updatedAt
+  );
+  return updatedAt;
+}
+
+function emitWeeklyReviewProgress(sender, payload) {
+  if (!sender || sender.isDestroyed?.()) return;
+  sender.send('app:weekly-review-progress', payload);
+}
+
+function aggregateWeeklyReviewUsage(batchEntries, synthesisUsage) {
+  const batchUsage = batchEntries.map((entry) => entry.usage || {});
+  const allUsage = [...batchUsage, synthesisUsage || {}];
+  const sum = (field) => allUsage.reduce((total, usage) => total + (Number(usage[field]) || 0), 0);
+  return {
+    batchCount: batchEntries.length,
+    totals: {
+      inputTokens: sum('inputTokens'),
+      cachedInputTokens: sum('cachedInputTokens'),
+      outputTokens: sum('outputTokens'),
+      reasoningTokens: sum('reasoningTokens'),
+      durationMs: sum('durationMs')
+    },
+    batches: batchUsage,
+    synthesis: synthesisUsage || {}
+  };
+}
+
+async function runWeeklyReviewGeneration(sender) {
   requireDb();
   const settings = getAppSettings();
   const context = getWeeklyReviewContext();
@@ -1444,27 +1563,122 @@ async function generateWeeklyReview() {
     throw new Error('Add at least one accepted client before generating a weekly review.');
   }
 
-  const response = await callProxy('/weekly-review', {
-    model: DEFAULT_LLM_MODEL,
-    coachTemplate: buildCoachTemplateForPrompt(settings.coachTemplate),
-    context
-  }, settings);
-  const report = response?.report && typeof response.report === 'object' && !Array.isArray(response.report)
-    ? response.report
-    : null;
-  if (!report) {
-    throw new Error('Weekly review response did not include a report.');
-  }
-  assertWeeklyReviewCoverage(report, context);
-
-  const generatedAt = String(response.generatedAt || nowIso());
   const weekOf = getWeekStartKey(context.currentDate);
+  const contextHash = weeklyReviewContextHash(context);
+  const batches = buildWeeklyReviewBatches(context);
+  const priorDraft = getWeeklyReviewDraft(context);
+  const startedAt = priorDraft?.startedAt || nowIso();
+  const batchResults = priorDraft?.batchResults || {};
+  const validCompleted = {};
+  for (const batch of batches) {
+    const cached = batchResults[batch.key];
+    try {
+      assertExactClientCoverage(cached?.clientReviews, batch.context.clients);
+      validCompleted[batch.key] = cached;
+    } catch {
+      // Discard a partial or stale checkpoint and regenerate only this batch.
+    }
+  }
+  saveWeeklyReviewDraft({
+    weekOf,
+    contextHash,
+    currentDate: context.currentDate,
+    model: DEFAULT_LLM_MODEL,
+    clientCount: context.clientCount,
+    batchCount: batches.length,
+    batchResults: validCompleted,
+    startedAt
+  });
+
+  const completedClientCount = () => batches.reduce((total, batch) => (
+    validCompleted[batch.key] ? total + batch.context.clientCount : total
+  ), 0);
+  const emitProgress = (phase, message) => emitWeeklyReviewProgress(sender, {
+    phase,
+    message,
+    clientCount: context.clientCount,
+    batchCount: batches.length,
+    completedBatchCount: Object.keys(validCompleted).length,
+    completedClientCount: completedClientCount(),
+    draft: weeklyReviewDraftStatus(getWeeklyReviewDraft(context))
+  });
+  emitProgress(
+    'assessing',
+    priorDraft
+      ? `Resuming ${Object.keys(validCompleted).length} of ${batches.length} completed groups.`
+      : `Reviewing ${context.clientCount} clients in ${batches.length} groups.`
+  );
+
+  const pending = batches.filter((batch) => !validCompleted[batch.key]);
+  let cursor = 0;
+  let firstError = null;
+  const worker = async () => {
+    while (!firstError) {
+      const index = cursor;
+      cursor += 1;
+      const batch = pending[index];
+      if (!batch) return;
+      try {
+        const response = await callProxy('/weekly-review', {
+          operation: 'assess_batch',
+          model: DEFAULT_LLM_MODEL,
+          coachTemplate: buildCoachTemplateForPrompt(settings.coachTemplate),
+          context: batch.context
+        }, settings);
+        const result = response?.batch;
+        assertExactClientCoverage(result?.clientReviews, batch.context.clients);
+        validCompleted[batch.key] = {
+          clientReviews: result.clientReviews,
+          usage: response.usage || {},
+          generatedAt: response.generatedAt || nowIso()
+        };
+        saveWeeklyReviewDraft({
+          weekOf,
+          contextHash,
+          currentDate: context.currentDate,
+          model: response.model || DEFAULT_LLM_MODEL,
+          clientCount: context.clientCount,
+          batchCount: batches.length,
+          batchResults: validCompleted,
+          startedAt
+        });
+        emitProgress('assessing', `${completedClientCount()} of ${context.clientCount} clients reviewed.`);
+      } catch (error) {
+        firstError = error;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(2, pending.length) }, () => worker()));
+  if (firstError) throw firstError;
+
+  const orderedBatchEntries = batches.map((batch) => validCompleted[batch.key]);
+  const clientReviews = orderedBatchEntries.flatMap((entry) => entry.clientReviews);
+  assertExactClientCoverage(clientReviews, context.clients);
+  emitProgress('synthesizing', 'Writing the portfolio overview and shared patterns.');
+  const synthesisResponse = await callProxy('/weekly-review', {
+    operation: 'synthesize',
+    model: DEFAULT_LLM_MODEL,
+    synthesisContext: {
+      currentDate: context.currentDate,
+      clients: context.clients.map(({ clientId, clientName }) => ({ clientId, clientName })),
+      clientReviews
+    }
+  }, settings);
+  const synthesis = synthesisResponse?.synthesis;
+  if (!synthesis) throw new Error('Weekly review response did not include a synthesis.');
+  const report = mergeWeeklyReviewResults(context, orderedBatchEntries, synthesis);
+
+  const generatedAt = String(synthesisResponse.generatedAt || nowIso());
   const contextStats = {
     schemaVersion: context.schemaVersion,
     currentDate: context.currentDate,
     clientCount: context.clientCount,
-    contextChars: JSON.stringify(context).length
+    contextChars: JSON.stringify(context).length,
+    batchCount: batches.length,
+    batchClientCounts: batches.map((batch) => batch.context.clientCount),
+    batchContextChars: batches.map((batch) => JSON.stringify(batch.context).length)
   };
+  const usage = aggregateWeeklyReviewUsage(orderedBatchEntries, synthesisResponse.usage);
   db.prepare(
     `INSERT INTO weekly_reviews
       (week_of, generated_at, model, report_json, context_stats_json, usage_json)
@@ -1478,12 +1692,36 @@ async function generateWeeklyReview() {
   ).run(
     weekOf,
     generatedAt,
-    response.model || DEFAULT_LLM_MODEL,
+    synthesisResponse.model || DEFAULT_LLM_MODEL,
     JSON.stringify(report),
     JSON.stringify(contextStats),
-    JSON.stringify(response.usage || {})
+    JSON.stringify(usage)
   );
-  return getLatestWeeklyReview();
+  db.prepare('DELETE FROM weekly_review_drafts WHERE week_of = ?').run(weekOf);
+  emitProgress('completed', `${context.clientCount} clients reviewed.`);
+  return {
+    review: getLatestWeeklyReview(),
+    draft: null
+  };
+}
+
+async function generateWeeklyReview(sender) {
+  if (weeklyReviewGenerationPromise) {
+    throw new Error('A weekly review is already being generated.');
+  }
+  weeklyReviewGenerationPromise = runWeeklyReviewGeneration(sender);
+  try {
+    return await weeklyReviewGenerationPromise;
+  } catch (error) {
+    emitWeeklyReviewProgress(sender, {
+      phase: 'failed',
+      message: 'Review paused. Completed groups are saved and can be resumed.',
+      draft: weeklyReviewDraftStatus(getWeeklyReviewDraft())
+    });
+    throw error;
+  } finally {
+    weeklyReviewGenerationPromise = null;
+  }
 }
 
 function getCoachHome() {
@@ -2645,7 +2883,8 @@ function setupIpc() {
     },
     clients: getClients(),
     coachHome: getCoachHome(),
-    weeklyReview: getLatestWeeklyReview()
+    weeklyReview: getLatestWeeklyReview(),
+    weeklyReviewDraft: weeklyReviewDraftStatus(getWeeklyReviewDraft())
   }));
 
   ipcMain.handle('app:save-settings', async (_event, payload) => {
@@ -2683,8 +2922,11 @@ function setupIpc() {
   ipcMain.handle('app:delete-client', async (_event, payload) => deleteClient(payload || {}));
   ipcMain.handle('app:get-clients', async () => getClients());
   ipcMain.handle('app:get-coach-home', async () => getCoachHome());
-  ipcMain.handle('app:get-weekly-review', async () => getLatestWeeklyReview());
-  ipcMain.handle('app:generate-weekly-review', async () => generateWeeklyReview());
+  ipcMain.handle('app:get-weekly-review', async () => ({
+    review: getLatestWeeklyReview(),
+    draft: weeklyReviewDraftStatus(getWeeklyReviewDraft())
+  }));
+  ipcMain.handle('app:generate-weekly-review', async (event) => generateWeeklyReview(event.sender));
   ipcMain.handle('app:get-client-detail', async (_event, payload) => getClientDetail(payload || {}));
   ipcMain.handle('app:reveal-vault', async () => revealVault());
 }

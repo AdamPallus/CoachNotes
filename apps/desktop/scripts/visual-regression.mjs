@@ -22,6 +22,8 @@ const maxDiffRatio = process.env.CI ? 0.055 : 0.0015;
 const screens = [
   { name: 'mission-control', prepare: 'mission' },
   { name: 'weekly-review', prepare: 'weekly' },
+  { name: 'weekly-review-grouped', prepare: 'weekly-grouped' },
+  { name: 'weekly-review-progress', prepare: 'weekly-progress' },
   { name: 'client-snapshot', prepare: 'client' },
   { name: 'add-note', prepare: 'add-note' },
   { name: 'ask', prepare: 'ask' },
@@ -92,6 +94,9 @@ async function prepareScreen(client, screen, theme) {
     for (const dialog of document.querySelectorAll('dialog[open]')) dialog.close();
     applyTheme(${JSON.stringify(theme)}, false);
     document.documentElement.dataset.visualRegression = 'true';
+    state.weeklyReviewLoading = false;
+    state.weeklyReviewProgress = null;
+    state.weeklyReviewGroupMode = 'alphabetical';
     let style = document.getElementById('visualRegressionStyle');
     if (!style) {
       style = document.createElement('style');
@@ -108,6 +113,26 @@ async function prepareScreen(client, screen, theme) {
     } else if (prepare === 'weekly') {
       state.coachHomeTab = 'weekly';
       await openCoachHome({ recordHistory: false });
+      renderCoachHome();
+      document.activeElement?.blur();
+    } else if (prepare === 'weekly-progress') {
+      state.coachHomeTab = 'weekly';
+      await openCoachHome({ recordHistory: false });
+      state.weeklyReviewLoading = true;
+      state.weeklyReviewProgress = {
+        phase: 'assessing',
+        message: '24 of 50 clients reviewed.',
+        clientCount: 50,
+        completedClientCount: 24,
+        batchCount: 5,
+        completedBatchCount: 2
+      };
+      renderCoachHome();
+      document.activeElement?.blur();
+    } else if (prepare === 'weekly-grouped') {
+      state.coachHomeTab = 'weekly';
+      await openCoachHome({ recordHistory: false });
+      state.weeklyReviewGroupMode = 'cohort';
       renderCoachHome();
       document.activeElement?.blur();
     } else if (prepare === 'client') {

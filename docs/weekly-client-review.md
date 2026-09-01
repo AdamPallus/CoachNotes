@@ -7,10 +7,12 @@ The Weekly Client Review is an on-demand Mission Control briefing that helps a c
 - The coach starts generation manually from Mission Control.
 - The report covers every accepted client exactly once.
 - It opens with a short practice-level orientation and up to three supported cross-client patterns.
-- Clients are grouped into Needs Attention, Watch, Insufficient Evidence, Expected Pauses, and Routine Follow-Through.
+- Clients appear alphabetically by default. The coach can regroup the same scrolling document by retention concern, cohort, or curriculum.
 - Each client receives a current focus, a short weekly assessment, a suggested coach focus, and limited evidence or counterevidence when useful.
 - Attention cases open by default. Routine clients remain compact until expanded.
 - A client review links directly to the client profile. Back returns to the same report scroll position.
+- Generation runs in bounded groups with at most two model requests in flight. CoachNotes remains usable while it runs.
+- Each completed group is checkpointed locally. If the app closes or a later request fails, the coach can resume compatible work instead of starting over.
 - The most recent successful report is saved locally in SQLite. Regeneration replaces only that week's report.
 - Failed, timed-out, malformed, or incomplete generation never replaces the prior saved report.
 
@@ -40,7 +42,9 @@ The desktop builds `weekly_review_context.v1` from accepted structured dashboard
 
 Raw note bodies and source documents are not included. Text lengths and section item counts are capped before the request leaves the desktop.
 
-The proxy returns `weekly_client_review.v1`. Contract validation requires the exact client roster, unique IDs, allowed labels, and required prose before the desktop can save the result.
+The desktop splits the projection into groups of no more than 12 clients and approximately 100,000 context characters. Each proxy call returns `weekly_client_review_batch.v1`; contract validation requires the exact assigned roster, unique IDs, allowed labels, and required prose. A final synthesis call receives the validated assessments and returns only `weekly_client_review_synthesis.v1` opening and pattern fields, so it cannot relabel clients. The desktop adds cohort and curriculum grouping metadata directly from each saved profile, orders the final report alphabetically, and saves `weekly_client_review.v1` only after complete coverage.
+
+Local drafts are keyed to a hash of the complete projected context. A draft resumes only when the current client dashboards still match that snapshot; otherwise CoachNotes starts a fresh review rather than mixing assessments from different data states. This is resumable foreground work, not a server-side background job: requests continue while CoachNotes is open, and completed groups survive closing the app.
 
 ## Evaluation fixture
 
@@ -58,9 +62,11 @@ The local fixture contains 12 curated scenarios:
 - successful graduation;
 - inconsistent follow-through with continued contact.
 
-On the September 1, 2026 Vercel preview, Luna classified all 12 scenarios within their accepted attention and retention labels. The tuned response completed on its first attempt in 22.1 seconds with 5,469 input tokens and 2,126 output tokens, including 657 reasoning tokens. Visible report prose was 792 words.
+On the September 1, 2026 batched Vercel preview, Luna classified 11 of 12 scenarios within their accepted attention and retention labels. The one miss escalated a constraint mismatch from the expected `watch` label to `needs_attention`; its retention label remained the expected `some`. The batch plus synthesis completed on their first attempts in 25.5 seconds with 6,993 input tokens and 2,106 output tokens, including 672 reasoning tokens.
 
 The older 22-client Mission Control portfolio produced a complete report in 42.6 seconds with 16,667 input tokens and 5,023 output tokens. All retention judgments were conservatively marked insufficient because that fixture's activity dates were stale. This validates coverage and caution, not retention accuracy.
+
+A 50-client benchmark used the full local demo portfolio repeated to current Liz-scale volume. Its projected context was 148,292 characters. Five assessment groups and one synthesis request all completed on their first attempts with two-way concurrency in 74.1 seconds wall-clock. Total usage was 47,773 input tokens and 10,590 output tokens, including 3,822 reasoning tokens. The final report covered all 50 clients exactly once and was alphabetized. This validates batching, coverage, and runtime behavior; duplicated demo clients make its portfolio-level patterns unsuitable as domain evidence.
 
 These are engineering fixtures. Liz's review with real coaching data remains the domain validation step.
 
@@ -76,6 +82,12 @@ Inspect projected context size without calling the API:
 
 ```bash
 npm --workspace apps/desktop run evaluate:weekly -- --prefix "Weekly Review Demo - "
+```
+
+Project the current demo portfolio at 50-client scale without calling the API:
+
+```bash
+npm --workspace apps/desktop run evaluate:weekly -- --repeat-to 50
 ```
 
 Evaluate a protected Vercel preview and save the successful report into CoachNotes Dev:

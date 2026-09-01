@@ -1,10 +1,14 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { app } = require('electron');
 const Database = require('better-sqlite3');
-const { buildWeeklyReviewContext } = require('../src/weekly-review');
+const {
+  buildWeeklyReviewBatches,
+  buildWeeklyReviewContext,
+  mergeWeeklyReviewResults
+} = require('../src/weekly-review');
 const { FIXTURE_PREFIX, buildWeeklyReviewScenarios } = require('./weekly-review-fixture');
 
 function optionValue(name) {
@@ -67,31 +71,38 @@ async function requestWeeklyReview(endpoint, token, requestBody) {
     return payload;
   }
 
-  const requestPath = path.join(os.tmpdir(), `coachnotes-weekly-review-${process.pid}.json`);
+  const requestPath = path.join(
+    os.tmpdir(),
+    `coachnotes-weekly-review-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.json`
+  );
   fs.writeFileSync(requestPath, JSON.stringify(requestBody));
   try {
     const proxyDir = path.resolve(__dirname, '..', '..', 'proxy');
-    const result = spawnSync('vercel', [
-      'curl',
-      '/weekly-review',
-      '--yes',
-      '--deployment',
-      endpoint,
-      '--',
-      '--silent',
-      '--show-error',
-      '--request',
-      'POST',
-      '--header',
-      'Content-Type: application/json',
-      '--header',
-      `Authorization: Bearer ${token}`,
-      '--data-binary',
-      `@${requestPath}`
-    ], {
-      cwd: proxyDir,
-      encoding: 'utf8',
-      maxBuffer: 4 * 1024 * 1024
+    const result = await new Promise((resolve, reject) => {
+      const child = spawn('vercel', [
+        'curl',
+        '/weekly-review',
+        '--yes',
+        '--deployment',
+        endpoint,
+        '--',
+        '--silent',
+        '--show-error',
+        '--request',
+        'POST',
+        '--header',
+        'Content-Type: application/json',
+        '--header',
+        `Authorization: Bearer ${token}`,
+        '--data-binary',
+        `@${requestPath}`
+      ], { cwd: proxyDir });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+      child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+      child.on('error', reject);
+      child.on('exit', (status) => resolve({ status, stdout, stderr }));
     });
     if (result.status !== 0) {
       throw new Error(result.stderr || result.stdout || 'Vercel preview request failed.');
@@ -103,6 +114,99 @@ async function requestWeeklyReview(endpoint, token, requestBody) {
   } finally {
     fs.rmSync(requestPath, { force: true });
   }
+}
+
+function repeatContext(context, targetCount) {
+  if (!targetCount || targetCount <= 0 || targetCount === context.clients.length) return context;
+  if (targetCount < context.clients.length) {
+    const clients = context.clients.slice(0, targetCount);
+    return { ...context, clientCount: clients.length, clients };
+  }
+  const clients = [...context.clients];
+  let copyIndex = 1;
+  while (clients.length < targetCount) {
+    const source = context.clients[(clients.length - context.clients.length) % context.clients.length];
+    clients.push({
+      ...JSON.parse(JSON.stringify(source)),
+      clientId: `${source.clientId}-benchmark-${copyIndex}`,
+      clientName: `${source.clientName} Benchmark ${copyIndex}`
+    });
+    copyIndex += 1;
+  }
+  return { ...context, clientCount: clients.length, clients };
+}
+
+function aggregateUsage(batchResponses, synthesisResponse, wallDurationMs) {
+  const batches = batchResponses.map((response) => response.usage || {});
+  const synthesis = synthesisResponse.usage || {};
+  const all = [...batches, synthesis];
+  const sum = (field) => all.reduce((total, usage) => total + (Number(usage[field]) || 0), 0);
+  return {
+    batchCount: batches.length,
+    wallDurationMs,
+    totals: {
+      inputTokens: sum('inputTokens'),
+      cachedInputTokens: sum('cachedInputTokens'),
+      outputTokens: sum('outputTokens'),
+      reasoningTokens: sum('reasoningTokens'),
+      requestDurationMs: sum('durationMs')
+    },
+    batches,
+    synthesis
+  };
+}
+
+async function generateBatchedReview(endpoint, token, context, coachTemplate) {
+  const startedAt = Date.now();
+  const batches = buildWeeklyReviewBatches(context);
+  const responses = new Array(batches.length);
+  let cursor = 0;
+  let firstError = null;
+  const worker = async () => {
+    while (!firstError) {
+      const index = cursor;
+      cursor += 1;
+      const batch = batches[index];
+      if (!batch) return;
+      try {
+        responses[index] = await requestWeeklyReview(endpoint, token, {
+          operation: 'assess_batch',
+          model: 'gpt-5.6-luna',
+          coachTemplate,
+          context: batch.context
+        });
+      } catch (error) {
+        firstError = error;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(2, batches.length) }, () => worker()));
+  if (firstError) throw firstError;
+  const clientReviews = responses.flatMap((response) => response.batch.clientReviews);
+  const synthesisResponse = await requestWeeklyReview(endpoint, token, {
+    operation: 'synthesize',
+    model: 'gpt-5.6-luna',
+    synthesisContext: {
+      currentDate: context.currentDate,
+      clients: context.clients.map(({ clientId, clientName }) => ({ clientId, clientName })),
+      clientReviews
+    }
+  });
+  return {
+    model: synthesisResponse.model,
+    generatedAt: synthesisResponse.generatedAt,
+    report: mergeWeeklyReviewResults(
+      context,
+      responses.map((response) => response.batch),
+      synthesisResponse.synthesis
+    ),
+    usage: aggregateUsage(responses, synthesisResponse, Date.now() - startedAt),
+    benchmark: {
+      concurrency: 2,
+      batchClientCounts: batches.map((batch) => batch.context.clientCount),
+      batchContextChars: batches.map((batch) => JSON.stringify(batch.context).length)
+    }
+  };
 }
 
 function getContext(db, referenceDate, prefix) {
@@ -234,7 +338,9 @@ app.whenReady().then(async () => {
   const endpoint = optionValue('--url').replace(/\/+$/, '');
   const db = new Database(dbPath);
   try {
-    const context = getContext(db, referenceDate, prefix);
+    const baseContext = getContext(db, referenceDate, prefix);
+    const repeatTo = Number.parseInt(optionValue('--repeat-to') || '0', 10);
+    const context = repeatContext(baseContext, Number.isFinite(repeatTo) ? repeatTo : 0);
     const contextChars = JSON.stringify(context).length;
     process.stdout.write(`${JSON.stringify({
       clientCount: context.clientCount,
@@ -246,18 +352,20 @@ app.whenReady().then(async () => {
     const token = getToken();
     if (!token) throw new Error('No CoachNotes invite token is available in the environment or Keychain.');
     const coachTemplateRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('coachTemplate');
-    const payload = await requestWeeklyReview(endpoint, token, {
-      model: 'gpt-5.6-luna',
-      coachTemplate: parseJson(coachTemplateRow?.value, {}),
-      context
-    });
+    const payload = await generateBatchedReview(
+      endpoint,
+      token,
+      context,
+      parseJson(coachTemplateRow?.value, {})
+    );
 
     const outputDir = path.resolve(__dirname, '..', '..', '..', 'output', 'weekly-review');
     fs.mkdirSync(outputDir, { recursive: true });
     const slug = prefix
       ? prefix.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
       : 'all-clients';
-    const outputPath = path.join(outputDir, `${slug || 'portfolio'}-${referenceDate}.json`);
+    const sizedSlug = repeatTo ? `${slug}-${context.clientCount}` : slug;
+    const outputPath = path.join(outputDir, `${sizedSlug || 'portfolio'}-${referenceDate}.json`);
     fs.writeFileSync(outputPath, `${JSON.stringify(payload, null, 2)}\n`);
     process.stdout.write(`${JSON.stringify({
       outputPath,

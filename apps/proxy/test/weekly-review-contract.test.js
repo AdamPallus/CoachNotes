@@ -2,9 +2,19 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  WEEKLY_REVIEW_BATCH_SCHEMA_VERSION,
   WEEKLY_REVIEW_SCHEMA_VERSION,
-  normalizeWeeklyReview
+  WEEKLY_REVIEW_SYNTHESIS_SCHEMA_VERSION,
+  normalizeWeeklyReview,
+  normalizeWeeklyReviewBatch,
+  normalizeWeeklyReviewSynthesis
 } = require('../api/weekly-review-contract');
+const {
+  normalizeBatchContext,
+  normalizeSynthesisContext,
+  renderAssessmentPrompt,
+  renderSynthesisPrompt
+} = require('../api/weekly-review')._test;
 
 const expectedClients = [
   { clientId: '1', clientName: 'Avery Morgan' },
@@ -60,4 +70,45 @@ test('rejects invalid judgment labels and missing required prose', () => {
   const missingFocus = validReview();
   missingFocus.clientReviews[0].suggestedCoachFocus = '';
   assert.throws(() => normalizeWeeklyReview(missingFocus, expectedClients), /missing a required review field/);
+});
+
+test('normalizes independent client-assessment batches', () => {
+  const review = validReview();
+  const result = normalizeWeeklyReviewBatch({
+    schemaVersion: WEEKLY_REVIEW_BATCH_SCHEMA_VERSION,
+    clientReviews: review.clientReviews
+  }, expectedClients);
+  assert.equal(result.clientReviews.length, 2);
+  assert.equal(result.clientReviews[1].clientName, 'Bianca Flores');
+});
+
+test('normalizes synthesis without accepting client relabeling', () => {
+  const result = normalizeWeeklyReviewSynthesis({
+    schemaVersion: WEEKLY_REVIEW_SYNTHESIS_SCHEMA_VERSION,
+    openingSummary: 'A grounded overview.',
+    practicePatterns: [{ title: 'Follow-through', summary: 'Several plans need smaller next steps.', clientIds: ['2'] }],
+    clientReviews: [{ clientId: '2', attentionLevel: 'routine' }]
+  }, expectedClients);
+  assert.deepEqual(Object.keys(result), ['schemaVersion', 'openingSummary', 'practicePatterns']);
+  assert.deepEqual(result.practicePatterns[0].clientIds, ['2']);
+});
+
+test('keeps assessment and synthesis endpoint inputs separate', () => {
+  const context = normalizeBatchContext({
+    schemaVersion: 'weekly_review_context.v1',
+    currentDate: '2026-09-01',
+    clients: expectedClients
+  });
+  const assessmentPrompt = renderAssessmentPrompt(context, {});
+  assert.match(assessmentPrompt, /weekly_client_review_batch\.v1/);
+  assert.doesNotMatch(assessmentPrompt, /openingSummary/);
+
+  const synthesisContext = normalizeSynthesisContext({
+    currentDate: '2026-09-01',
+    clients: expectedClients,
+    clientReviews: validReview().clientReviews
+  });
+  const synthesisPrompt = renderSynthesisPrompt(synthesisContext);
+  assert.match(synthesisPrompt, /Return no clientReviews/);
+  assert.match(synthesisPrompt, /weekly_client_review_synthesis\.v1/);
 });

@@ -1,4 +1,6 @@
 const WEEKLY_REVIEW_SCHEMA_VERSION = 'weekly_client_review.v1';
+const WEEKLY_REVIEW_BATCH_SCHEMA_VERSION = 'weekly_client_review_batch.v1';
+const WEEKLY_REVIEW_SYNTHESIS_SCHEMA_VERSION = 'weekly_client_review_synthesis.v1';
 const ATTENTION_LEVELS = new Set([
   'needs_attention',
   'watch',
@@ -25,19 +27,12 @@ function stringList(value, { limit = 1, maxLength = 180 } = {}) {
     .slice(0, limit);
 }
 
-function normalizeWeeklyReview(value, expectedClients) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw contractError('Weekly review must be a JSON object.');
-  }
-  if (value.schemaVersion !== WEEKLY_REVIEW_SCHEMA_VERSION) {
-    throw contractError(`Weekly review must use ${WEEKLY_REVIEW_SCHEMA_VERSION}.`);
-  }
-
+function normalizeClientReviews(value, expectedClients) {
   const expected = new Map((Array.isArray(expectedClients) ? expectedClients : []).map((client) => [
     String(client.clientId),
     text(client.clientName, 160) || 'Client'
   ]));
-  const reviews = Array.isArray(value.clientReviews) ? value.clientReviews : [];
+  const reviews = Array.isArray(value) ? value : [];
   if (reviews.length !== expected.size) {
     throw contractError(`Weekly review covered ${reviews.length} of ${expected.size} clients.`);
   }
@@ -87,8 +82,12 @@ function normalizeWeeklyReview(value, expectedClients) {
       throw contractError(`Weekly review omitted client id ${clientId}.`);
     }
   }
+  return clientReviews;
+}
 
-  const practicePatterns = (Array.isArray(value.practicePatterns) ? value.practicePatterns : [])
+function normalizePracticePatterns(value, expectedClients) {
+  const expected = new Set((Array.isArray(expectedClients) ? expectedClients : []).map((client) => String(client.clientId)));
+  return (Array.isArray(value) ? value : [])
     .map((pattern) => {
       const item = pattern && typeof pattern === 'object' && !Array.isArray(pattern) ? pattern : {};
       const clientIds = [...new Set((Array.isArray(item.clientIds) ? item.clientIds : [])
@@ -101,6 +100,18 @@ function normalizeWeeklyReview(value, expectedClients) {
     })
     .filter(Boolean)
     .slice(0, 3);
+}
+
+function normalizeWeeklyReview(value, expectedClients) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw contractError('Weekly review must be a JSON object.');
+  }
+  if (value.schemaVersion !== WEEKLY_REVIEW_SCHEMA_VERSION) {
+    throw contractError(`Weekly review must use ${WEEKLY_REVIEW_SCHEMA_VERSION}.`);
+  }
+
+  const clientReviews = normalizeClientReviews(value.clientReviews, expectedClients);
+  const practicePatterns = normalizePracticePatterns(value.practicePatterns, expectedClients);
 
   return {
     schemaVersion: WEEKLY_REVIEW_SCHEMA_VERSION,
@@ -110,9 +121,40 @@ function normalizeWeeklyReview(value, expectedClients) {
   };
 }
 
+function normalizeWeeklyReviewBatch(value, expectedClients) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw contractError('Weekly review batch must be a JSON object.');
+  }
+  if (value.schemaVersion !== WEEKLY_REVIEW_BATCH_SCHEMA_VERSION) {
+    throw contractError(`Weekly review batch must use ${WEEKLY_REVIEW_BATCH_SCHEMA_VERSION}.`);
+  }
+  return {
+    schemaVersion: WEEKLY_REVIEW_BATCH_SCHEMA_VERSION,
+    clientReviews: normalizeClientReviews(value.clientReviews, expectedClients)
+  };
+}
+
+function normalizeWeeklyReviewSynthesis(value, expectedClients) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw contractError('Weekly review synthesis must be a JSON object.');
+  }
+  if (value.schemaVersion !== WEEKLY_REVIEW_SYNTHESIS_SCHEMA_VERSION) {
+    throw contractError(`Weekly review synthesis must use ${WEEKLY_REVIEW_SYNTHESIS_SCHEMA_VERSION}.`);
+  }
+  return {
+    schemaVersion: WEEKLY_REVIEW_SYNTHESIS_SCHEMA_VERSION,
+    openingSummary: text(value.openingSummary, 700) || 'Your weekly client review is ready.',
+    practicePatterns: normalizePracticePatterns(value.practicePatterns, expectedClients)
+  };
+}
+
 module.exports = {
   ATTENTION_LEVELS,
   RETENTION_CONCERNS,
+  WEEKLY_REVIEW_BATCH_SCHEMA_VERSION,
   WEEKLY_REVIEW_SCHEMA_VERSION,
-  normalizeWeeklyReview
+  WEEKLY_REVIEW_SYNTHESIS_SCHEMA_VERSION,
+  normalizeWeeklyReview,
+  normalizeWeeklyReviewBatch,
+  normalizeWeeklyReviewSynthesis
 };

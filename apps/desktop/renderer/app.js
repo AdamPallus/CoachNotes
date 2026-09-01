@@ -14,7 +14,10 @@ const state = {
   coachHome: null,
   coachHomeTab: 'attention',
   weeklyReview: null,
+  weeklyReviewDraft: null,
+  weeklyReviewProgress: null,
   weeklyReviewLoading: false,
+  weeklyReviewGroupMode: 'alphabetical',
   expandedWeeklyReviewClients: new Set(),
   expandedHomeLanes: new Set(),
   sessionNotesQuery: '',
@@ -2749,24 +2752,149 @@ function renderWeeklyReviewGroup(title, description, reviews, tone) {
   `;
 }
 
+function weeklyReviewGroupingOptions() {
+  return [
+    { value: 'alphabetical', label: 'A-Z' },
+    { value: 'retention', label: 'Retention' },
+    { value: 'cohort', label: 'Cohort' },
+    { value: 'curriculum', label: 'Curriculum' }
+  ];
+}
+
+function renderWeeklyReviewGroupingControl() {
+  return `
+    <div class="weekly-review-grouping">
+      <span>Group clients</span>
+      <div class="weekly-review-grouping-options" role="group" aria-label="Group weekly review clients">
+        ${weeklyReviewGroupingOptions().map((option) => `
+          <button
+            type="button"
+            data-weekly-group="${escapeHtml(option.value)}"
+            aria-pressed="${state.weeklyReviewGroupMode === option.value ? 'true' : 'false'}"
+          >${escapeHtml(option.label)}</button>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function groupWeeklyReviewClients(reviews) {
+  const alphabetized = [...reviews].sort((left, right) => (
+    String(left.clientName || '').localeCompare(String(right.clientName || ''))
+  ));
+  if (state.weeklyReviewGroupMode === 'alphabetical') {
+    return [{
+      key: 'alphabetical',
+      title: 'All Clients',
+      description: 'Alphabetical by client name.',
+      reviews: alphabetized
+    }];
+  }
+  if (state.weeklyReviewGroupMode === 'retention') {
+    const definitions = [
+      ['high', 'High Concern', 'Strong current evidence warrants a deliberate retention conversation.'],
+      ['some', 'Some Concern', 'Current signals deserve attention without assuming disengagement.'],
+      ['low', 'Low Concern', 'Current communication or follow-through appears intact.'],
+      ['insufficient_evidence', 'Insufficient Evidence', 'The current dashboard does not support a responsible retention judgment.']
+    ];
+    return definitions.map(([key, title, description]) => ({
+      key: `retention-${key}`,
+      title,
+      description,
+      reviews: alphabetized.filter((review) => review.retentionConcern === key)
+    })).filter((group) => group.reviews.length);
+  }
+  const field = state.weeklyReviewGroupMode === 'cohort' ? 'cohort' : 'curriculum';
+  const grouped = new Map();
+  for (const review of alphabetized) {
+    const label = String(review[field] || '').trim() || 'Not set';
+    if (!grouped.has(label)) grouped.set(label, []);
+    grouped.get(label).push(review);
+  }
+  return [...grouped.entries()]
+    .sort(([left], [right]) => {
+      if (left === 'Not set') return 1;
+      if (right === 'Not set') return -1;
+      return left.localeCompare(right);
+    })
+    .map(([title, groupedReviews]) => ({
+      key: `${field}-${title}`,
+      title,
+      description: field === 'cohort' ? 'Clients in this cohort.' : 'Clients following this curriculum track.',
+      reviews: groupedReviews
+    }));
+}
+
 function renderWeeklyReviewEmpty() {
   if (state.weeklyReviewLoading) {
     return `
       <section class="weekly-review-empty is-loading" aria-live="polite">
         <span class="weekly-review-loader" aria-hidden="true"></span>
         <h3>Reviewing the whole practice</h3>
-        <p>CoachNotes is reading each accepted client dashboard and checking its judgment against the weekly-review rubric.</p>
+        ${renderWeeklyReviewProgress()}
       </section>
     `;
   }
+  const resume = Boolean(state.weeklyReviewDraft);
   return `
     <section class="weekly-review-empty">
       <span class="weekly-review-empty-mark" aria-hidden="true">W</span>
       <p class="section-kicker">A deliberate weekly pass</p>
       <h3>Turn the current dashboards into a client-by-client briefing.</h3>
       <p>The review covers every accepted client, highlights likely attention and retention concerns, and preserves uncertainty when the record is thin.</p>
-      <button class="btn btn-primary" type="button" data-generate-weekly-review>Generate Weekly Review</button>
+      ${resume ? renderWeeklyReviewProgress() : ''}
+      <button class="btn btn-primary" type="button" data-generate-weekly-review>${resume ? 'Resume Weekly Review' : 'Generate Weekly Review'}</button>
     </section>
+  `;
+}
+
+function getWeeklyReviewProgress() {
+  if (state.weeklyReviewProgress) return state.weeklyReviewProgress;
+  if (!state.weeklyReviewDraft) return null;
+  return {
+    phase: 'paused',
+    message: 'Completed groups are saved on this computer.',
+    ...state.weeklyReviewDraft
+  };
+}
+
+function renderWeeklyReviewProgress() {
+  const progress = getWeeklyReviewProgress();
+  if (!progress) return '';
+  const totalClients = Math.max(0, Number(progress.clientCount || 0));
+  const completedClients = Math.min(totalClients, Math.max(0, Number(progress.completedClientCount || 0)));
+  const totalBatches = Math.max(0, Number(progress.batchCount || 0));
+  const completedBatches = Math.min(totalBatches, Math.max(0, Number(progress.completedBatchCount || 0)));
+  const percent = progress.phase === 'completed'
+    ? 100
+    : progress.phase === 'synthesizing'
+      ? 96
+      : totalClients
+        ? Math.round((completedClients / totalClients) * 92)
+        : totalBatches
+          ? Math.round((completedBatches / totalBatches) * 92)
+          : 0;
+  const phaseTitle = {
+    assessing: 'Review in progress',
+    synthesizing: 'Finishing the review',
+    completed: 'Review complete',
+    failed: 'Review paused',
+    paused: 'Ready to resume'
+  }[progress.phase] || 'Preparing the review';
+  const detail = totalClients
+    ? `${completedClients} of ${totalClients} clients assessed${totalBatches ? ` across ${completedBatches} of ${totalBatches} groups` : ''}`
+    : progress.message || '';
+  return `
+    <div class="weekly-review-progress ${escapeHtml(progress.phase || '')}" role="status" aria-live="polite">
+      <div class="weekly-review-progress-copy">
+        <strong>${escapeHtml(phaseTitle)}</strong>
+        <span>${escapeHtml(progress.message || detail)}</span>
+      </div>
+      <div class="weekly-review-progress-track" aria-label="${escapeHtml(detail)}">
+        <span style="width: ${escapeHtml(String(percent))}%"></span>
+      </div>
+      <small>${escapeHtml(detail)}</small>
+    </div>
   `;
 }
 
@@ -2787,6 +2915,7 @@ function renderCoachHomeWeeklyReview() {
   const someConcernCount = reviews.filter((review) => review.retentionConcern === 'some').length;
   const patterns = Array.isArray(report.practicePatterns) ? report.practicePatterns : [];
   return `
+    ${state.weeklyReviewLoading ? renderWeeklyReviewProgress() : ''}
     <article class="weekly-review-document">
       <header class="weekly-review-masthead">
         <div>
@@ -2805,6 +2934,7 @@ function renderCoachHomeWeeklyReview() {
         <span><strong>${escapeHtml(String(highConcernCount))}</strong> high retention concern</span>
         <span><strong>${escapeHtml(String(someConcernCount))}</strong> some retention concern</span>
       </div>
+      ${renderWeeklyReviewGroupingControl()}
       ${patterns.length ? `
         <section class="weekly-practice-patterns">
           <header>
@@ -2823,11 +2953,9 @@ function renderCoachHomeWeeklyReview() {
         </section>
       ` : ''}
       <div class="weekly-review-sections">
-        ${renderWeeklyReviewGroup('Needs Attention', 'Concrete action or meaningful change warrants focus this week.', byAttention.get('needs_attention') || [], 'attention')}
-        ${renderWeeklyReviewGroup('Watch', 'Developing situations to monitor without overreacting.', byAttention.get('watch') || [], 'watch')}
-        ${renderWeeklyReviewGroup('Insufficient Evidence', 'The record is too sparse or stale for a confident current assessment.', byAttention.get('insufficient_evidence') || [], 'unknown')}
-        ${renderWeeklyReviewGroup('Expected Pauses', 'Reduced activity is explained by current life context.', byAttention.get('expected_pause') || [], 'pause')}
-        ${renderWeeklyReviewGroup('Routine Follow-Through', 'The current plan appears intact; keep ordinary support moving.', byAttention.get('routine') || [], 'routine')}
+        ${groupWeeklyReviewClients(reviews).map((group) => (
+          renderWeeklyReviewGroup(group.title, group.description, group.reviews, group.key)
+        )).join('')}
       </div>
     </article>
   `;
@@ -2839,6 +2967,16 @@ function renderCoachHome() {
     ? state.coachHomeTab
     : 'attention';
   state.coachHomeTab = activeTab;
+  const generateLabel = state.weeklyReviewLoading
+    ? 'Generating Review...'
+    : state.weeklyReviewDraft
+      ? 'Resume Weekly Review'
+      : state.weeklyReview
+        ? 'Regenerate Weekly Review'
+        : 'Generate Weekly Review';
+  const generateLabelElement = els.generateWeeklyReviewBtn?.querySelector('span');
+  if (generateLabelElement) generateLabelElement.textContent = generateLabel;
+  if (els.generateWeeklyReviewBtn) els.generateWeeklyReviewBtn.disabled = state.weeklyReviewLoading;
   const tabContent = activeTab === 'weekly'
     ? renderCoachHomeWeeklyReview()
     : activeTab === 'activity'
@@ -4288,28 +4426,41 @@ async function selectClient(clientId, options = {}) {
 }
 
 async function loadCoachHome() {
-  [state.coachHome, state.weeklyReview] = await Promise.all([
+  const [coachHome, weeklyReviewState] = await Promise.all([
     window.coachNotes.getCoachHome(),
     window.coachNotes.getWeeklyReview()
   ]);
+  state.coachHome = coachHome;
+  state.weeklyReview = weeklyReviewState?.review || null;
+  state.weeklyReviewDraft = weeklyReviewState?.draft || null;
   renderCoachHome();
 }
 
 async function generateWeeklyReview() {
   if (state.weeklyReviewLoading) return;
   state.weeklyReviewLoading = true;
+  state.weeklyReviewProgress = state.weeklyReviewDraft
+    ? { phase: 'assessing', message: 'Resuming saved review groups.', ...state.weeklyReviewDraft }
+    : { phase: 'preparing', message: 'Preparing client groups.', clientCount: state.clients.length };
   state.coachHomeTab = 'weekly';
   renderCoachHome();
-  setBusy(true, `Reviewing ${state.clients.length} client dashboards. This can take a few minutes...`);
   try {
-    state.weeklyReview = await window.coachNotes.generateWeeklyReview();
+    const result = await window.coachNotes.generateWeeklyReview();
+    state.weeklyReview = result?.review || null;
+    state.weeklyReviewDraft = result?.draft || null;
+    state.weeklyReviewProgress = null;
     state.expandedWeeklyReviewClients.clear();
     showToast('Weekly client review generated.');
   } catch (error) {
+    const result = await window.coachNotes.getWeeklyReview().catch(() => null);
+    if (result) {
+      state.weeklyReview = result.review || state.weeklyReview;
+      state.weeklyReviewDraft = result.draft || null;
+    }
     showToast(error.message || 'Weekly review failed. Your prior saved review is unchanged.', 'error');
   } finally {
     state.weeklyReviewLoading = false;
-    setBusy(false);
+    state.weeklyReviewProgress = null;
     renderCoachHome();
   }
 }
@@ -4542,6 +4693,7 @@ async function init() {
     state.clients = appState.clients || [];
     state.coachHome = appState.coachHome || null;
     state.weeklyReview = appState.weeklyReview || null;
+    state.weeklyReviewDraft = appState.weeklyReviewDraft || null;
     renderIntakeProgramSettings();
     renderSources();
     renderNoteSources();
@@ -4570,6 +4722,12 @@ async function init() {
   els.coachHomeBtn.addEventListener('click', () => openCoachHome({ resetToAttention: true }));
   els.refreshCoachHomeBtn.addEventListener('click', () => openCoachHome({ refresh: true }));
   els.generateWeeklyReviewBtn.addEventListener('click', generateWeeklyReview);
+  window.coachNotes.onWeeklyReviewProgress((progress) => {
+    state.weeklyReviewProgress = progress || null;
+    if (progress?.draft) state.weeklyReviewDraft = progress.draft;
+    if (progress?.phase === 'completed') state.weeklyReviewDraft = null;
+    if (state.viewMode === 'home' && state.coachHomeTab === 'weekly') renderCoachHome();
+  });
   els.coachHomeContent.addEventListener('click', async (event) => {
     const generateButton = event.target.closest('[data-generate-weekly-review]');
     if (generateButton) {
@@ -4581,6 +4739,15 @@ async function init() {
       const clientId = Number(weeklyClientButton.dataset.weeklyOpenClient);
       if (Number.isFinite(clientId)) {
         selectClient(clientId, { detailPage: 'snapshot' });
+      }
+      return;
+    }
+    const weeklyGroupButton = event.target.closest('[data-weekly-group]');
+    if (weeklyGroupButton) {
+      const mode = weeklyGroupButton.dataset.weeklyGroup || 'alphabetical';
+      if (weeklyReviewGroupingOptions().some((option) => option.value === mode)) {
+        state.weeklyReviewGroupMode = mode;
+        renderCoachHome();
       }
       return;
     }
