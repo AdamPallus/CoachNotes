@@ -75,7 +75,7 @@ In CoachNotes desktop Settings:
 
 Note updates use a compact partial-update response contract. Defaults are built into the proxy:
 
-- `WORKFLOW_UPDATE_MAX_OUTPUT_TOKENS`: `4500`
+- `WORKFLOW_UPDATE_MAX_OUTPUT_TOKENS`: `7000`
 - `WORKFLOW_TOTAL_BUDGET_MS`: `110000`, leaving time below Vercel's 120-second function limit
 - One formatting retry when enough total request time remains
 
