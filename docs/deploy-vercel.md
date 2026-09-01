@@ -75,8 +75,9 @@ In CoachNotes desktop Settings:
 
 Note updates use a compact partial-update response contract. Defaults are built into the proxy:
 
-- `WORKFLOW_UPDATE_MAX_OUTPUT_TOKENS`: `7000`
-- `WORKFLOW_TOTAL_BUDGET_MS`: `110000`, leaving time below Vercel's 120-second function limit
+- `WORKFLOW_UPDATE_MAX_OUTPUT_TOKENS`: `9000`
+- `OPENAI_TIMEOUT_MS`: `240000`
+- `WORKFLOW_TOTAL_BUDGET_MS`: `280000`, leaving time below Vercel's 300-second function limit
 - One formatting retry when enough total request time remains
 
 These may be overridden through Vercel environment variables, but increasing them should not be the first response to a timeout. Vercel logs emit `[workflow model response]` entries containing duration, prompt/output character counts, input/output tokens, cached input tokens, reasoning tokens, completion status, and incomplete reason. Logs do not include client note or dashboard content.

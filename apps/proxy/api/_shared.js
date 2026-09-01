@@ -12,8 +12,8 @@ const MAX_SOURCES = 12;
 const MAX_SOURCES_TOTAL_CHARS = 90000;
 const MAX_WORKFLOW_SOURCES = 24;
 const MAX_WORKFLOW_TOTAL_CHARS = 240000;
-const DEFAULT_OPENAI_TIMEOUT_MS = 95 * 1000;
-const MAX_OPENAI_TIMEOUT_MS = 115 * 1000;
+const DEFAULT_OPENAI_TIMEOUT_MS = 240 * 1000;
+const MAX_OPENAI_TIMEOUT_MS = 270 * 1000;
 
 function parsePositiveInt(rawValue, fallback) {
   const parsed = Number.parseInt(rawValue, 10);
