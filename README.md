@@ -10,6 +10,7 @@ Current focus:
 - Edit dashboard sections directly, with per-section undo.
 - Add new notes later and let AI update only the dashboard sections supported by the new evidence.
 - Track coach to-dos, flags, client goals, client values, coaching plan/approach, progress, engagement, resources, and coaching-domain threads.
+- Generate a locally saved weekly client review from compact structured dashboard context, without sending raw note bodies.
 
 ## Architecture
 
@@ -66,11 +67,14 @@ Public:
 Authenticated with `Authorization: Bearer <INVITE_TOKEN>`:
 
 - `POST /workflow`
+- `POST /weekly-review`
 - `POST /embed`
 - `POST /answer`
 - `POST /summarize`
 
 The current desktop intake and note-update flows use `/workflow`. `client_intake_baseline` returns a complete dashboard. `client_note_update` returns `client_update_patch.v1`, containing only validated `sectionUpdates` rather than reproducing the complete dashboard.
+
+Mission Control uses `/weekly-review` for the on-demand portfolio briefing. See [docs/weekly-client-review.md](docs/weekly-client-review.md) for its data boundary, judgment rubric, and evaluation workflow.
 
 ## Deployment
 

@@ -6,6 +6,7 @@
 - [UX anchor](ux-30-client-coach-story.md): the coach-centered product and workflow test.
 - [Vercel deployment](deploy-vercel.md): proxy configuration, diagnostics, and production cutover.
 - [Desktop release](release-desktop.md): validation, GitHub artifacts, and coordinated proxy/desktop releases.
+- [Weekly client review](weekly-client-review.md): product behavior, data boundary, judgment rubric, and evaluation commands.
 - [0.2.16 release notes](releases/v0.2.16.md): compact note-update contract and rollout requirements.
 
 ## Future work
