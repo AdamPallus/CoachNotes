@@ -78,6 +78,14 @@ When a coach adds a note, CoachNotes sends the current dashboard and new source 
 
 While processing, the original note remains available for retry. If the server cannot finish the update, CoachNotes keeps the entered source in the add-note dialog rather than requiring it to be entered again. After a successful update, the affected sections are highlighted and each changed section retains its normal undo history.
 
+## Creating a weekly client review
+
+Open `Mission Control`, choose `Weekly Review`, and click `Generate Weekly Review`. A new installation shows a blank weekly-review state; demo clients and generated demo reports are never added to packaged builds.
+
+The review assesses every accepted client from their current structured dashboard. It runs in bounded groups, keeps CoachNotes usable while processing, and saves each completed group locally. If generation is interrupted, use `Resume Weekly Review` to continue compatible saved work. The prior successful report remains visible until a complete replacement is ready.
+
+Clients appear alphabetically by default. Use the grouping control to view the same scrolling report by retention concern, cohort, or curriculum. Retention labels are model-supported coaching judgments, not numeric predictions or final decisions.
+
 ## Quick way to test with demo notes
 
 If you don’t have notes yet:
