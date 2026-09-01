@@ -21,6 +21,7 @@ const themes = ['light', 'dark'];
 const maxDiffRatio = process.env.CI ? 0.055 : 0.0015;
 const screens = [
   { name: 'mission-control', prepare: 'mission' },
+  { name: 'weekly-review', prepare: 'weekly' },
   { name: 'client-snapshot', prepare: 'client' },
   { name: 'add-note', prepare: 'add-note' },
   { name: 'ask', prepare: 'ask' },
@@ -101,6 +102,11 @@ async function prepareScreen(client, screen, theme) {
     const prepare = ${JSON.stringify(screen.prepare)};
     if (prepare === 'mission') {
       state.coachHomeTab = 'attention';
+      await openCoachHome({ recordHistory: false });
+      renderCoachHome();
+      document.activeElement?.blur();
+    } else if (prepare === 'weekly') {
+      state.coachHomeTab = 'weekly';
       await openCoachHome({ recordHistory: false });
       renderCoachHome();
       document.activeElement?.blur();

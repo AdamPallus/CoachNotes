@@ -13,6 +13,9 @@ const state = {
   askLoading: false,
   coachHome: null,
   coachHomeTab: 'attention',
+  weeklyReview: null,
+  weeklyReviewLoading: false,
+  expandedWeeklyReviewClients: new Set(),
   expandedHomeLanes: new Set(),
   sessionNotesQuery: '',
   sessionNotesType: 'all',
@@ -305,6 +308,7 @@ const els = {
   mainSurface: document.querySelector('.main-surface'),
   coachHomePanel: document.getElementById('coachHomePanel'),
   coachHomeContent: document.getElementById('coachHomeContent'),
+  generateWeeklyReviewBtn: document.getElementById('generateWeeklyReviewBtn'),
   refreshCoachHomeBtn: document.getElementById('refreshCoachHomeBtn'),
   intakePanel: document.getElementById('intakePanel'),
   resetIntakeBtn: document.getElementById('resetIntakeBtn'),
@@ -2402,7 +2406,8 @@ function renderHomeTabs(activeTab) {
   const tabs = [
     { key: 'attention', label: 'Attention' },
     { key: 'activity', label: 'Activity' },
-    { key: 'segments', label: 'Segments' }
+    { key: 'segments', label: 'Segments' },
+    { key: 'weekly', label: 'Weekly Review' }
   ];
   return `
     <nav class="home-tabs" aria-label="Coach home views">
@@ -2661,17 +2666,186 @@ function renderCoachHomeSegments(home) {
   `;
 }
 
+function weeklyReviewLabel(value) {
+  const labels = {
+    needs_attention: 'Needs attention',
+    watch: 'Watch',
+    routine: 'Routine',
+    expected_pause: 'Expected pause',
+    insufficient_evidence: 'Insufficient evidence',
+    low: 'Low concern',
+    some: 'Some concern',
+    high: 'High concern'
+  };
+  return labels[value] || 'Insufficient evidence';
+}
+
+function renderWeeklyReviewClient(review) {
+  const clientId = String(review.clientId || '');
+  const forceOpen = review.attentionLevel === 'needs_attention'
+    || review.attentionLevel === 'watch'
+    || review.retentionConcern === 'high';
+  const open = forceOpen || state.expandedWeeklyReviewClients.has(clientId);
+  const evidence = Array.isArray(review.evidence) ? review.evidence : [];
+  const counterevidence = Array.isArray(review.counterevidence) ? review.counterevidence : [];
+  return `
+    <details class="weekly-client-review ${escapeHtml(review.attentionLevel || '')}" data-weekly-client-id="${escapeHtml(clientId)}" ${open ? 'open' : ''}>
+      <summary>
+        <span class="weekly-client-signal" aria-hidden="true"></span>
+        <span class="weekly-client-heading">
+          <strong>${escapeHtml(review.clientName || 'Client')}</strong>
+          <span>${escapeHtml(review.currentFocus || '')}</span>
+        </span>
+        <span class="weekly-client-labels">
+          <em class="weekly-retention ${escapeHtml(review.retentionConcern || '')}">${escapeHtml(weeklyReviewLabel(review.retentionConcern))}</em>
+          <em class="weekly-attention">${escapeHtml(weeklyReviewLabel(review.attentionLevel))}</em>
+        </span>
+      </summary>
+      <div class="weekly-client-body">
+        <p class="weekly-assessment">${escapeHtml(review.weeklyAssessment || '')}</p>
+        <div class="weekly-coach-focus">
+          <span>This week</span>
+          <strong>${escapeHtml(review.suggestedCoachFocus || '')}</strong>
+        </div>
+        ${(evidence.length || counterevidence.length) ? `
+          <div class="weekly-evidence-grid">
+            <div>
+              <span>Evidence</span>
+              ${evidence.length
+                ? `<ul>${evidence.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
+                : '<p>No specific current evidence was captured.</p>'}
+            </div>
+            <div>
+              <span>Counterevidence</span>
+              ${counterevidence.length
+                ? `<ul>${counterevidence.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
+                : '<p>No counterevidence was identified.</p>'}
+            </div>
+          </div>
+        ` : ''}
+        <button class="weekly-open-client" type="button" data-weekly-open-client="${escapeHtml(clientId)}">
+          Open client profile <span aria-hidden="true">→</span>
+        </button>
+      </div>
+    </details>
+  `;
+}
+
+function renderWeeklyReviewGroup(title, description, reviews, tone) {
+  if (!reviews.length) return '';
+  return `
+    <section class="weekly-review-group ${escapeHtml(tone)}">
+      <header>
+        <div>
+          <span>${escapeHtml(String(reviews.length).padStart(2, '0'))}</span>
+          <h4>${escapeHtml(title)}</h4>
+        </div>
+        <p>${escapeHtml(description)}</p>
+      </header>
+      <div class="weekly-review-clients">
+        ${reviews.map(renderWeeklyReviewClient).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderWeeklyReviewEmpty() {
+  if (state.weeklyReviewLoading) {
+    return `
+      <section class="weekly-review-empty is-loading" aria-live="polite">
+        <span class="weekly-review-loader" aria-hidden="true"></span>
+        <h3>Reviewing the whole practice</h3>
+        <p>CoachNotes is reading each accepted client dashboard and checking its judgment against the weekly-review rubric.</p>
+      </section>
+    `;
+  }
+  return `
+    <section class="weekly-review-empty">
+      <span class="weekly-review-empty-mark" aria-hidden="true">W</span>
+      <p class="section-kicker">A deliberate weekly pass</p>
+      <h3>Turn the current dashboards into a client-by-client briefing.</h3>
+      <p>The review covers every accepted client, highlights likely attention and retention concerns, and preserves uncertainty when the record is thin.</p>
+      <button class="btn btn-primary" type="button" data-generate-weekly-review>Generate Weekly Review</button>
+    </section>
+  `;
+}
+
+function renderCoachHomeWeeklyReview() {
+  const saved = state.weeklyReview;
+  const report = saved?.report;
+  const reviews = Array.isArray(report?.clientReviews) ? report.clientReviews : [];
+  if (!report || !reviews.length) {
+    return renderWeeklyReviewEmpty();
+  }
+  const byAttention = new Map();
+  for (const review of reviews) {
+    const key = review.attentionLevel || 'insufficient_evidence';
+    if (!byAttention.has(key)) byAttention.set(key, []);
+    byAttention.get(key).push(review);
+  }
+  const highConcernCount = reviews.filter((review) => review.retentionConcern === 'high').length;
+  const someConcernCount = reviews.filter((review) => review.retentionConcern === 'some').length;
+  const patterns = Array.isArray(report.practicePatterns) ? report.practicePatterns : [];
+  return `
+    <article class="weekly-review-document">
+      <header class="weekly-review-masthead">
+        <div>
+          <p class="section-kicker">Week of ${escapeHtml(formatDate(saved.weekOf))}</p>
+          <h3>Weekly Client Review</h3>
+          <p>${escapeHtml(report.openingSummary || '')}</p>
+        </div>
+        <div class="weekly-review-meta">
+          <span>Generated ${escapeHtml(formatDate(saved.generatedAt))}</span>
+          <span>${escapeHtml(String(reviews.length))} clients reviewed</span>
+        </div>
+      </header>
+      <div class="weekly-review-tally" aria-label="Weekly review summary">
+        <span><strong>${escapeHtml(String((byAttention.get('needs_attention') || []).length))}</strong> need attention</span>
+        <span><strong>${escapeHtml(String((byAttention.get('watch') || []).length))}</strong> to watch</span>
+        <span><strong>${escapeHtml(String(highConcernCount))}</strong> high retention concern</span>
+        <span><strong>${escapeHtml(String(someConcernCount))}</strong> some retention concern</span>
+      </div>
+      ${patterns.length ? `
+        <section class="weekly-practice-patterns">
+          <header>
+            <span>Across the practice</span>
+            <h4>Patterns worth noticing</h4>
+          </header>
+          <div>
+            ${patterns.map((pattern) => `
+              <article>
+                <strong>${escapeHtml(pattern.title || '')}</strong>
+                <p>${escapeHtml(pattern.summary || '')}</p>
+                <small>${escapeHtml(String((pattern.clientIds || []).length))} linked client${(pattern.clientIds || []).length === 1 ? '' : 's'}</small>
+              </article>
+            `).join('')}
+          </div>
+        </section>
+      ` : ''}
+      <div class="weekly-review-sections">
+        ${renderWeeklyReviewGroup('Needs Attention', 'Concrete action or meaningful change warrants focus this week.', byAttention.get('needs_attention') || [], 'attention')}
+        ${renderWeeklyReviewGroup('Watch', 'Developing situations to monitor without overreacting.', byAttention.get('watch') || [], 'watch')}
+        ${renderWeeklyReviewGroup('Insufficient Evidence', 'The record is too sparse or stale for a confident current assessment.', byAttention.get('insufficient_evidence') || [], 'unknown')}
+        ${renderWeeklyReviewGroup('Expected Pauses', 'Reduced activity is explained by current life context.', byAttention.get('expected_pause') || [], 'pause')}
+        ${renderWeeklyReviewGroup('Routine Follow-Through', 'The current plan appears intact; keep ordinary support moving.', byAttention.get('routine') || [], 'routine')}
+      </div>
+    </article>
+  `;
+}
+
 function renderCoachHome() {
   const home = getCoachHomeData();
-  const activeTab = ['attention', 'activity', 'segments'].includes(state.coachHomeTab)
+  const activeTab = ['attention', 'activity', 'segments', 'weekly'].includes(state.coachHomeTab)
     ? state.coachHomeTab
     : 'attention';
   state.coachHomeTab = activeTab;
-  const tabContent = activeTab === 'activity'
-    ? renderCoachHomeActivity(home)
-    : activeTab === 'segments'
-      ? renderCoachHomeSegments(home)
-      : renderCoachHomeAttention(home);
+  const tabContent = activeTab === 'weekly'
+    ? renderCoachHomeWeeklyReview()
+    : activeTab === 'activity'
+      ? renderCoachHomeActivity(home)
+      : activeTab === 'segments'
+        ? renderCoachHomeSegments(home)
+        : renderCoachHomeAttention(home);
   els.coachHomeContent.innerHTML = `
     <div class="home-atlas">
       ${renderHomeBriefing(home)}
@@ -4114,8 +4288,30 @@ async function selectClient(clientId, options = {}) {
 }
 
 async function loadCoachHome() {
-  state.coachHome = await window.coachNotes.getCoachHome();
+  [state.coachHome, state.weeklyReview] = await Promise.all([
+    window.coachNotes.getCoachHome(),
+    window.coachNotes.getWeeklyReview()
+  ]);
   renderCoachHome();
+}
+
+async function generateWeeklyReview() {
+  if (state.weeklyReviewLoading) return;
+  state.weeklyReviewLoading = true;
+  state.coachHomeTab = 'weekly';
+  renderCoachHome();
+  setBusy(true, `Reviewing ${state.clients.length} client dashboards. This can take a few minutes...`);
+  try {
+    state.weeklyReview = await window.coachNotes.generateWeeklyReview();
+    state.expandedWeeklyReviewClients.clear();
+    showToast('Weekly client review generated.');
+  } catch (error) {
+    showToast(error.message || 'Weekly review failed. Your prior saved review is unchanged.', 'error');
+  } finally {
+    state.weeklyReviewLoading = false;
+    setBusy(false);
+    renderCoachHome();
+  }
 }
 
 async function loadClients() {
@@ -4345,6 +4541,7 @@ async function init() {
     state.settings = appState.settings || {};
     state.clients = appState.clients || [];
     state.coachHome = appState.coachHome || null;
+    state.weeklyReview = appState.weeklyReview || null;
     renderIntakeProgramSettings();
     renderSources();
     renderNoteSources();
@@ -4372,7 +4569,21 @@ async function init() {
   els.settingsBtn.addEventListener('click', openSettings);
   els.coachHomeBtn.addEventListener('click', () => openCoachHome({ resetToAttention: true }));
   els.refreshCoachHomeBtn.addEventListener('click', () => openCoachHome({ refresh: true }));
+  els.generateWeeklyReviewBtn.addEventListener('click', generateWeeklyReview);
   els.coachHomeContent.addEventListener('click', async (event) => {
+    const generateButton = event.target.closest('[data-generate-weekly-review]');
+    if (generateButton) {
+      await generateWeeklyReview();
+      return;
+    }
+    const weeklyClientButton = event.target.closest('[data-weekly-open-client]');
+    if (weeklyClientButton) {
+      const clientId = Number(weeklyClientButton.dataset.weeklyOpenClient);
+      if (Number.isFinite(clientId)) {
+        selectClient(clientId, { detailPage: 'snapshot' });
+      }
+      return;
+    }
     const jumpButton = event.target.closest('[data-home-jump]');
     if (jumpButton) {
       jumpToHomeSection(jumpButton.dataset.homeJump || '');
@@ -4412,6 +4623,13 @@ async function init() {
       }
     }
   });
+  els.coachHomeContent.addEventListener('toggle', (event) => {
+    const details = event.target.closest('details[data-weekly-client-id]');
+    if (!details) return;
+    const clientId = details.dataset.weeklyClientId || '';
+    if (details.open) state.expandedWeeklyReviewClients.add(clientId);
+    else state.expandedWeeklyReviewClients.delete(clientId);
+  }, true);
   els.clientSearchInput.addEventListener('input', () => {
     state.clientSearchQuery = sanitizeName(els.clientSearchInput.value);
     renderClients();

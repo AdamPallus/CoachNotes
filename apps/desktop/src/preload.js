@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('coachNotes', {
   deleteClient: (payload) => ipcRenderer.invoke('app:delete-client', payload),
   getClients: () => ipcRenderer.invoke('app:get-clients'),
   getCoachHome: () => ipcRenderer.invoke('app:get-coach-home'),
+  getWeeklyReview: () => ipcRenderer.invoke('app:get-weekly-review'),
+  generateWeeklyReview: () => ipcRenderer.invoke('app:generate-weekly-review'),
   getClientDetail: (payload) => ipcRenderer.invoke('app:get-client-detail', payload),
   revealVault: () => ipcRenderer.invoke('app:reveal-vault')
 });

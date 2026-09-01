@@ -8,6 +8,7 @@ const {
   applyPartialUpdate,
   extractPartialUpdateResponse
 } = require('./workflow-update');
+const { buildWeeklyReviewContext } = require('./weekly-review');
 
 const KEYCHAIN_SERVICE = 'coachnotes-invite-token';
 const KEYCHAIN_ACCOUNT = 'coachnotes';
@@ -522,6 +523,16 @@ function ensureDb() {
       reason TEXT NOT NULL,
       created_at TEXT NOT NULL,
       FOREIGN KEY (baseline_id) REFERENCES client_baselines(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS weekly_reviews (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      week_of TEXT UNIQUE NOT NULL,
+      generated_at TEXT NOT NULL,
+      model TEXT,
+      report_json TEXT NOT NULL,
+      context_stats_json TEXT,
+      usage_json TEXT
     );
   `);
 
@@ -1350,6 +1361,129 @@ function getAcceptedClientRows() {
      WHERE COALESCE(c.archived, 0) = 0
      ORDER BY LOWER(c.display_name) ASC`
   ).all();
+}
+
+function getWeekStartKey(dateKey) {
+  const parsed = new Date(`${dateKey}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) {
+    return dateKey;
+  }
+  const daysSinceMonday = (parsed.getUTCDay() + 6) % 7;
+  parsed.setUTCDate(parsed.getUTCDate() - daysSinceMonday);
+  return parsed.toISOString().slice(0, 10);
+}
+
+function getWeeklyReviewContext() {
+  const todayKey = dateKeyFromDate(currentDate());
+  const clients = getAcceptedClientRows().map((row) => {
+    const sourceActivity = getClientSourceActivity(row.id, todayKey);
+    const updatedDate = parseDate(row.updatedAt || row.acceptedAt || sourceActivity.lastSourceDate || '');
+    return {
+      id: row.id,
+      name: row.name,
+      acceptedAt: row.acceptedAt,
+      updatedAt: row.updatedAt,
+      daysSinceUpdate: updatedDate ? getDaysSinceDateKey(updatedDate, todayKey) : null,
+      lastSourceDate: sourceActivity.lastSourceDate,
+      recentSourceCount: sourceActivity.recentSourceCount,
+      hasRecentMessage: sourceActivity.hasRecentMessage,
+      structured: parseJsonObject(row.structuredJson)
+    };
+  });
+  return buildWeeklyReviewContext(clients, { currentDate: todayKey });
+}
+
+function parseWeeklyReviewRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    weekOf: row.weekOf,
+    generatedAt: row.generatedAt,
+    model: row.model || '',
+    report: parseJsonObject(row.reportJson),
+    contextStats: parseJsonObject(row.contextStatsJson),
+    usage: parseJsonObject(row.usageJson)
+  };
+}
+
+function getLatestWeeklyReview() {
+  requireDb();
+  const row = db.prepare(
+    `SELECT
+      id,
+      week_of AS weekOf,
+      generated_at AS generatedAt,
+      model,
+      report_json AS reportJson,
+      context_stats_json AS contextStatsJson,
+      usage_json AS usageJson
+     FROM weekly_reviews
+     ORDER BY generated_at DESC, id DESC
+     LIMIT 1`
+  ).get();
+  return parseWeeklyReviewRow(row);
+}
+
+function assertWeeklyReviewCoverage(report, context) {
+  const reviews = Array.isArray(report?.clientReviews) ? report.clientReviews : [];
+  const expectedIds = new Set(context.clients.map((client) => String(client.clientId)));
+  const returnedIds = reviews.map((review) => String(review?.clientId || ''));
+  if (returnedIds.length !== expectedIds.size || new Set(returnedIds).size !== expectedIds.size) {
+    throw new Error('Weekly review did not return exactly one assessment for every client.');
+  }
+  if (returnedIds.some((clientId) => !expectedIds.has(clientId))) {
+    throw new Error('Weekly review returned an unknown client.');
+  }
+}
+
+async function generateWeeklyReview() {
+  requireDb();
+  const settings = getAppSettings();
+  const context = getWeeklyReviewContext();
+  if (!context.clients.length) {
+    throw new Error('Add at least one accepted client before generating a weekly review.');
+  }
+
+  const response = await callProxy('/weekly-review', {
+    model: DEFAULT_LLM_MODEL,
+    coachTemplate: buildCoachTemplateForPrompt(settings.coachTemplate),
+    context
+  }, settings);
+  const report = response?.report && typeof response.report === 'object' && !Array.isArray(response.report)
+    ? response.report
+    : null;
+  if (!report) {
+    throw new Error('Weekly review response did not include a report.');
+  }
+  assertWeeklyReviewCoverage(report, context);
+
+  const generatedAt = String(response.generatedAt || nowIso());
+  const weekOf = getWeekStartKey(context.currentDate);
+  const contextStats = {
+    schemaVersion: context.schemaVersion,
+    currentDate: context.currentDate,
+    clientCount: context.clientCount,
+    contextChars: JSON.stringify(context).length
+  };
+  db.prepare(
+    `INSERT INTO weekly_reviews
+      (week_of, generated_at, model, report_json, context_stats_json, usage_json)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(week_of) DO UPDATE SET
+       generated_at = excluded.generated_at,
+       model = excluded.model,
+       report_json = excluded.report_json,
+       context_stats_json = excluded.context_stats_json,
+       usage_json = excluded.usage_json`
+  ).run(
+    weekOf,
+    generatedAt,
+    response.model || DEFAULT_LLM_MODEL,
+    JSON.stringify(report),
+    JSON.stringify(contextStats),
+    JSON.stringify(response.usage || {})
+  );
+  return getLatestWeeklyReview();
 }
 
 function getCoachHome() {
@@ -2510,7 +2644,8 @@ function setupIpc() {
       vaultFolder: await ensureVaultRootFolder()
     },
     clients: getClients(),
-    coachHome: getCoachHome()
+    coachHome: getCoachHome(),
+    weeklyReview: getLatestWeeklyReview()
   }));
 
   ipcMain.handle('app:save-settings', async (_event, payload) => {
@@ -2548,6 +2683,8 @@ function setupIpc() {
   ipcMain.handle('app:delete-client', async (_event, payload) => deleteClient(payload || {}));
   ipcMain.handle('app:get-clients', async () => getClients());
   ipcMain.handle('app:get-coach-home', async () => getCoachHome());
+  ipcMain.handle('app:get-weekly-review', async () => getLatestWeeklyReview());
+  ipcMain.handle('app:generate-weekly-review', async () => generateWeeklyReview());
   ipcMain.handle('app:get-client-detail', async (_event, payload) => getClientDetail(payload || {}));
   ipcMain.handle('app:reveal-vault', async () => revealVault());
 }

@@ -10,6 +10,7 @@
     { "source": "/embed", "destination": "/api/embed" },
     { "source": "/answer", "destination": "/api/answer" },
     { "source": "/summarize", "destination": "/api/summarize" },
-    { "source": "/workflow", "destination": "/api/workflow" }
+    { "source": "/workflow", "destination": "/api/workflow" },
+    { "source": "/weekly-review", "destination": "/api/weekly-review" }
   ]
 }

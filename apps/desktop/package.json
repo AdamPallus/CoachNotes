@@ -8,11 +8,13 @@
   "scripts": {
     "dev": "electron .",
     "start": "electron .",
-    "lint": "node --check src/main.js src/preload.js src/workflow-update.js renderer/app.js scripts/style-contract.mjs scripts/visual-fixture.js scripts/visual-regression.mjs && npm run style:check",
+    "lint": "node --check src/main.js src/preload.js src/workflow-update.js src/weekly-review.js renderer/app.js scripts/style-contract.mjs scripts/visual-fixture.js scripts/visual-regression.mjs scripts/weekly-review-fixture.js scripts/seed-weekly-review-fixture.js scripts/evaluate-weekly-review.js && npm run style:check",
     "test": "node --test test/*.test.js",
     "style:check": "node scripts/style-contract.mjs",
     "visual:check": "node scripts/visual-regression.mjs",
     "visual:update": "node scripts/visual-regression.mjs --update",
+    "fixture:weekly": "electron scripts/seed-weekly-review-fixture.js",
+    "evaluate:weekly": "electron scripts/evaluate-weekly-review.js",
     "rebuild-native": "electron-rebuild -f -w better-sqlite3",
     "dist:mac": "electron-builder --mac dmg zip --x64 --arm64 --publish never",
     "postinstall": "npm run rebuild-native"
