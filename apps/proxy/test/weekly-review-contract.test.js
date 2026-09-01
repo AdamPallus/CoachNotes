@@ -34,6 +34,7 @@ test('normalizes a complete weekly review and keeps canonical client names', () 
   const result = normalizeWeeklyReview(validReview(), expectedClients);
   assert.equal(result.clientReviews.length, 2);
   assert.equal(result.clientReviews[0].clientName, 'Avery Morgan');
+  assert.equal(result.clientReviews[0].evidence.length, 1);
   assert.deepEqual(result.practicePatterns[0].clientIds, ['1']);
 });
 

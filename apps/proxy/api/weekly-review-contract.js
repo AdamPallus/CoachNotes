@@ -18,7 +18,7 @@ function text(value, maxLength) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
 }
 
-function stringList(value, { limit = 2, maxLength = 220 } = {}) {
+function stringList(value, { limit = 1, maxLength = 180 } = {}) {
   return (Array.isArray(value) ? value : [])
     .map((item) => text(item, maxLength))
     .filter(Boolean)
@@ -100,7 +100,7 @@ function normalizeWeeklyReview(value, expectedClients) {
       return title && summary ? { title, summary, clientIds } : null;
     })
     .filter(Boolean)
-    .slice(0, 5);
+    .slice(0, 3);
 
   return {
     schemaVersion: WEEKLY_REVIEW_SCHEMA_VERSION,

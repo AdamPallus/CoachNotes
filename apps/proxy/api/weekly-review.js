@@ -108,25 +108,26 @@ function normalizeCoachTemplate(value) {
 }
 
 function renderPrompt(context, coachTemplate) {
+  const clientReviewRoster = context.clients.map((client) => ({
+    clientId: client.clientId,
+    clientName: client.clientName,
+    attentionLevel: 'needs_attention | watch | routine | expected_pause | insufficient_evidence',
+    retentionConcern: 'low | some | high | insufficient_evidence',
+    currentFocus: 'At most 16 words.',
+    weeklyAssessment: 'At most 30 words, or 20 for routine clients.',
+    suggestedCoachFocus: 'At most 18 words.',
+    evidence: ['Zero or one evidence statement, at most 18 words.'],
+    counterevidence: ['Zero or one counterevidence statement, at most 18 words.']
+  }));
   const exampleReview = {
     schemaVersion: WEEKLY_REVIEW_SCHEMA_VERSION,
-    openingSummary: 'A warm, grounded 2-4 sentence Monday orientation without invented counts.',
+    openingSummary: 'A warm, grounded Monday orientation of at most 55 words, without invented counts.',
     practicePatterns: [{
-      title: 'Short portfolio-level pattern',
-      summary: 'What the dashboards collectively support and why it matters this week.',
+      title: 'At most 8 words.',
+      summary: 'At most 24 words about what the dashboards collectively support and why it matters.',
       clientIds: ['client id']
     }],
-    clientReviews: [{
-      clientId: 'client id copied exactly from the context',
-      clientName: 'client name',
-      attentionLevel: 'needs_attention | watch | routine | expected_pause | insufficient_evidence',
-      retentionConcern: 'low | some | high | insufficient_evidence',
-      currentFocus: 'One concise sentence about what the client is working on now.',
-      weeklyAssessment: 'One or two concise sentences interpreting this week from available evidence.',
-      suggestedCoachFocus: 'One concise, practical focus for the coach this week.',
-      evidence: ['At most two short evidence statements.'],
-      counterevidence: ['At most two short statements that reduce or complicate concern.']
-    }]
+    clientReviews: clientReviewRoster
   };
 
   return [
@@ -167,8 +168,10 @@ function renderPrompt(context, coachTemplate) {
     `- Return exactly ${context.clientCount} clientReviews: every provided client exactly once, no omissions and no extras.`,
     '- Copy every clientId exactly. Order clientReviews as: needs_attention, watch, insufficient_evidence, expected_pause, routine; then alphabetically within a group.',
     '- Keep routine clients especially compact. Do not retell the dashboard.',
-    '- Use 0-5 practicePatterns. A pattern must be supported by the listed clientIds.',
+    '- Use 0-3 practicePatterns. A pattern must be supported by the listed clientIds.',
     '- The opening can be lightly human and encouraging, but it must remain professional and grounded. Do not claim exact portfolio counts there.',
+    '- Follow every word limit in the required output shape. Evidence and counterevidence are for auditability, not a second assessment.',
+    '- For routine clients, omit evidence or counterevidence that merely repeats the assessment.',
     '- Return JSON only, without markdown or surrounding prose.',
     '',
     'Required output shape:',

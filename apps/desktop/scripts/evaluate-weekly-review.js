@@ -52,6 +52,59 @@ function getToken() {
   return result.status === 0 ? result.stdout.trim() : '';
 }
 
+async function requestWeeklyReview(endpoint, token, requestBody) {
+  if (!hasOption('--vercel-preview')) {
+    const response = await fetch(`${endpoint}/weekly-review`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(requestBody)
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `Weekly review request failed (${response.status}).`);
+    return payload;
+  }
+
+  const requestPath = path.join(os.tmpdir(), `coachnotes-weekly-review-${process.pid}.json`);
+  fs.writeFileSync(requestPath, JSON.stringify(requestBody));
+  try {
+    const proxyDir = path.resolve(__dirname, '..', '..', 'proxy');
+    const result = spawnSync('vercel', [
+      'curl',
+      '/weekly-review',
+      '--yes',
+      '--deployment',
+      endpoint,
+      '--',
+      '--silent',
+      '--show-error',
+      '--request',
+      'POST',
+      '--header',
+      'Content-Type: application/json',
+      '--header',
+      `Authorization: Bearer ${token}`,
+      '--data-binary',
+      `@${requestPath}`
+    ], {
+      cwd: proxyDir,
+      encoding: 'utf8',
+      maxBuffer: 4 * 1024 * 1024
+    });
+    if (result.status !== 0) {
+      throw new Error(result.stderr || result.stdout || 'Vercel preview request failed.');
+    }
+    const payload = parseJson(result.stdout, null);
+    if (!payload) throw new Error(`Vercel preview returned invalid JSON: ${result.stdout.slice(0, 500)}`);
+    if (payload.error) throw new Error(payload.error);
+    return payload;
+  } finally {
+    fs.rmSync(requestPath, { force: true });
+  }
+}
+
 function getContext(db, referenceDate, prefix) {
   const rows = db.prepare(`
     SELECT
@@ -193,20 +246,11 @@ app.whenReady().then(async () => {
     const token = getToken();
     if (!token) throw new Error('No CoachNotes invite token is available in the environment or Keychain.');
     const coachTemplateRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('coachTemplate');
-    const response = await fetch(`${endpoint}/weekly-review`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        model: 'gpt-5.6-luna',
-        coachTemplate: parseJson(coachTemplateRow?.value, {}),
-        context
-      })
+    const payload = await requestWeeklyReview(endpoint, token, {
+      model: 'gpt-5.6-luna',
+      coachTemplate: parseJson(coachTemplateRow?.value, {}),
+      context
     });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || `Weekly review request failed (${response.status}).`);
 
     const outputDir = path.resolve(__dirname, '..', '..', '..', 'output', 'weekly-review');
     fs.mkdirSync(outputDir, { recursive: true });
