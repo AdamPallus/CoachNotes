@@ -15,6 +15,10 @@ const {
   buildWeeklyReviewContext,
   mergeWeeklyReviewResults
 } = require('./weekly-review');
+const {
+  normalizeStructuredTimeline,
+  sortTimelineItemsChronologically
+} = require('./timeline');
 
 const KEYCHAIN_SERVICE = 'coachnotes-invite-token';
 const KEYCHAIN_ACCOUNT = 'coachnotes';
@@ -828,6 +832,28 @@ function buildWorkflowSourcePayload(records) {
   return payload;
 }
 
+function buildExistingSourceIndex(sourceIds) {
+  const ids = [...new Set((Array.isArray(sourceIds) ? sourceIds : [])
+    .map((id) => Number(id))
+    .filter(Number.isFinite))]
+    .slice(-500);
+  if (!ids.length) {
+    return [];
+  }
+  const placeholders = ids.map(() => '?').join(', ');
+  return db.prepare(
+    `SELECT id, title, source_type AS sourceType, source_date AS sourceDate
+     FROM intake_sources
+     WHERE id IN (${placeholders})
+     ORDER BY source_date ASC, id ASC`
+  ).all(...ids).map((source) => ({
+    source_id: `intake_source_${source.id}`,
+    title: sanitizeName(source.title || '').slice(0, 160),
+    source_type: normalizeIntakeSourceType(source.sourceType),
+    date: parseDate(source.sourceDate || '') || 'unknown'
+  }));
+}
+
 async function generateClientBaseline(payload) {
   requireDb();
   const rootFolder = await ensureVaultRootFolder();
@@ -878,10 +904,10 @@ async function generateClientBaseline(payload) {
     throw error;
   }
 
-  const structured = applyClientProfilePatch(
+  const structured = normalizeStructuredTimeline(applyClientProfilePatch(
     response.structured && typeof response.structured === 'object' ? response.structured : {},
     clientProfilePatch
-  );
+  ));
   const createdAt = nowIso();
   const baseline = db.prepare(
     `INSERT INTO client_baselines
@@ -913,7 +939,9 @@ async function acceptClientBaseline(payload) {
     throw new Error('Client baseline not found.');
   }
 
-  const structured = payload?.structured && typeof payload.structured === 'object' ? payload.structured : {};
+  const structured = normalizeStructuredTimeline(
+    payload?.structured && typeof payload.structured === 'object' ? payload.structured : {}
+  );
   const acceptedAt = nowIso();
   db.prepare(
     `UPDATE client_baselines
@@ -1971,7 +1999,9 @@ function updateClientSection(payload) {
 
   const structured = parseJsonObject(row.structuredJson);
   const previousValue = structured[sectionKey];
-  const nextValue = payload?.value;
+  const nextValue = sectionKey === 'timeline'
+    ? sortTimelineItemsChronologically(payload?.value)
+    : payload?.value;
   if (jsonValuesEqual(previousValue, nextValue)) {
     return getClientDetail({ clientId });
   }
@@ -2006,10 +2036,13 @@ function updateClientSections(payload) {
   }
 
   const structured = parseJsonObject(row.structuredJson);
-  const entries = Object.entries(updates).map(([sectionKey, value]) => ({
-    sectionKey: assertBaselineSectionKey(sectionKey),
-    value
-  })).filter(({ sectionKey, value }) => !jsonValuesEqual(structured[sectionKey], value));
+  const entries = Object.entries(updates).map(([sectionKey, value]) => {
+    const normalizedSectionKey = assertBaselineSectionKey(sectionKey);
+    return {
+      sectionKey: normalizedSectionKey,
+      value: normalizedSectionKey === 'timeline' ? sortTimelineItemsChronologically(value) : value
+    };
+  }).filter(({ sectionKey, value }) => !jsonValuesEqual(structured[sectionKey], value));
   if (!entries.length) {
     return getClientDetail({ clientId });
   }
@@ -2057,7 +2090,10 @@ function undoClientSection(payload) {
   }
 
   const structured = parseJsonObject(row.structuredJson);
-  structured[sectionKey] = JSON.parse(undo.previousValueJson);
+  const previousValue = JSON.parse(undo.previousValueJson);
+  structured[sectionKey] = sectionKey === 'timeline'
+    ? sortTimelineItemsChronologically(previousValue)
+    : previousValue;
   const updatedAt = nowIso();
   db.prepare('UPDATE client_baselines SET structured_json = ?, updated_at = ? WHERE id = ?')
     .run(JSON.stringify(structured), updatedAt, row.baselineId);
@@ -2083,6 +2119,7 @@ async function updateClientFromNote(payload) {
     throw new Error('Add at least one note source before updating.');
   }
 
+  const existingSourceIndex = buildExistingSourceIndex(parseJsonArray(row.sourceIdsJson));
   const savedSources = [];
   for (const source of sources) {
     savedSources.push(await saveIntakeSource({
@@ -2093,7 +2130,7 @@ async function updateClientFromNote(payload) {
     }));
   }
 
-  const currentStructured = parseJsonObject(row.structuredJson);
+  const currentStructured = normalizeStructuredTimeline(parseJsonObject(row.structuredJson));
   let response;
   let partialUpdate;
   try {
@@ -2106,6 +2143,7 @@ async function updateClientFromNote(payload) {
       },
       coachTemplate: buildCoachTemplateForPrompt(settings.coachTemplate),
       currentBaseline: currentStructured,
+      existingSourceIndex,
       sources: buildWorkflowSourcePayload(savedSources)
     }, settings);
     partialUpdate = extractPartialUpdateResponse(response);
@@ -2284,13 +2322,13 @@ function getAskSourcesForClient(clientId, sourceIds = []) {
       `SELECT id, title, source_type AS sourceType, source_date AS sourceDate, annotation, original_path AS originalPath, vault_path AS vaultPath, raw_text AS rawText, created_at AS createdAt
        FROM intake_sources
        WHERE client_id = ? AND id IN (${activeIds.map(() => '?').join(', ')})
-       ORDER BY created_at DESC, id DESC`
+       ORDER BY source_date DESC, created_at DESC, id DESC`
     ).all(clientId, ...activeIds)
     : db.prepare(
       `SELECT id, title, source_type AS sourceType, source_date AS sourceDate, annotation, original_path AS originalPath, vault_path AS vaultPath, raw_text AS rawText, created_at AS createdAt
        FROM intake_sources
        WHERE client_id = ?
-       ORDER BY created_at DESC, id DESC`
+       ORDER BY source_date DESC, created_at DESC, id DESC`
     ).all(clientId);
 
   return rows.map((source) => ({
@@ -2713,14 +2751,14 @@ function getClientDetail(payload) {
       `SELECT id, title, source_type AS sourceType, source_date AS sourceDate, annotation, original_path AS originalPath, vault_path AS vaultPath, raw_text AS rawText, created_at AS createdAt
        FROM intake_sources
        WHERE id IN (${placeholders})
-       ORDER BY created_at DESC, id DESC`
+       ORDER BY source_date DESC, created_at DESC, id DESC`
     ).all(...sourceIds);
   } else {
     sources = db.prepare(
       `SELECT id, title, source_type AS sourceType, source_date AS sourceDate, annotation, original_path AS originalPath, vault_path AS vaultPath, raw_text AS rawText, created_at AS createdAt
        FROM intake_sources
        WHERE client_id = ?
-       ORDER BY created_at DESC, id DESC`
+       ORDER BY source_date DESC, created_at DESC, id DESC`
     ).all(clientId);
   }
 
@@ -2742,7 +2780,7 @@ function getClientDetail(payload) {
       createdAt: row.createdAt,
       acceptedAt: row.acceptedAt,
       updatedAt: row.updatedAt,
-      structured: parseJsonObject(row.structuredJson)
+      structured: normalizeStructuredTimeline(parseJsonObject(row.structuredJson))
     } : null,
     undoCounts: getUndoCounts(row.baselineId),
     sources

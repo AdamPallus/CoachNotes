@@ -176,6 +176,8 @@ function renderAssessmentPrompt(context, coachTemplate) {
     '',
     'Judgment rules:',
     '- Make useful judgments, but state uncertainty and stay conservative when evidence is ambiguous.',
+    '- Assess trajectory using the dashboard\'s engagement, progress, program-change, and recent-timeline history instead of relying on the current snapshot alone.',
+    '- lastSourceDate, recentSourceCount, and hasRecentMessage use coach-entered source dates and may indicate client activity. lastDashboardUpdateDate only indicates when CoachNotes processed or edited the dashboard; it is not client contact.',
     '- Compare a client with their own established pattern only when the dashboard actually describes that pattern.',
     '- Planned travel, bereavement, and other expected pauses are context, not disengagement by themselves.',
     '- A high-priority coach task, overdue coach work, missing metadata, diagnosis, health condition, age, or demographic fact is not retention evidence by itself.',

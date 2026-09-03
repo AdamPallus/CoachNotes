@@ -70,6 +70,33 @@ test('appends new timeline items without returning or replacing history', () => 
   assert.deepEqual(next.flags, current.flags);
 });
 
+test('places an appended backdated timeline item into chronological order', () => {
+  const current = {
+    timeline: [
+      { date: '2026-04-10', label: 'Current milestone' },
+      { date: 'unknown', label: 'Undated context' }
+    ]
+  };
+  const parsed = extractPartialUpdateResponse({
+    structured: {
+      schemaVersion: 'client_update_patch.v1',
+      updateSummary: 'Added historical context.',
+      sectionUpdates: [{
+        sectionKey: 'timeline',
+        operation: 'append',
+        value: [{ date: '2025-11-03', label: 'Historical milestone' }]
+      }]
+    }
+  });
+
+  const next = applyPartialUpdate(current, parsed.sectionUpdates);
+  assert.deepEqual(next.timeline.map((item) => item.label), [
+    'Historical milestone',
+    'Current milestone',
+    'Undated context'
+  ]);
+});
+
 test('rejects unknown, duplicate, and wrongly typed section updates', () => {
   const response = (sectionUpdates) => ({
     structured: {

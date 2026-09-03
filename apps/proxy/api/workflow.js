@@ -35,6 +35,7 @@ const workflowPrompts = {
   client_note_update: [
     'You are CoachNotes Update.',
     'Your job is to update an existing coach-reviewed client baseline from new source material.',
+    'A newly imported source is not necessarily newer in the client history. Respect event chronology and source dates.',
     'Return only changed dashboard sections. Never return or reproduce the entire client baseline.',
     'Treat the current baseline as authoritative coach context, even if some fields are uncited.',
     'Do not remove or weaken coach-entered facts just because the new source does not mention them.',
@@ -79,7 +80,17 @@ const TIMELINE_RULES = [
   '- Timeline dates are client event dates, not automatically the source/import date. Use date_or_range only when the event appears to have happened on that source date or no more specific event date is supported.',
   '- If one source contains multiple dates for distinct important events, create separate timeline entries for those events and cite the same source_id as needed.',
   '- Include milestones, check-ins, program changes, setbacks, meaningful progress signals, decisions, and repeating themes that change the coach view of the client trajectory. Do not list every minor message.',
-  '- If a date is approximate or unclear, keep it approximate or use "unknown" and explain the uncertainty in details or confidenceNotes. Do not fabricate exact dates.'
+  '- If a date is approximate or unclear, keep it approximate or use "unknown" and explain the uncertainty in details or confidenceNotes. Do not fabricate exact dates.',
+  '- Return timeline entries in chronological order from oldest to newest, with unknown dates after dated entries.'
+];
+
+const HISTORICAL_SOURCE_RULES = [
+  '- Source order reflects import order, not client chronology. A newly imported source is not necessarily newer evidence and may describe much older events.',
+  '- For a specific event, prefer an explicit event date in the source text over the source-level date_or_range. Otherwise use date_or_range as the best available chronology.',
+  '- Current-state sections must reflect the latest supported client state. Older evidence may add context, but must not regress a newer snapshot, current status, active plan, active goal, radar item, or coach task.',
+  '- Use historical sources to preserve meaningful trajectory in timeline, engagementNotes, progressTracking, programChanges, recurring thread sections, and durable profile facts when supported.',
+  '- Do not reactivate a historical task, plan, constraint, or concern unless the source supports that it remains active as of current_date.',
+  '- When chronology is ambiguous, preserve the coach-reviewed current state. Add a concise confidence note only when the ambiguity materially affects coaching decisions.'
 ];
 
 const TAG_RULES = [
@@ -542,6 +553,7 @@ function renderClientIntakePrompt(body) {
     '- For progressTracking, include skills practice compliance, workout completion, strength/difficulty/load progression, and client engagement only when available.',
     '- For resourcesShared, include resources already shared with the client, not resources the coach might want to create.',
     ...TIMELINE_RULES,
+    ...HISTORICAL_SOURCE_RULES,
     ...TAG_RULES,
     '- Use empty strings or empty arrays for missing fields.',
     '- Current state must favor recent evidence. If old and recent sources conflict, note that in confidenceNotes.',
@@ -559,6 +571,17 @@ function renderClientUpdatePrompt(body) {
   const requestedDate = String(body.currentDate || '').trim();
   const currentDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : new Date().toISOString().slice(0, 10);
   const currentBaseline = body.currentBaseline && typeof body.currentBaseline === 'object' ? body.currentBaseline : {};
+  const existingSourceIndex = (Array.isArray(body.existingSourceIndex) ? body.existingSourceIndex : [])
+    .slice(0, 500)
+    .map((source) => ({
+      source_id: String(source?.source_id || '').trim().slice(0, 160),
+      date: /^\d{4}-\d{2}-\d{2}$/.test(String(source?.date || '').trim())
+        ? String(source.date).trim()
+        : 'unknown',
+      source_type: String(source?.source_type || 'unknown').trim().slice(0, 80),
+      title: String(source?.title || 'Untitled source').trim().slice(0, 160)
+    }))
+    .filter((source) => source.source_id);
   const sourceBlocks = body.sources.map((source, index) => {
     const sourceId = String(source.source_id || `source_${index + 1}`).trim();
     return [
@@ -581,6 +604,9 @@ function renderClientUpdatePrompt(body) {
     '',
     'Coach/practice template:',
     renderCoachTemplatePrompt(body.coachTemplate),
+    '',
+    'Existing baseline source date index (metadata only):',
+    JSON.stringify(existingSourceIndex),
     '',
     'Current accepted baseline JSON:',
     JSON.stringify(currentBaseline, null, 2),
@@ -621,6 +647,8 @@ function renderClientUpdatePrompt(body) {
     '- Cite new evidence using evidenceIds objects or bracket markers like [source_id].',
     '- Do not cite the current baseline as evidence. It is coach context, not a source note.',
     '- Treat coach-entered currentBaseline fields as source of truth. Add new source evidence without erasing coach edits.',
+    '- Use the existing baseline source date index to compare new evidence with evidenceIds already attached to dashboard items. The index supplies chronology only; it does not replace source evidence.',
+    ...HISTORICAL_SOURCE_RULES,
     '- Flags should contain durable or chronic client facts, safety or scope-of-practice concerns, ongoing medical considerations, and lasting constraints. Do not put temporary near-term situations or ordinary preferences in flags.',
     ...RADAR_RULES,
     '- For goalsValues, keep only client goals or desired outcomes. Move values, identity statements, or general motivations into clientValues.',
@@ -724,4 +752,9 @@ module.exports = async function workflow(req, res) {
       error: `${message} Reference: ${errorId}`
     });
   }
+};
+
+module.exports._test = {
+  renderClientIntakePrompt,
+  renderClientUpdatePrompt
 };

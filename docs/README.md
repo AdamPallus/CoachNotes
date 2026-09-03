@@ -7,7 +7,7 @@
 - [Vercel deployment](deploy-vercel.md): proxy configuration, diagnostics, and production cutover.
 - [Desktop release](release-desktop.md): validation, GitHub artifacts, and coordinated proxy/desktop releases.
 - [Weekly client review](weekly-client-review.md): product behavior, data boundary, judgment rubric, and evaluation commands.
-- [0.2.17 release notes](releases/v0.2.17.md): resumable full-practice weekly reviews and grouping controls.
+- [0.2.18 release notes](releases/v0.2.18.md): historical-note chronology and stronger longitudinal Weekly Review context.
 
 ## Future work
 

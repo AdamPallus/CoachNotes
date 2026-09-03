@@ -1,6 +1,7 @@
 const WEEKLY_REVIEW_CONTEXT_SCHEMA_VERSION = 'weekly_review_context.v1';
 const WEEKLY_REVIEW_BATCH_MAX_CLIENTS = 12;
 const WEEKLY_REVIEW_BATCH_TARGET_CHARS = 100000;
+const { sortTimelineItemsChronologically } = require('./timeline');
 
 const CLOSED_PLANNING_STATUSES = new Set(['completed', 'done', 'abandoned', 'outdated', 'resolved']);
 
@@ -102,6 +103,7 @@ function compactProfile(value) {
 
 function compactClientForWeeklyReview(client) {
   const structured = asObject(client.structured);
+  const recentTimeline = sortTimelineItemsChronologically(structured.timeline).slice(-8);
   return {
     clientId: String(client.id),
     clientName: cleanText(client.name, 160) || 'Client',
@@ -120,7 +122,7 @@ function compactClientForWeeklyReview(client) {
     coachingApproach: compactItems(structured.coachingPlanApproach, { limit: 8, includeClosed: false }),
     engagement: compactItems(structured.engagementNotes, { limit: 8 }),
     progress: compactItems(structured.progressTracking, { limit: 8 }),
-    recentTimeline: compactItems(structured.timeline, { limit: 8 }).slice(-8),
+    recentTimeline: compactItems(recentTimeline, { limit: 8 }),
     programChanges: compactItems(structured.programChanges, { limit: 8 }),
     flags: compactItems(structured.flags, { limit: 8, includeClosed: false }),
     missingInfo: compactItems(structured.missingInfo, { limit: 8 }),

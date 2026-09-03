@@ -101,6 +101,8 @@ test('keeps assessment and synthesis endpoint inputs separate', () => {
   });
   const assessmentPrompt = renderAssessmentPrompt(context, {});
   assert.match(assessmentPrompt, /weekly_client_review_batch\.v1/);
+  assert.match(assessmentPrompt, /engagement, progress, program-change, and recent-timeline history/);
+  assert.match(assessmentPrompt, /lastDashboardUpdateDate only indicates when CoachNotes processed/);
   assert.doesNotMatch(assessmentPrompt, /openingSummary/);
 
   const synthesisContext = normalizeSynthesisContext({

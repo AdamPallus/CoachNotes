@@ -53,6 +53,31 @@ test('caps verbose sections and text lengths', () => {
   assert.equal(context.clients[0].progress[0].detail.length, 360);
 });
 
+test('projects the eight most recent timeline entries in chronological order', () => {
+  const timeline = [
+    { date: '2026-01-10', label: 'Ten' },
+    { date: '2026-01-03', label: 'Three' },
+    { date: '2026-01-09', label: 'Nine' },
+    { date: '2026-01-01', label: 'One' },
+    { date: '2026-01-06', label: 'Six' },
+    { date: '2026-01-08', label: 'Eight' },
+    { date: '2026-01-02', label: 'Two' },
+    { date: '2026-01-05', label: 'Five' },
+    { date: '2026-01-07', label: 'Seven' },
+    { date: '2026-01-04', label: 'Four' }
+  ];
+  const context = buildWeeklyReviewContext([{
+    id: 1,
+    name: 'Timeline Client',
+    structured: { timeline }
+  }], { currentDate: '2026-09-01' });
+
+  assert.deepEqual(
+    context.clients[0].recentTimeline.map((item) => item.title),
+    ['Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten']
+  );
+});
+
 test('splits weekly reviews by client count and approximate context size', () => {
   const context = buildWeeklyReviewContext(Array.from({ length: 25 }, (_, index) => ({
     id: index + 1,

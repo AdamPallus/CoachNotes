@@ -81,7 +81,7 @@ Mission Control uses `/weekly-review` for the on-demand portfolio briefing. See 
 - Vercel proxy deployment: [docs/deploy-vercel.md](docs/deploy-vercel.md)
 - Desktop release flow: [docs/release-desktop.md](docs/release-desktop.md)
 - Documentation index: [docs/README.md](docs/README.md)
-- Version 0.2.17 release notes: [docs/releases/v0.2.17.md](docs/releases/v0.2.17.md)
+- Version 0.2.18 release notes: [docs/releases/v0.2.18.md](docs/releases/v0.2.18.md)
 
 ## Release Notes
 

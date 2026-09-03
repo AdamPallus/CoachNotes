@@ -65,8 +65,10 @@ Examples:
 ## Notes about current MVP behavior
 
 - Notes are read from disk; CoachNotes does not replace your file system.
-- Search is local over stored embeddings and keyword signals.
-- Q&A/Summary are grounded in retrieved chunks from your notes.
+- Client filtering is local and supports instant name and tag matching.
+- Ask always includes the current dashboard. Recent and all-source scopes add a bounded set of raw notes ranked locally by keyword relevance and source date.
+- The proxy still supports embeddings, but the current desktop does not store or query an embedding index.
+- Q&A and drafting are grounded in the dashboard and raw notes selected for the request.
 - Citation markers are shown as human-readable numbered references (`[1]`, `[2]`). Click a citation chip or source row to jump to the note/chunk.
 - Note viewer supports `Rendered` (markdown view) and `Raw` (plain text with exact chunk highlight).
 - Invite token is stored in macOS Keychain.
@@ -74,7 +76,9 @@ Examples:
 
 ## Updating a client from a new note
 
-When a coach adds a note, CoachNotes sends the current dashboard and new source to the proxy for review. The AI returns only the dashboard sections that need to change; omitted sections remain untouched. New items such as current timeline milestones can be appended without regenerating historical entries.
+When a coach adds a note, CoachNotes sends the current dashboard, the new source, and a compact date index for prior sources associated with that dashboard to the proxy for review. The AI returns only the dashboard sections that need to change; omitted sections remain untouched.
+
+The date selected by the coach represents the source's place in the client history, not the date it was imported. A backdated source can add timeline milestones, durable facts, recurring patterns, and other useful historical context, but it should not replace newer current-state information or reactivate an old task. Timelines are displayed from oldest to newest, while the raw Check-In Archive shows the newest source dates first.
 
 While processing, the original note remains available for retry. If the server cannot finish the update, CoachNotes keeps the entered source in the add-note dialog rather than requiring it to be entered again. After a successful update, the affected sections are highlighted and each changed section retains its normal undo history.
 

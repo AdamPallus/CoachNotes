@@ -1,5 +1,6 @@
 const CLIENT_UPDATE_SCHEMA_VERSION = 'client_update_patch.v1';
 const MAX_SECTION_UPDATES = 12;
+const { sortTimelineItemsChronologically } = require('./timeline');
 
 const UPDATE_SECTION_KEYS = new Set([
   'clientProfile',
@@ -139,9 +140,14 @@ function applyPartialUpdate(currentStructured, sectionUpdates) {
       next.clientProfile = { ...currentProfile, ...update.value };
     } else if (update.operation === 'append') {
       const currentItems = Array.isArray(current[update.sectionKey]) ? current[update.sectionKey] : [];
-      next[update.sectionKey] = [...currentItems, ...update.value];
+      const appended = [...currentItems, ...update.value];
+      next[update.sectionKey] = update.sectionKey === 'timeline'
+        ? sortTimelineItemsChronologically(appended)
+        : appended;
     } else {
-      next[update.sectionKey] = update.value;
+      next[update.sectionKey] = update.sectionKey === 'timeline'
+        ? sortTimelineItemsChronologically(update.value)
+        : update.value;
     }
   }
 

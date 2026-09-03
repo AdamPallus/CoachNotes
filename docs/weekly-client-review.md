@@ -37,10 +37,12 @@ The desktop builds `weekly_review_context.v1` from accepted structured dashboard
 - overview and selected program context;
 - active coach tasks and radar items;
 - client goals and coaching approach;
-- engagement, progress, recent timeline, and program changes;
+- engagement, progress, the eight most recent chronologically ordered timeline entries, and program changes;
 - active flags, missing information, and confidence notes.
 
 Raw note bodies and source documents are not included. Text lengths and section item counts are capped before the request leaves the desktop.
+
+Weekly Review treats `lastSourceDate`, `recentSourceCount`, and `hasRecentMessage` as source-date activity signals. `lastDashboardUpdateDate` records when CoachNotes processed or edited the dashboard and is not treated as client contact. The assessment prompt considers engagement, progress, program-change, and timeline history so retention judgments are not based on the current Snapshot alone.
 
 The desktop splits the projection into groups of no more than 12 clients and approximately 100,000 context characters. Each proxy call returns `weekly_client_review_batch.v1`; contract validation requires the exact assigned roster, unique IDs, allowed labels, and required prose. A final synthesis call receives the validated assessments and returns only `weekly_client_review_synthesis.v1` opening and pattern fields, so it cannot relabel clients. The desktop adds cohort and curriculum grouping metadata directly from each saved profile, orders the final report alphabetically, and saves `weekly_client_review.v1` only after complete coverage.
 
