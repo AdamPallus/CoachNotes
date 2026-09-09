@@ -146,6 +146,12 @@ async function prepareScreen(client, screen, theme) {
     } else if (prepare === 'ask') {
       await selectClient(state.clients[0].id, { recordHistory: false, detailPage: 'snapshot' });
       openAskDialog();
+      state.askRequestPresets = [
+        'What should I follow up on this week?',
+        'What changed since our last session?'
+      ];
+      renderAskPresetControls();
+      document.querySelector('#askRequestPresetList .preset-chip')?.click();
       els.askPromptInput.focus();
     } else if (prepare === 'onboarding') {
       startOnboarding();

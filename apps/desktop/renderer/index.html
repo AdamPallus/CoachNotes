@@ -357,10 +357,16 @@
             </fieldset>
           </div>
         </details>
-        <label>
-          Request
-          <textarea id="askPromptInput" rows="5" placeholder="Based on the recent check-in, draft a message telling her..."></textarea>
-        </label>
+        <div class="preset-field ask-request-field">
+          <label>
+            Request
+            <textarea id="askPromptInput" rows="4" placeholder="Based on the recent check-in, draft a message telling her..."></textarea>
+          </label>
+          <div class="field-preset-bar">
+            <button id="saveAskRequestPresetBtn" class="preset-save" type="button">Save request</button>
+            <div id="askRequestPresetList" class="preset-pills" aria-label="Saved ASK requests"></div>
+          </div>
+        </div>
         <section id="askResultPanel" class="ask-result-panel" hidden>
           <div class="ask-result-head">
             <div>

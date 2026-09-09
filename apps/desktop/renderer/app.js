@@ -31,6 +31,7 @@ const state = {
   loadingClientId: null,
   askAppliedPresetPrompt: '',
   askCustomPromptDraft: '',
+  askRequestPresets: [],
   noteTitlePresets: [],
   noteAnnotationPresets: [],
   todoTitlePresets: [],
@@ -70,6 +71,7 @@ const defaultHiddenPlanningStatuses = new Set(['completed', 'abandoned', 'outdat
 const closedPlanningStatuses = new Set(['completed', 'abandoned', 'outdated']);
 const planningHiddenStatusesStorageKey = 'coachnotes.planningHiddenStatuses.v1';
 const clientSortStorageKey = 'coachnotes.clientSortMode.v1';
+const askRequestPresetsStorageKey = 'coachnotes.askRequestPresets.v1';
 const noteTitlePresetsStorageKey = 'coachnotes.noteTitlePresets.v1';
 const noteAnnotationPresetsStorageKey = 'coachnotes.noteAnnotationPresets.v1';
 const todoTitlePresetsStorageKey = 'coachnotes.todoTitlePresets.v1';
@@ -348,6 +350,8 @@ const els = {
   askScopeInput: document.getElementById('askScopeInput'),
   askTimeWindowInput: document.getElementById('askTimeWindowInput'),
   askPromptInput: document.getElementById('askPromptInput'),
+  askRequestPresetList: document.getElementById('askRequestPresetList'),
+  saveAskRequestPresetBtn: document.getElementById('saveAskRequestPresetBtn'),
   askResultPanel: document.getElementById('askResultPanel'),
   askResultMeta: document.getElementById('askResultMeta'),
   askResultOutput: document.getElementById('askResultOutput'),
@@ -476,8 +480,8 @@ function saveStringList(storageKey, values) {
   }
 }
 
-function upsertPresetValue(storageKey, values, value) {
-  const normalized = sanitizeName(value).slice(0, 180);
+function upsertPresetValue(storageKey, values, value, maxLength = 180) {
+  const normalized = sanitizeName(value).slice(0, maxLength);
   if (!normalized) {
     return values;
   }
@@ -486,6 +490,15 @@ function upsertPresetValue(storageKey, values, value) {
     normalized,
     ...existing.filter((entry) => entry.toLowerCase() !== normalized.toLowerCase())
   ].slice(0, maxSavedPresets);
+  saveStringList(storageKey, next);
+  return next;
+}
+
+function removePresetValue(storageKey, values, index) {
+  if (!Number.isInteger(index) || index < 0 || index >= values.length) {
+    return values;
+  }
+  const next = values.filter((_, entryIndex) => entryIndex !== index);
   saveStringList(storageKey, next);
   return next;
 }
@@ -542,6 +555,7 @@ function syncChoiceGroups() {
 function loadLocalPreferences() {
   applyTheme(getPreferredTheme(), false);
   loadPlanningHiddenStatuses();
+  state.askRequestPresets = loadStringList(askRequestPresetsStorageKey);
   state.noteTitlePresets = loadStringList(noteTitlePresetsStorageKey);
   state.noteAnnotationPresets = loadStringList(noteAnnotationPresetsStorageKey);
   state.todoTitlePresets = loadStringList(todoTitlePresetsStorageKey);
@@ -1544,18 +1558,41 @@ function renderPresetList(container, values, emptyLabel, options = {}) {
     const label = options.truncate && normalized.length > 48
       ? `${normalized.slice(0, 47).trim()}…`
       : normalized;
+    const presetButton = `
+      <button
+        class="preset-chip ${options.className || ''}"
+        type="button"
+        data-preset-index="${escapeHtml(String(index))}"
+        title="${escapeHtml(normalized)}"
+        aria-label="Use saved preset: ${escapeHtml(normalized)}"
+      >
+        ${escapeHtml(label)}
+      </button>
+    `;
+    if (!options.removable) {
+      return presetButton;
+    }
     return `
-    <button
-      class="preset-chip ${options.className || ''}"
-      type="button"
-      data-preset-index="${escapeHtml(String(index))}"
-      title="${escapeHtml(normalized)}"
-      aria-label="Use saved preset: ${escapeHtml(normalized)}"
-    >
-      ${escapeHtml(label)}
-    </button>
-  `;
+      <span class="removable-preset">
+        ${presetButton}
+        <button
+          class="preset-remove"
+          type="button"
+          data-remove-preset-index="${escapeHtml(String(index))}"
+          title="Remove saved request"
+          aria-label="Remove saved request: ${escapeHtml(normalized)}"
+        >&#215;</button>
+      </span>
+    `;
   }).join('');
+}
+
+function renderAskPresetControls() {
+  renderPresetList(els.askRequestPresetList, state.askRequestPresets, 'No saved requests yet.', {
+    truncate: true,
+    className: 'ask-request-preset',
+    removable: true
+  });
 }
 
 function renderNotePresetControls() {
@@ -1568,6 +1605,22 @@ function renderNotePresetControls() {
 
 function renderTodoPresetControls() {
   renderPresetList(els.todoTitlePresetList, state.todoTitlePresets, 'No saved to-do titles yet.');
+}
+
+function saveAskRequestPreset() {
+  const next = upsertPresetValue(
+    askRequestPresetsStorageKey,
+    state.askRequestPresets,
+    els.askPromptInput.value,
+    1000
+  );
+  if (next === state.askRequestPresets) {
+    showToast('Enter an ASK request before saving it.', 'error');
+    return;
+  }
+  state.askRequestPresets = next;
+  renderAskPresetControls();
+  showToast('ASK request saved.');
 }
 
 function saveNoteTitlePreset() {
@@ -1694,6 +1747,7 @@ function resetAskDialog() {
   els.askResultMeta.textContent = '';
   els.askResultOutput.innerHTML = '';
   els.askSourceList.innerHTML = '';
+  renderAskPresetControls();
   syncChoiceGroups();
 }
 
@@ -1747,6 +1801,7 @@ function setAskLoading(on, message = 'Using the selected client context.') {
     els.askScopeInput,
     els.askTimeWindowInput,
     els.askPromptInput,
+    els.saveAskRequestPresetBtn,
     els.askSubmitBtn,
     els.cancelAskBtn,
     els.copyAskResultBtn,
@@ -1756,6 +1811,9 @@ function setAskLoading(on, message = 'Using the selected client context.') {
     if (control) {
       control.disabled = state.askLoading;
     }
+  });
+  els.askRequestPresetList?.querySelectorAll('button').forEach((button) => {
+    button.disabled = state.askLoading;
   });
   syncChoiceGroups();
 }
@@ -4697,6 +4755,7 @@ async function init() {
     renderIntakeProgramSettings();
     renderSources();
     renderNoteSources();
+    renderAskPresetControls();
     renderNotePresetControls();
     renderTodoPresetControls();
     renderClients();
@@ -5098,6 +5157,26 @@ async function init() {
   window.addEventListener('scroll', hideCitationTooltip, true);
   window.addEventListener('resize', hideCitationTooltip);
   els.askOutputTypeInput.addEventListener('change', applyAskOutputPreset);
+  els.saveAskRequestPresetBtn.addEventListener('click', saveAskRequestPreset);
+  els.askRequestPresetList.addEventListener('click', (event) => {
+    const removeButton = event.target.closest('[data-remove-preset-index]');
+    if (removeButton) {
+      const index = Number(removeButton.dataset.removePresetIndex);
+      state.askRequestPresets = removePresetValue(askRequestPresetsStorageKey, state.askRequestPresets, index);
+      renderAskPresetControls();
+      showToast('Saved ASK request removed.');
+      return;
+    }
+    const button = event.target.closest('.preset-chip');
+    const index = Number(button?.dataset?.presetIndex);
+    if (Number.isInteger(index) && state.askRequestPresets[index]) {
+      const request = state.askRequestPresets[index];
+      els.askPromptInput.value = request;
+      state.askAppliedPresetPrompt = '';
+      state.askCustomPromptDraft = request;
+      els.askPromptInput.focus();
+    }
+  });
   els.askResultOutput.addEventListener('click', (event) => {
     const citationButton = event.target.closest('.ask-citation[data-source-id]');
     if (citationButton && citationButton.dataset.sourceId) {
