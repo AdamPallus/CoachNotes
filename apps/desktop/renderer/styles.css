@@ -7410,6 +7410,15 @@ dialog .btn-danger {
 }
 
 @media (max-width: 1100px) {
+  .client-profile-head {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .client-profile-head .surface-actions {
+    flex-wrap: wrap;
+  }
+
   .client-profile-head::after {
     right: 260px;
     opacity: 0.14;

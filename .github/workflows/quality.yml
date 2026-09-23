@@ -33,3 +33,11 @@ jobs:
 
       - name: Visual regression
         run: npm run visual:check
+
+      - name: Upload visual failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-failure-evidence
+          path: output/playwright/regression/
+          retention-days: 7
