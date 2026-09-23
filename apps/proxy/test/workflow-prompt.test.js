@@ -31,6 +31,8 @@ test('update prompt distinguishes historical backfill from current evidence', ()
   assert.match(prompt, /newly imported source is not necessarily newer/i);
   assert.match(prompt, /must not regress a newer snapshot/i);
   assert.match(prompt, /oldest to newest/i);
+  assert.match(prompt, /Every new or modified object item inside a sectionUpdates.value array must include its own evidenceIds/);
+  assert.match(prompt, /Preserve the evidenceIds on unchanged items/);
 });
 
 test('intake prompt treats mixed historical sources as chronology, not import order', () => {

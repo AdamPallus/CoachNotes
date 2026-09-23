@@ -10,6 +10,8 @@ const {
   withTimeout,
   validateAnswerLikeSources
 } = require('./_shared');
+const { createCitationStream, normalizeAnswerCitations } = require('./_citations');
+const { dateContext } = require('./_date-context');
 
 const systemPrompt = [
   'You are CoachNotes Assistant.',
@@ -113,7 +115,7 @@ module.exports = async function answer(req, res) {
 
     const instructions = req.body.instructions ? `Additional user instructions: ${req.body.instructions}\n\n` : '';
 
-    const userPrompt = `${instructions}Question:\n${question}\n\nSources:\n${renderedSources}`;
+    const userPrompt = `${dateContext(req.body.currentDate)}\n\n${instructions}Question:\n${question}\n\nSources:\n${renderedSources}`;
 
     if (streamRequested) {
       beginNdjsonStream(res);
@@ -126,9 +128,11 @@ module.exports = async function answer(req, res) {
 
       let answerText = '';
       let completedText = '';
+      const citationStream = createCitationStream(req.body.sources);
       const stream = await openai.responses.create(
         {
           model,
+          reasoning: { effort: 'medium' },
           max_output_tokens: maxOutputTokens,
           stream: true,
           input: [
@@ -146,18 +150,26 @@ module.exports = async function answer(req, res) {
             continue;
           }
 
-          answerText += delta;
-          writeNdjsonEvent(res, { type: 'delta', delta });
+          const safeDelta = citationStream.push(delta);
+          answerText += safeDelta;
+          if (safeDelta) writeNdjsonEvent(res, { type: 'delta', delta: safeDelta });
           continue;
         }
 
         if (event?.type === 'response.completed') {
           completedText = extractOutputText(event.response || event.data || null);
         }
+        if (['response.incomplete', 'response.failed'].includes(event?.type)) {
+          throw new Error('The AI answer did not finish. Please try again.');
+        }
       }
 
+      const finalDelta = citationStream.push('', true);
+      answerText += finalDelta;
+      if (finalDelta) writeNdjsonEvent(res, { type: 'delta', delta: finalDelta });
+
       if (!answerText && completedText) {
-        answerText = completedText;
+        answerText = normalizeAnswerCitations(completedText, req.body.sources);
       }
 
       if (!answerText.trim()) {
@@ -190,6 +202,7 @@ module.exports = async function answer(req, res) {
     const result = await withTimeout(
       openai.responses.create({
         model,
+        reasoning: { effort: 'medium' },
         max_output_tokens: maxOutputTokens,
         input: [
           { role: 'system', content: systemPrompt },
@@ -200,8 +213,9 @@ module.exports = async function answer(req, res) {
       'Model response timed out. Please retry or reduce search depth.'
     );
 
-    const answerText = result.output_text?.trim()
-      || 'I could not provide a solid answer from the available notes. Please try a narrower question.';
+    if (['incomplete', 'failed'].includes(result.status)) throw new Error('The AI answer did not finish. Please try again.');
+    const answerText = normalizeAnswerCitations(result.output_text?.trim()
+      || 'I could not provide a solid answer from the available notes. Please try a narrower question.', req.body.sources);
     const citations = collectCitations(answerText);
     const evidenceLimited = /\b(unable|insufficient|not enough|missing|do not contain|cannot determine|could not)\b/i.test(answerText);
     const structured = {

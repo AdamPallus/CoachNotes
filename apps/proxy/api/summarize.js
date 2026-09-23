@@ -9,6 +9,8 @@ const {
   withTimeout,
   validateAnswerLikeSources
 } = require('./_shared');
+const { createCitationStream, normalizeAnswerCitations } = require('./_citations');
+const { dateContext } = require('./_date-context');
 
 const baseSummaryPrompt = [
   'You are CoachNotes Assistant.',
@@ -120,7 +122,7 @@ module.exports = async function summarize(req, res) {
     const maxOutputTokens = getSummaryMaxOutputTokens();
     const streamRequested = Boolean(req.body?.stream);
     const mode = normalizeSummaryMode(req.body?.mode);
-    const summaryPrompt = getSummaryPrompt(mode);
+    const summaryPrompt = `${getSummaryPrompt(mode)} ${dateContext(req.body.currentDate)}`;
     const query = String(req.body?.query || '').trim();
 
     const renderedSources = req.body.sources
@@ -139,9 +141,11 @@ module.exports = async function summarize(req, res) {
 
       let summary = '';
       let completedText = '';
+      const citationStream = createCitationStream(req.body.sources);
       const stream = await openai.responses.create(
         {
           model,
+          reasoning: { effort: 'medium' },
           max_output_tokens: maxOutputTokens,
           stream: true,
           input: [
@@ -159,18 +163,26 @@ module.exports = async function summarize(req, res) {
             continue;
           }
 
-          summary += delta;
-          writeNdjsonEvent(res, { type: 'delta', delta });
+          const safeDelta = citationStream.push(delta);
+          summary += safeDelta;
+          if (safeDelta) writeNdjsonEvent(res, { type: 'delta', delta: safeDelta });
           continue;
         }
 
         if (event?.type === 'response.completed') {
           completedText = extractOutputText(event.response || event.data || null);
         }
+        if (['response.incomplete', 'response.failed'].includes(event?.type)) {
+          throw new Error('The AI summary did not finish. Please try again.');
+        }
       }
 
+      const finalDelta = citationStream.push('', true);
+      summary += finalDelta;
+      if (finalDelta) writeNdjsonEvent(res, { type: 'delta', delta: finalDelta });
+
       if (!summary && completedText) {
-        summary = completedText;
+        summary = normalizeAnswerCitations(completedText, req.body.sources);
       }
 
       if (!summary.trim()) {
@@ -193,6 +205,7 @@ module.exports = async function summarize(req, res) {
     const result = await withTimeout(
       openai.responses.create({
         model,
+        reasoning: { effort: 'medium' },
         max_output_tokens: maxOutputTokens,
         input: [
           { role: 'system', content: summaryPrompt },
@@ -203,8 +216,9 @@ module.exports = async function summarize(req, res) {
       'Model summary timed out. Please retry or reduce search depth.'
     );
 
-    const summary = result.output_text?.trim()
-      || 'I could not generate a summary from the provided notes. Please try again with a narrower scope.';
+    if (['incomplete', 'failed'].includes(result.status)) throw new Error('The AI summary did not finish. Please try again.');
+    const summary = normalizeAnswerCitations(result.output_text?.trim()
+      || 'I could not generate a summary from the provided notes. Please try again with a narrower scope.', req.body.sources);
 
     json(res, 200, {
       model,

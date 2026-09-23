@@ -14,6 +14,7 @@ const {
   normalizeWeeklyReviewBatch,
   normalizeWeeklyReviewSynthesis
 } = require('./weekly-review-contract');
+const { taskDueState, validDate } = require('./_date-context');
 
 const CONTEXT_SCHEMA_VERSION = 'weekly_review_context.v1';
 const DEFAULT_BATCH_MAX_OUTPUT_TOKENS = 7000;
@@ -83,7 +84,7 @@ function normalizeClientRoster(clients, maxClients) {
 
 function normalizeCurrentDate(value) {
   const currentDate = String(value || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(currentDate)) {
+  if (!validDate(currentDate)) {
     throw new Error('currentDate must use YYYY-MM-DD.');
   }
   return currentDate;
@@ -94,10 +95,15 @@ function normalizeBatchContext(value) {
   if (value.schemaVersion !== CONTEXT_SCHEMA_VERSION) {
     throw new Error(`context must use ${CONTEXT_SCHEMA_VERSION}.`);
   }
-  const clients = normalizeClientRoster(value.clients, MAX_BATCH_CLIENTS);
+  const currentDate = normalizeCurrentDate(value.currentDate);
+  const clients = normalizeClientRoster(value.clients, MAX_BATCH_CLIENTS).map((client) => ({
+    ...client,
+    activeCoachTasks: (Array.isArray(client.activeCoachTasks) ? client.activeCoachTasks : [])
+      .map((task) => ({ ...task, dueState: taskDueState(task, currentDate) }))
+  }));
   const context = {
     schemaVersion: CONTEXT_SCHEMA_VERSION,
-    currentDate: normalizeCurrentDate(value.currentDate),
+    currentDate,
     clientCount: clients.length,
     clients
   };
@@ -162,9 +168,10 @@ function renderAssessmentPrompt(context, coachTemplate) {
     '- Keep the coach as the decision-maker and relationship owner. Do not draft client messages.',
     '',
     'Attention labels:',
-    '- needs_attention: a concrete action, due item, unresolved concern, or meaningful change warrants focus this week.',
+    '- needs_attention: an overdue coach commitment, time-sensitive intervention, or significant unresolved concern warrants extra focus this week. Ordinary scheduled work is not enough on its own.',
     '- watch: a developing or ambiguous situation deserves monitoring but not urgent action.',
     '- routine: the client appears to be following the plan and ordinary follow-up is appropriate.',
+    '- A routine task due later this week, ordinary target-setting, or a positive graduation review does not by itself raise attention above routine. Discouragement or a developing goal/constraint mismatch with continuing engagement is watch unless additional evidence warrants intervention.',
     '- expected_pause: reduced activity is adequately explained by travel, bereavement, illness, or another temporary context, with no stronger contrary signal.',
     '- insufficient_evidence: the dashboard is too sparse or stale to make a useful current assessment.',
     '',
@@ -182,6 +189,7 @@ function renderAssessmentPrompt(context, coachTemplate) {
     '- Planned travel, bereavement, and other expected pauses are context, not disengagement by themselves.',
     '- A high-priority coach task, overdue coach work, missing metadata, diagnosis, health condition, age, or demographic fact is not retention evidence by itself.',
     '- Never invent client sentiment, causality, dates, or numeric probabilities.',
+    '- Task dueState is computed by CoachNotes: due_today is not overdue; upcoming is not late; unknown means no usable deadline. Use these states and the reference date instead of guessing urgency. A past deadline does not prove the coach failed to do the task outside this app.',
     '- Use counterevidence whenever the dashboard contains facts that lower or complicate concern.',
     '- Distinguish insufficient evidence from high concern.',
     '',
@@ -269,6 +277,7 @@ async function requestOperation({ openai, model, operation, prompt, context, max
   const response = await withTimeout(
     openai.responses.create({
       model,
+      reasoning: { effort: 'medium' },
       max_output_tokens: maxOutputTokens,
       text: { format: { type: 'json_object' } },
       input: [

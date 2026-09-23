@@ -27,7 +27,37 @@ git push -u origin main
 - `INVITE_TOKENS`: one or more comma-separated tokens (example: `tokenA,tokenB`)
 - `RATE_LIMIT_PER_MIN`: `60`
 - `EMBED_MODEL_ALLOWLIST`: `text-embedding-3-small`
-- `LLM_MODEL_ALLOWLIST`: `gpt-5.4-mini,gpt-5.6-luna`
+- `LLM_MODEL_ALLOWLIST`: `gpt-5.4-mini,gpt-6-luna`
+
+### Server-owned Luna routing
+
+The proxy defaults to `gpt-6-luna`. Existing desktop apps still send
+`gpt-5.6-luna`; the server treats that name as a legacy alias for its default
+LLM. No desktop download or response-contract migration is required. This
+applies to intake, note updates, Ask (including streaming), summaries, and
+weekly reviews. Responses and workflow diagnostics identify the model actually
+selected, not the legacy request name.
+
+Text workflows explicitly use `medium` reasoning effort. The response contract
+is unchanged. Source references are normalized/validated on the server; invalid
+note-update citations use the existing bounded workflow retry. The server never
+assigns a source merely to make a link appear. Ask/summary use a supplied
+`currentDate` when valid, otherwise an explicitly labeled UTC reference date.
+Weekly review computes task due states and separates routine scheduled work
+from extra-attention cases.
+
+The default and legacy alias are recognized even if the deployed allowlist still
+contains only older models. Updating the Vercel allowlist is not required for
+this cutover. Explicitly allowlisted alternatives such as `gpt-5.4-mini` retain
+their existing behavior; embedding selection is unchanged.
+
+`LLM_MODEL_ALLOWLIST` authorizes alternate models; it does not override the
+legacy Luna alias. To roll Liz back without a desktop download, set
+`DEFAULT_LLM_MODEL` in `api/_shared.js` back to `gpt-5.6-luna` and redeploy the
+proxy. Keep the citation prompt clarification when rolling back only the model.
+
+The September 23 comparison and rollout status are recorded in
+[model-comparison-2026-09-23.md](model-comparison-2026-09-23.md).
 
 ## 4) Deploy
 

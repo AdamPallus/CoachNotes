@@ -5,7 +5,8 @@ const rateWindowMs = 60 * 1000;
 const rateState = new Map();
 
 const DEFAULT_EMBED_MODEL = 'text-embedding-3-small';
-const DEFAULT_LLM_MODEL = 'gpt-5.6-luna';
+const DEFAULT_LLM_MODEL = 'gpt-6-luna';
+const LEGACY_LUNA_MODEL = 'gpt-5.6-luna';
 const MAX_EMBED_ITEMS = 32;
 const MAX_EMBED_TOTAL_CHARS = 120000;
 const MAX_SOURCES = 12;
@@ -206,6 +207,11 @@ function validateWorkflowSources(sources) {
 }
 
 function allowModel(requested, defaultModel, envKey) {
+  // Desktop 0.2.19 still requests 5.6. Keep model selection server-owned without
+  // changing the wire contract or redirecting embedding/explicit alternate models.
+  if (envKey === 'LLM_MODEL_ALLOWLIST' && requested === LEGACY_LUNA_MODEL) {
+    return defaultModel;
+  }
   const allow = new Set(
     [process.env[envKey], defaultModel]
       .filter(Boolean)

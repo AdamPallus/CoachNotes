@@ -15,6 +15,7 @@ const {
   UPDATE_SECTION_KEYS,
   normalizeClientUpdatePatch
 } = require('./workflow-update-contract');
+const { validateWorkflowEvidence } = require('./_citations');
 
 const workflowPrompts = {
   client_intake_baseline: [
@@ -195,7 +196,8 @@ function workflowSystemPrompt(workflowName, attempt) {
     workflowPrompts[workflowName],
     'The previous attempt could not be accepted by CoachNotes.',
     'Retry by following the requested JSON contract exactly and returning one complete valid JSON object only.',
-    'Do not include markdown, comments, analysis, prose, or trailing text outside the JSON object.'
+    'Do not include markdown, comments, analysis, prose, or trailing text outside the JSON object.',
+    'Use only supplied source IDs. Every new or modified object item in a changed array needs its own evidenceIds; section-level citations alone are insufficient.'
   ].join(' ');
 }
 
@@ -229,12 +231,14 @@ async function createWorkflowResponse({
   prompt,
   maxOutputTokens,
   requestTimeoutMs,
-  attempt
+  attempt,
+  body
 }) {
   const startedAt = Date.now();
   const result = await withTimeout(
     openai.responses.create({
       model,
+      reasoning: { effort: 'medium' },
       max_output_tokens: maxOutputTokens,
       text: {
         format: { type: 'json_object' }
@@ -264,7 +268,11 @@ async function createWorkflowResponse({
   const parsed = parseStructuredOutput(outputText);
   return {
     outputText,
-    structured: workflowName === 'client_note_update' ? normalizeClientUpdatePatch(parsed) : parsed
+    structured: validateWorkflowEvidence(
+      workflowName === 'client_note_update' ? normalizeClientUpdatePatch(parsed) : parsed,
+      body,
+      workflowName
+    )
   };
 }
 
@@ -645,6 +653,7 @@ function renderClientUpdatePrompt(body) {
     '- Keep changed arrays focused. Prefer editing, merging, or appending specific items instead of expanding the section.',
     '- If the new source repeats an existing goal, barrier, action plan, or status theme, update the existing item instead of adding a duplicate.',
     '- Cite new evidence using evidenceIds objects or bracket markers like [source_id].',
+    '- Every new or modified object item inside a sectionUpdates.value array must include its own evidenceIds with the source_id values supporting that item. Section-level evidenceIds do not create clickable citations on individual dashboard items. Preserve the evidenceIds on unchanged items; do not copy unrelated section evidence onto them.',
     '- Do not cite the current baseline as evidence. It is coach context, not a source note.',
     '- Treat coach-entered currentBaseline fields as source of truth. Add new source evidence without erasing coach edits.',
     '- Use the existing baseline source date index to compare new evidence with evidenceIds already attached to dashboard items. The index supplies chronology only; it does not replace source evidence.',
@@ -707,8 +716,8 @@ module.exports = async function workflow(req, res) {
     return;
   }
 
+  const model = allowModel(req.body.model, DEFAULT_LLM_MODEL, 'LLM_MODEL_ALLOWLIST');
   try {
-    const model = allowModel(req.body.model, DEFAULT_LLM_MODEL, 'LLM_MODEL_ALLOWLIST');
     const openai = getOpenAIClient();
     const requestTimeoutMs = getOpenAITimeoutMs();
     const maxOutputTokens = getWorkflowMaxOutputTokens(workflowName);
@@ -722,7 +731,8 @@ module.exports = async function workflow(req, res) {
       workflowName,
       prompt,
       maxOutputTokens,
-      requestTimeoutMs
+      requestTimeoutMs,
+      body: req.body
     });
 
     json(res, 200, {
@@ -738,7 +748,7 @@ module.exports = async function workflow(req, res) {
     console.error('[workflow failed]', {
       errorId,
       workflow: workflowName,
-      model: req.body?.model || DEFAULT_LLM_MODEL,
+      model,
       sourceStats: workflowSourceStats(req.body?.sources),
       baselineStats: workflowBaselineStats(req.body?.currentBaseline),
       durationMs: Date.now() - startedAt,
