@@ -5,6 +5,7 @@ const fsp = require('node:fs/promises');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const Database = require('better-sqlite3');
+const { projectActiveWeeklyReview } = require('./client-archive');
 const {
   applyPartialUpdate,
   extractPartialUpdateResponse
@@ -706,7 +707,7 @@ function ensureClient(name) {
   const key = displayName.toLowerCase();
   db.prepare(
     `INSERT INTO clients (name, display_name, archived, archived_at) VALUES (?, ?, 0, NULL)
-     ON CONFLICT(name) DO UPDATE SET display_name = excluded.display_name, archived = 0, archived_at = NULL`
+     ON CONFLICT(name) DO UPDATE SET display_name = excluded.display_name`
   ).run(key, displayName);
   return db.prepare('SELECT id FROM clients WHERE name = ?').get(key)?.id || null;
 }
@@ -1468,7 +1469,7 @@ function getLatestWeeklyReview() {
      ORDER BY generated_at DESC, id DESC
      LIMIT 1`
   ).get();
-  return parseWeeklyReviewRow(row);
+  return projectActiveWeeklyReview(parseWeeklyReviewRow(row), getAcceptedClientRows().map((client) => client.id));
 }
 
 function weeklyReviewContextHash(context) {
@@ -1494,6 +1495,7 @@ function parseWeeklyReviewDraftRow(row) {
 
 function getWeeklyReviewDraft(context = null) {
   requireDb();
+  context = context || getWeeklyReviewContext();
   const dateKey = context?.currentDate || dateKeyFromDate(currentDate());
   const row = db.prepare(
     `SELECT
@@ -1911,12 +1913,14 @@ function getCoachHome() {
   };
 }
 
-function getClients() {
+function getClients({ includeArchived = false } = {}) {
   requireDb();
   return db.prepare(
     `SELECT
       c.id,
       c.display_name AS name,
+      c.archived,
+      c.archived_at AS archivedAt,
       b.id AS baselineId,
       b.accepted_at AS acceptedAt,
       b.updated_at AS updatedAt,
@@ -1935,9 +1939,9 @@ function getClients() {
        ORDER BY bx.accepted_at DESC, bx.id DESC
        LIMIT 1
      )
-     WHERE COALESCE(c.archived, 0) = 0
+     WHERE (? = 1 OR COALESCE(c.archived, 0) = 0)
      ORDER BY LOWER(c.display_name) ASC`
-  ).all().map((row) => {
+  ).all(includeArchived === true ? 1 : 0).map((row) => {
     const structured = parseJsonObject(row.structuredJson);
     const sourceIds = parseJsonArray(row.sourceIdsJson);
     const flags = Array.isArray(structured.flags) ? structured.flags : [];
@@ -1949,6 +1953,8 @@ function getClients() {
     return {
       id: row.id,
       name: row.name,
+      archived: Boolean(row.archived),
+      archivedAt: row.archivedAt,
       baselineId: row.baselineId,
       acceptedAt: row.acceptedAt,
       updatedAt: row.updatedAt,
@@ -1962,6 +1968,22 @@ function getClients() {
       overdueTaskCount: dueCounts.overdueTaskCount
     };
   });
+}
+
+function setClientArchived(payload) {
+  requireDb();
+  const clientId = Number(payload?.clientId);
+  if (!Number.isSafeInteger(clientId) || clientId <= 0 || typeof payload?.archived !== 'boolean') {
+    throw new Error('A clientId and boolean archived status are required.');
+  }
+  if (weeklyReviewGenerationPromise) {
+    throw new Error('Wait for the weekly review to finish before archiving or restoring a client.');
+  }
+  const result = db.prepare(
+    `UPDATE clients SET archived_at = CASE WHEN archived = ? THEN archived_at ELSE ? END, archived = ? WHERE id = ?`
+  ).run(Number(payload.archived), payload.archived ? nowIso() : null, Number(payload.archived), clientId);
+  if (!result.changes) throw new Error('Client not found.');
+  return getClientDetail({ clientId });
 }
 
 function deleteClient(payload) {
@@ -2720,6 +2742,8 @@ function getClientDetail(payload) {
     `SELECT
       c.id,
       c.display_name AS name,
+      c.archived,
+      c.archived_at AS archivedAt,
       b.id AS baselineId,
       b.status,
       b.model,
@@ -2771,7 +2795,9 @@ function getClientDetail(payload) {
   return {
     client: {
       id: row.id,
-      name: row.name
+      name: row.name,
+      archived: Boolean(row.archived),
+      archivedAt: row.archivedAt
     },
     baseline: row.baselineId ? {
       id: row.baselineId,
@@ -2919,7 +2945,7 @@ function setupIpc() {
       ...getAppSettings(),
       vaultFolder: await ensureVaultRootFolder()
     },
-    clients: getClients(),
+    clients: getClients({ includeArchived: true }),
     coachHome: getCoachHome(),
     weeklyReview: getLatestWeeklyReview(),
     weeklyReviewDraft: weeklyReviewDraftStatus(getWeeklyReviewDraft())
@@ -2958,7 +2984,8 @@ function setupIpc() {
   ipcMain.handle('app:ask-client', async (_event, payload) => askClient(payload || {}));
   ipcMain.handle('app:save-ask-result-as-note', async (_event, payload) => saveAskResultAsNote(payload || {}));
   ipcMain.handle('app:delete-client', async (_event, payload) => deleteClient(payload || {}));
-  ipcMain.handle('app:get-clients', async () => getClients());
+  ipcMain.handle('app:set-client-archived', async (_event, payload) => setClientArchived(payload || {}));
+  ipcMain.handle('app:get-clients', async (_event, payload) => getClients(payload || {}));
   ipcMain.handle('app:get-coach-home', async () => getCoachHome());
   ipcMain.handle('app:get-weekly-review', async () => ({
     review: getLatestWeeklyReview(),

@@ -82,11 +82,19 @@ The date selected by the coach represents the source's place in the client histo
 
 While processing, the original note remains available for retry. If the server cannot finish the update, CoachNotes keeps the entered source in the add-note dialog rather than requiring it to be entered again. After a successful update, the affected sections are highlighted and each changed section retains its normal undo history.
 
+## Archiving and restoring clients
+
+Open a client profile and choose `Archive Client` when they leave or pause coaching. This keeps their profile, raw notes, dashboard, and undo history, but excludes them from active client search, Mission Control, alerts, and weekly reviews. Archiving is local to this installation; it does not delete vault files or change the client's last-updated date.
+
+Choose `Filters` above the client list, then `Archived`, to find them again. Name search and bio-tag filters work within the selected Active or Archived list. Archived profiles still support Ask, adding notes, and editing. Choose `Restore Client` on their profile to include them in active work again. CoachNotes starts with the Active list on each launch.
+
+Saved weekly reviews hide archived clients immediately. If this affects a saved review, its practice-wide summary and patterns are hidden until you regenerate it, while the remaining individual assessments stay readable. The original saved report is not edited by archiving. Archiving/restoring is blocked while a weekly review is running; wait for it to finish first.
+
 ## Creating a weekly client review
 
 Open `Mission Control`, choose `Weekly Review`, and click `Generate Weekly Review`. A new installation shows a blank weekly-review state; demo clients and generated demo reports are never added to packaged builds.
 
-The review assesses every accepted client from their current structured dashboard. It runs in bounded groups, keeps CoachNotes usable while processing, and saves each completed group locally. If generation is interrupted, use `Resume Weekly Review` to continue compatible saved work. The prior successful report remains visible until a complete replacement is ready.
+The review assesses every active accepted client from their current structured dashboard. Archived clients are excluded. It runs in bounded groups, keeps CoachNotes usable while processing, and saves each completed group locally. If generation is interrupted, use `Resume Weekly Review` to continue compatible saved work. Changing archive status invalidates incompatible saved groups. The prior successful report remains visible until a complete replacement is ready.
 
 Clients appear alphabetically by default. Use the grouping control to view the same scrolling report by retention concern, cohort, or curriculum. Retention labels are model-supported coaching judgments, not numeric predictions or final decisions.
 

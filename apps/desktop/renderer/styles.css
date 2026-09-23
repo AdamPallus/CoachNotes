@@ -6122,7 +6122,8 @@ html[data-theme="dark"] .dialog-form h2 {
 }
 
 .rail-filter-toggle {
-  padding: 7px 9px;
+  padding: 7px 6px;
+  letter-spacing: 0;
 }
 
 .compact-sort {
@@ -6147,6 +6148,19 @@ html[data-theme="dark"] .dialog-form h2 {
 .rail-bio-filter > label {
   display: block;
   margin-bottom: 5px;
+}
+
+.client-status-filter {
+  display: flex;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.client-status-filter button {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  letter-spacing: 0;
 }
 
 .rail-bio-combobox {

@@ -25,6 +25,7 @@ const state = {
   clientSearchQuery: '',
   clientProfileTagFilter: '',
   clientSortMode: 'name',
+  clientStatusFilter: 'active',
   theme: 'light',
   navigationHistory: [],
   restoringNavigation: false,
@@ -303,6 +304,7 @@ const els = {
   coachHomeBtn: document.getElementById('coachHomeBtn'),
   clientSearchInput: document.getElementById('clientSearchInput'),
   clientFilterToggle: document.getElementById('clientFilterToggle'),
+  clientStatusButtons: [...document.querySelectorAll('[data-client-status]')],
   clientBioFilter: document.getElementById('clientBioFilter'),
   clientProfileTagFilter: document.getElementById('clientProfileTagFilter'),
   clientProfileTagOptions: document.getElementById('clientProfileTagOptions'),
@@ -343,6 +345,7 @@ const els = {
   askClientBtn: document.getElementById('askClientBtn'),
   addNoteBtn: document.getElementById('addNoteBtn'),
   deleteClientBtn: document.getElementById('deleteClientBtn'),
+  archiveClientBtn: document.getElementById('archiveClientBtn'),
   askDialog: document.getElementById('askDialog'),
   askForm: document.getElementById('askForm'),
   askTitle: document.getElementById('askTitle'),
@@ -634,9 +637,9 @@ function animateClientSurfaceArrival() {
 }
 
 function updateStatusLine() {
-  const clientCount = state.clients.length;
+  const clientCount = state.clients.filter((client) => !client.archived).length;
   const vault = state.settings?.vaultFolder || 'local vault';
-  els.statusLine.textContent = `${clientCount} accepted client${clientCount === 1 ? '' : 's'} • ${vault}`;
+  els.statusLine.textContent = `${clientCount} active client${clientCount === 1 ? '' : 's'} • ${vault}`;
 }
 
 function captureNavigationLocation() {
@@ -2242,6 +2245,7 @@ async function acceptBaseline() {
 function getClientProfileTagOptions() {
   const tags = new Set();
   for (const client of state.clients) {
+    if (Boolean(client.archived) !== (state.clientStatusFilter === 'archived')) continue;
     for (const tag of client.profileTags || []) {
       const normalized = sanitizeName(tag);
       if (normalized) {
@@ -2317,13 +2321,15 @@ function renderClientProfileTagFilter() {
   const optionsWereOpen = !els.clientProfileTagOptions.hidden;
   els.clientProfileTagFilter.placeholder = tags.length ? 'Any bio tag' : 'No bio tags yet';
   renderClientProfileTagOptions({ open: optionsWereOpen });
-  const hasFilter = Boolean(state.clientProfileTagFilter);
+  const hasFilter = Boolean(state.clientProfileTagFilter) || state.clientStatusFilter === 'archived';
   els.clientFilterToggle.classList.toggle('is-active', hasFilter);
-  els.clientFilterToggle.textContent = hasFilter ? 'Bio •' : 'Bio';
-  els.clientFilterToggle.setAttribute('aria-label', hasFilter
-    ? `Bio filter active: ${state.clientProfileTagFilter}`
-    : 'Filter the client index by a bio tag');
-  els.clientFilterToggle.title = hasFilter ? `Filtering by ${state.clientProfileTagFilter}` : 'Filter the client index by a bio tag';
+  els.clientFilterToggle.textContent = 'Filters';
+  const filterLabel = `${state.clientStatusFilter === 'archived' ? 'Archived' : 'Active'} clients${state.clientProfileTagFilter ? `: ${state.clientProfileTagFilter}` : ''}`;
+  els.clientFilterToggle.setAttribute('aria-label', `Filter clients. Showing ${filterLabel}`);
+  els.clientFilterToggle.title = `Showing ${filterLabel}`;
+  els.clientStatusButtons.forEach((button) => {
+    button.setAttribute('aria-pressed', String(button.dataset.clientStatus === state.clientStatusFilter));
+  });
 }
 
 function renderClientSortControl() {
@@ -2338,6 +2344,7 @@ function getFilteredClients() {
   const query = state.clientSearchQuery.toLowerCase();
   const tagQuery = state.clientProfileTagFilter.toLowerCase();
   const filtered = state.clients.filter((client) => {
+    if (Boolean(client.archived) !== (state.clientStatusFilter === 'archived')) return false;
     const matchesSearch = !query || sanitizeName(client.name).toLowerCase().includes(query);
     const matchesProfileTag = !tagQuery
       || (client.profileTags || []).some((tag) => sanitizeName(tag).toLowerCase().includes(tagQuery));
@@ -2372,8 +2379,8 @@ function renderClients() {
   if (!clients.length) {
     els.clientList.innerHTML = `
       <div class="empty-rail">
-        <strong>No clients match.</strong>
-        <span>Clear search or tag filter.</span>
+        <strong>${state.clientSearchQuery || state.clientProfileTagFilter ? 'No clients match.' : state.clientStatusFilter === 'archived' ? 'No archived clients.' : 'No active clients.'}</strong>
+        <span>${state.clientSearchQuery || state.clientProfileTagFilter ? 'Clear search or tag filter.' : state.clientStatusFilter === 'archived' ? 'Archived profiles will appear here.' : 'Choose Archived in Filters to restore a client.'}</span>
       </div>
     `;
     updateStatusLine();
@@ -2396,7 +2403,7 @@ function renderClients() {
       visibleTags.push(`<span>+${clientTags.length - 1}</span>`);
     }
     const tags = visibleTags.join('');
-    const dueTaskCount = Number(client.dueTaskCount || 0);
+    const dueTaskCount = client.archived ? 0 : Number(client.dueTaskCount || 0);
     const overdueTaskCount = Number(client.overdueTaskCount || 0);
     const dueTodayCount = Math.max(0, dueTaskCount - overdueTaskCount);
     const dueAlertLabel = overdueTaskCount && dueTodayCount
@@ -2893,13 +2900,16 @@ function renderWeeklyReviewEmpty() {
       </section>
     `;
   }
+  if (!state.clients.some((client) => !client.archived)) {
+    return '<section class="weekly-review-empty"><h3>No active clients to review.</h3><p>Archived profiles and notes are still available under Filters &gt; Archived.</p></section>';
+  }
   const resume = Boolean(state.weeklyReviewDraft);
   return `
     <section class="weekly-review-empty">
       <span class="weekly-review-empty-mark" aria-hidden="true">W</span>
       <p class="section-kicker">A deliberate weekly pass</p>
       <h3>Turn the current dashboards into a client-by-client briefing.</h3>
-      <p>The review covers every accepted client, highlights likely attention and retention concerns, and preserves uncertainty when the record is thin.</p>
+      <p>The review covers every active client, highlights likely attention and retention concerns, and preserves uncertainty when the record is thin.</p>
       ${resume ? renderWeeklyReviewProgress() : ''}
       <button class="btn btn-primary" type="button" data-generate-weekly-review>${resume ? 'Resume Weekly Review' : 'Generate Weekly Review'}</button>
     </section>
@@ -2960,7 +2970,7 @@ function renderCoachHomeWeeklyReview() {
   const saved = state.weeklyReview;
   const report = saved?.report;
   const reviews = Array.isArray(report?.clientReviews) ? report.clientReviews : [];
-  if (!report || !reviews.length) {
+  if (!report || (!reviews.length && !saved?.excludedClientCount)) {
     return renderWeeklyReviewEmpty();
   }
   const byAttention = new Map();
@@ -2979,7 +2989,7 @@ function renderCoachHomeWeeklyReview() {
         <div>
           <p class="section-kicker">Week of ${escapeHtml(formatDate(saved.weekOf))}</p>
           <h3>Weekly Client Review</h3>
-          <p>${escapeHtml(report.openingSummary || '')}</p>
+          <p>${escapeHtml(saved.excludedClientCount ? 'Only active clients are shown. Regenerate the review to refresh the practice summary.' : report.openingSummary || '')}</p>
         </div>
         <div class="weekly-review-meta">
           <span>Generated ${escapeHtml(formatDate(saved.generatedAt))}</span>
@@ -3034,7 +3044,7 @@ function renderCoachHome() {
         : 'Generate Weekly Review';
   const generateLabelElement = els.generateWeeklyReviewBtn?.querySelector('span');
   if (generateLabelElement) generateLabelElement.textContent = generateLabel;
-  if (els.generateWeeklyReviewBtn) els.generateWeeklyReviewBtn.disabled = state.weeklyReviewLoading;
+  if (els.generateWeeklyReviewBtn) els.generateWeeklyReviewBtn.disabled = state.weeklyReviewLoading || !state.clients.some((client) => !client.archived);
   const tabContent = activeTab === 'weekly'
     ? renderCoachHomeWeeklyReview()
     : activeTab === 'activity'
@@ -3748,7 +3758,8 @@ function renderClientDetail(detail) {
   const sources = detail?.sources || [];
   const sourceLookup = buildSourceLookup(sources);
   els.detailClientName.textContent = detail?.client?.name || 'Client';
-  els.detailMeta.textContent = `${sources.length} raw sources • accepted ${formatDate(detail?.baseline?.acceptedAt) || 'recently'}`;
+  els.detailMeta.textContent = `${detail?.client?.archived ? 'Archived • ' : ''}${sources.length} raw sources • accepted ${formatDate(detail?.baseline?.acceptedAt) || 'recently'}`;
+  els.archiveClientBtn.textContent = detail?.client?.archived ? 'Restore Client' : 'Archive Client';
 
   const tags = dashboard.suggestedTags.length
     ? `<div class="detail-tags">${dashboard.suggestedTags.map((tag) => `<span>${renderEvidenceText(tag, sourceLookup)}</span>`).join('')}</div>`
@@ -4468,6 +4479,7 @@ async function selectClient(clientId, options = {}) {
       state.detailPage = requestedDetailPage;
     }
     state.selectedClientId = normalizedClientId;
+    state.clientStatusFilter = detail.client.archived ? 'archived' : 'active';
     renderClients();
     renderClientDetail(detail);
     setViewMode('detail');
@@ -4495,11 +4507,11 @@ async function loadCoachHome() {
 }
 
 async function generateWeeklyReview() {
-  if (state.weeklyReviewLoading) return;
+  if (state.weeklyReviewLoading || !state.clients.some((client) => !client.archived)) return;
   state.weeklyReviewLoading = true;
   state.weeklyReviewProgress = state.weeklyReviewDraft
     ? { phase: 'assessing', message: 'Resuming saved review groups.', ...state.weeklyReviewDraft }
-    : { phase: 'preparing', message: 'Preparing client groups.', clientCount: state.clients.length };
+    : { phase: 'preparing', message: 'Preparing client groups.', clientCount: state.clients.filter((client) => !client.archived).length };
   state.coachHomeTab = 'weekly';
   renderCoachHome();
   try {
@@ -4524,7 +4536,7 @@ async function generateWeeklyReview() {
 }
 
 async function loadClients() {
-  state.clients = await window.coachNotes.getClients();
+  state.clients = await window.coachNotes.getClients({ includeArchived: true });
   await loadCoachHome();
   if (state.selectedClientId && !state.clients.some((client) => client.id === state.selectedClientId)) {
     state.selectedClientId = null;
@@ -4612,6 +4624,35 @@ async function completeHomePlanningItem(button) {
   } catch (error) {
     renderCoachHome();
     showToast(`Mission Control update failed: ${error.message}`, 'error');
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function toggleSelectedClientArchive() {
+  const client = state.selectedClientDetail?.client;
+  if (!client?.id) return;
+  const archived = !client.archived;
+  if (archived && !window.confirm(`Archive ${client.name}?\n\nTheir profile and notes will be kept. They will be excluded from active search, Mission Control, and weekly reviews. Find them under Filters > Archived to restore them.`)) return;
+  setBusy(true, archived ? 'Archiving client...' : 'Restoring client...');
+  let saved = false;
+  try {
+    const detail = await window.coachNotes.setClientArchived({ clientId: client.id, archived });
+    saved = true;
+    renderClientDetail(detail);
+    // Keep the profile open, but move the list to the matching status so it
+    // remains selected and the restore action is immediately discoverable.
+    state.clientStatusFilter = archived ? 'archived' : 'active';
+    state.clientSearchQuery = '';
+    state.clientProfileTagFilter = '';
+    els.clientSearchInput.value = '';
+    els.clientProfileTagFilter.value = '';
+    els.clientBioFilter.hidden = false;
+    els.clientFilterToggle.setAttribute('aria-expanded', 'true');
+    await loadClients();
+    showToast(`${client.name} ${archived ? 'archived' : 'restored'}.`);
+  } catch (error) {
+    showToast(saved ? 'Client status saved, but the view could not refresh. Reopen CoachNotes.' : error.message, 'error');
   } finally {
     setBusy(false);
   }
@@ -4865,11 +4906,17 @@ async function init() {
     els.clientFilterToggle.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
     els.clientBioFilter.hidden = !nextExpanded;
     if (nextExpanded) {
-      els.clientProfileTagFilter.focus();
-      renderClientProfileTagOptions({ open: true });
+      els.clientStatusButtons.find((button) => button.dataset.clientStatus === state.clientStatusFilter)?.focus();
     } else {
       closeClientProfileTagOptions();
     }
+  });
+  els.clientStatusButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      state.clientStatusFilter = button.dataset.clientStatus;
+      closeClientProfileTagOptions();
+      renderClients();
+    });
   });
   els.clientProfileTagFilter.addEventListener('input', () => {
     window.clearTimeout(clientProfileTagFilterTimer);
@@ -4950,6 +4997,7 @@ async function init() {
   els.askClientBtn.addEventListener('click', openAskDialog);
   els.addNoteBtn.addEventListener('click', openAddNoteDialog);
   els.deleteClientBtn.addEventListener('click', deleteSelectedClient);
+  els.archiveClientBtn.addEventListener('click', toggleSelectedClientArchive);
   els.revealVaultBtn.addEventListener('click', async () => {
     await window.coachNotes.revealVault();
   });

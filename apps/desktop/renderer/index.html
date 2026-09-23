@@ -51,7 +51,7 @@
                 <input id="clientSearchInput" type="search" placeholder="Search" autocomplete="off" />
               </label>
               <button id="clientFilterToggle" class="rail-filter-toggle" type="button" aria-expanded="false" aria-controls="clientBioFilter">
-                Bio
+                Filters
               </button>
               <div class="segmented-control compact-sort" role="group" aria-label="Sort clients">
                 <button type="button" data-client-sort="name" aria-pressed="true" aria-label="Sort alphabetically" title="Alphabetical">
@@ -65,6 +65,10 @@
               </div>
             </div>
             <div id="clientBioFilter" class="rail-filter rail-bio-filter" hidden>
+              <div class="segmented-control client-status-filter" role="group" aria-label="Client status">
+                <button type="button" data-client-status="active" aria-pressed="true">Active</button>
+                <button type="button" data-client-status="archived" aria-pressed="false">Archived</button>
+              </div>
               <label for="clientProfileTagFilter">Bio tag</label>
               <div class="rail-bio-combobox">
                 <input
@@ -218,6 +222,7 @@
               </div>
               <div class="surface-actions">
                 <button id="deleteClientBtn" class="btn btn-danger" type="button">Delete Client</button>
+                <button id="archiveClientBtn" class="btn btn-ghost" type="button">Archive Client</button>
                 <button id="askClientBtn" class="btn btn-ghost" type="button">Ask</button>
                 <button id="addNoteBtn" class="btn btn-primary add-note-button" type="button">
                   <svg class="button-sprout" viewBox="0 0 20 20" aria-hidden="true">

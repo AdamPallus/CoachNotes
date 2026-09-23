@@ -1,6 +1,6 @@
 # Weekly Client Review
 
-The Weekly Client Review is an on-demand Mission Control briefing that helps a coach consider every accepted client deliberately. It complements the deterministic Attention, Activity, and Segments views; it does not replace them.
+The Weekly Client Review is an on-demand Mission Control briefing that helps a coach consider every active accepted client deliberately. Archived clients are excluded from generation and from the displayed saved review. If clients are excluded from a saved report, its aggregate summary and patterns are suppressed until regeneration; individual active-client assessments remain visible and the stored report is unchanged. Resumable drafts must match the current active-client context. Archive/restore actions are blocked during generation so review membership cannot change mid-run. It complements the deterministic Attention, Activity, and Segments views; it does not replace them.
 
 ## Product behavior
 
