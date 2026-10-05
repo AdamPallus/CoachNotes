@@ -5,6 +5,21 @@
 .image-icon { --capture-mask: url('../assets/lucide/image-plus.svg'); }
 .screen-icon { --capture-mask: url('../assets/lucide/scan-line.svg'); }
 .mic-icon { --capture-mask: url('../assets/lucide/mic.svg'); }
+.dictation-field { position: relative; min-width: 0; width: 100%; }
+.dictation-field.dictation-enabled > textarea { padding-right: 48px; min-height: 54px; box-sizing: border-box; width: 100%; }
+.dictation-button { position: absolute; right: 9px; bottom: 10px; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 50%; color: var(--muted); background: var(--paper-muted); cursor: pointer; }
+.dictation-button:hover:not(:disabled), .dictation-button:focus-visible { color: var(--moss); border-color: var(--moss); }
+.dictation-button[aria-pressed="true"] { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }
+.dictation-button[aria-pressed="true"] .mic-icon { mask: none; width: 10px; height: 10px; flex-basis: 10px; border-radius: 2px; }
+.dictation-button:disabled { opacity: 0.45; cursor: default; }
+.dictation-feedback:empty { display: none; }
+.dictation-meter { display: flex; align-items: center; gap: 10px; min-height: 30px; color: var(--ink); font-size: 12px; font-variant-numeric: tabular-nums; }
+.dictation-bars { display: flex; align-items: center; gap: 3px; height: 20px; }
+.dictation-bars i { display: block; width: 3px; height: 3px; border-radius: 2px; background: var(--moss); }
+.dictation-status { padding: 6px 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.dictation-status.dictation-error { color: var(--danger); }
+.dictation-recovery { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0; }
+.dictation-button[hidden], .dictation-meter[hidden], .dictation-status[hidden], .dictation-recovery[hidden] { display: none; }
 .capture-toolbar { justify-content: space-between; }
 .recording-status { display: flex; align-items: center; gap: 12px; min-height: 40px; color: var(--ink); font-variant-numeric: tabular-nums; }
 .recording-status[hidden] { display: none; }

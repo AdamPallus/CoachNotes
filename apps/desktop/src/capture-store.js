@@ -23,6 +23,7 @@ function createCaptureStore({ app, nativeImage, dialog, getWindow, callProxy, ip
     fs.renameSync(`${destination}.tmp`, destination);
   };
   const describe = (record) => ({ id: record.id, kind: record.kind, name: record.name,
+    targetKey: record.targetKey || '', targetField: record.targetField || '',
     text: record.text || '', mimeType: record.mimeType,
     preview: record.kind === 'image' ? nativeImage.createFromPath(file(record.id, 'bin')).resize({ width: 260 }).toDataURL() : '' });
   function imageFromBuffer(bytes, name) {
@@ -96,10 +97,11 @@ function createCaptureStore({ app, nativeImage, dialog, getWindow, callProxy, ip
       if (!window.isDestroyed()) { window.show(); window.focus(); }
     }
   });
-  ipcMain.handle('app:begin-recording', (_event, { mimeType }) => {
+  ipcMain.handle('app:begin-recording', (_event, { mimeType, targetKey = '', targetField = '' }) => {
     if (active.size) throw new Error('A recording is already running.');
     if (!['audio/webm', 'audio/mp4'].includes(mimeType)) throw new Error('Unsupported audio format.');
-    const record = { id: crypto.randomUUID(), kind: 'audio', name: 'Dictated note', mimeType };
+    if (typeof targetKey !== 'string' || targetKey.length > 300 || !['', 'noteTextInput', 'noteAnnotationInput'].includes(targetField)) throw new Error('Invalid dictation target.');
+    const record = { id: crypto.randomUUID(), kind: 'audio', name: targetField === 'noteAnnotationInput' ? 'Dictated annotation' : 'Dictation', mimeType, targetKey, targetField };
     fs.writeFileSync(file(record.id, 'bin'), Buffer.alloc(0), { mode: 0o600 });
     write(record);
     active.set(record.id, { bytes: 0, timer: setTimeout(() => stopRecording(record.id, true), RECORDING_LIMIT_MS) });
@@ -122,6 +124,13 @@ function createCaptureStore({ app, nativeImage, dialog, getWindow, callProxy, ip
   });
   ipcMain.handle('app:process-capture', (_event, { id }) => processCapture(id));
   ipcMain.handle('app:get-capture', (_event, { id }) => describe(read(id)));
+  ipcMain.handle('app:list-dictations', (_event, { targetKey }) => {
+    if (typeof targetKey !== 'string' || !targetKey || targetKey.length > 300) throw new Error('Invalid dictation target.');
+    return fs.readdirSync(root).filter((name) => /^[a-f0-9-]{36}\.json$/.test(name)).flatMap((name) => {
+      try { const record = read(name.slice(0, -5)); return record.kind === 'audio' && record.targetKey === targetKey ? [describe(record)] : []; }
+      catch { return []; }
+    });
+  });
   function discard(ids) {
     for (const id of ids || []) {
       if (active.has(id)) throw new Error('Stop recording first.');

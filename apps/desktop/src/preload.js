@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('coachNotes', {
   captureNoteImage: () => ipcRenderer.invoke('app:capture-note-image'),
   microphonePermission: () => ipcRenderer.invoke('app:microphone-permission'),
   beginRecording: (payload) => ipcRenderer.invoke('app:begin-recording', payload),
+  listDictations: (payload) => ipcRenderer.invoke('app:list-dictations', payload),
   appendRecording: (payload) => ipcRenderer.invoke('app:append-recording', payload),
   endRecording: (payload) => ipcRenderer.invoke('app:end-recording', payload),
   processCapture: (payload) => ipcRenderer.invoke('app:process-capture', payload),

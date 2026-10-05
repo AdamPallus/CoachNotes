@@ -469,11 +469,9 @@
         <div class="note-dialog-actions">
           <button id="attachNoteImagesBtn" class="btn btn-ghost" type="button" title="Attach images"><span class="capture-icon image-icon" aria-hidden="true"></span>Images</button>
           <button id="captureNoteImageBtn" class="btn btn-ghost" type="button" title="Capture a screen region"><span class="capture-icon screen-icon" aria-hidden="true"></span>Screenshot</button>
-          <button id="dictateNoteBtn" class="btn btn-ghost" type="button" title="Record a note (up to 5 minutes)" aria-pressed="false"><span class="capture-icon mic-icon" aria-hidden="true"></span><span id="dictateNoteLabel">Dictate</span></button>
           <button id="importNoteFilesBtn" class="btn btn-ghost" type="button">Import Files</button>
           <button id="clearNoteSourcesBtn" class="btn btn-subtle" type="button">Clear Sources</button>
         </div>
-        <div id="recordingStatus" class="recording-status" role="status" hidden><span class="recording-light"></span><span id="recordingTime">0:00 / 5:00</span><canvas id="recordingWaveform" width="180" height="32" aria-hidden="true"></canvas></div>
         <p id="captureStatus" class="muted" role="status" hidden></p>
         <div id="noteCaptureList" class="note-capture-list"></div>
         <div id="noteSourceList" class="source-list"></div>
@@ -553,7 +551,9 @@
       </div>
     </dialog>
     <script src="./app.js"></script>
+    <script src="./audio-recorder.js"></script>
     <script src="./capture.js"></script>
+    <script src="./dictation.js"></script>
     <script src="./wrapup.js"></script>
   </body>
 </html>

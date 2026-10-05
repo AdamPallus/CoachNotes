@@ -2199,7 +2199,7 @@ function renderBaselineReview(result) {
     label.className = 'baseline-field';
     label.innerHTML = `
       <span>${escapeHtml(section.label)}</span>
-      <textarea rows="${section.rows}" data-key="${escapeHtml(section.key)}" data-type="${escapeHtml(section.type)}">${escapeHtml(formatValue(structured[section.key], section.type))}</textarea>
+      <textarea rows="${section.rows}" ${section.type === 'text' ? `data-dictation="intake-${escapeHtml(section.key)}"` : ''} data-key="${escapeHtml(section.key)}" data-type="${escapeHtml(section.type)}">${escapeHtml(formatValue(structured[section.key], section.type))}</textarea>
     `;
     els.baselineFields.appendChild(label);
   }
@@ -3392,6 +3392,15 @@ function renderSelectOptions(options, selectedValue) {
   `).join('');
 }
 
+function dictationItemKey(sectionKey, normalized) {
+  // A pending recording must not follow an array index onto a different task after sorting.
+  let hash = 14695981039346656037n;
+  for (const character of JSON.stringify([normalized.title, normalized.detail])) {
+    hash = BigInt.asUintN(64, (hash ^ BigInt(character.codePointAt(0))) * 1099511628211n);
+  }
+  return `${sectionKey}-${hash.toString(16)}`;
+}
+
 function renderPlanningControls(sectionKey, itemIndex, normalized) {
   return `
     <details class="item-planning-menu">
@@ -3403,7 +3412,7 @@ function renderPlanningControls(sectionKey, itemIndex, normalized) {
         </label>
         <label class="planning-copy-field planning-details-field">
           <span>Details</span>
-          <textarea rows="3" data-planning-input="details">${escapeHtml(normalized.detail || '')}</textarea>
+          <textarea rows="3" data-dictation="planning-${dictationItemKey(sectionKey, normalized)}" data-planning-input="details">${escapeHtml(normalized.detail || '')}</textarea>
         </label>
         <label>
           <span>Priority</span>
@@ -3468,7 +3477,7 @@ function renderRadarControls(sectionKey, itemIndex, normalized) {
         </label>
         <label class="radar-copy-field">
           <span>Why it matters right now</span>
-          <textarea rows="3" data-radar-input="details">${escapeHtml(normalized.detail || '')}</textarea>
+          <textarea rows="3" data-dictation="radar-${dictationItemKey(sectionKey, normalized)}" data-radar-input="details">${escapeHtml(normalized.detail || '')}</textarea>
         </label>
         <label class="radar-date-field">
           <span>Keep through</span>
@@ -3981,6 +3990,7 @@ function openEditSection(sectionKey) {
   const structured = state.selectedClientDetail?.baseline?.structured || {};
   const dashboard = buildDashboardModel(structured);
   state.editSectionKey = sectionKey;
+  els.editSectionInput.dataset.dictation = config.type === 'text' ? `section-${sectionKey}` : '';
   els.editSectionTitle.textContent = `Edit ${config.label}`;
   els.editSectionHelp.textContent = config.type === 'text'
     ? 'Edit this dashboard text directly. This coach edit becomes part of the client profile and can be undone.'

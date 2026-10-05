@@ -58,3 +58,27 @@ test('audio limits and identifiers are enforced before processing', t => {
   assert.throws(() => f.invoke('append-recording', { id: recording.id, bytes: Buffer.alloc(MAX_BYTES + 1) }), /limit/);
   f.invoke('end-recording', { id: recording.id });
 });
+
+test('field recordings are recoverable only for their client and field', async t => {
+  const f = fixture(t);
+  const key = 'dictation:v1:client:1:askPromptInput';
+  const recording = f.invoke('begin-recording', { mimeType: 'audio/webm', targetKey: key });
+  f.invoke('append-recording', { id: recording.id, bytes: [1, 2, 3] });
+  f.invoke('end-recording', { id: recording.id });
+  assert.equal(f.invoke('list-dictations', { targetKey: key })[0].id, recording.id);
+  assert.deepEqual(f.invoke('list-dictations', { targetKey: 'dictation:v1:client:2:askPromptInput' }), []);
+  assert.deepEqual(f.invoke('list-dictations', { targetKey: 'dictation:v1:client:1:askFollowupInput' }), []);
+  await f.store.processCapture(recording.id);
+  assert.equal(f.invoke('list-dictations', { targetKey: key })[0].text, 'Recorded note.');
+  assert.throws(() => f.invoke('list-dictations', { targetKey: '' }), /Invalid/);
+  assert.throws(() => f.invoke('begin-recording', { mimeType: 'audio/webm', targetField: 'unknown' }), /Invalid/);
+  assert.throws(() => f.invoke('begin-recording', { mimeType: 'audio/webm', targetKey: 'x'.repeat(301) }), /Invalid/);
+});
+
+test('annotation recordings preserve the intended note field', t => {
+  const f = fixture(t);
+  const entry = f.invoke('begin-recording', { mimeType: 'audio/webm', targetField: 'noteAnnotationInput' });
+  f.invoke('end-recording', { id: entry.id });
+  assert.equal(f.invoke('get-capture', { id: entry.id }).targetField, 'noteAnnotationInput');
+  assert.equal(entry.name, 'Dictated annotation');
+});

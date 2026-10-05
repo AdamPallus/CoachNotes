@@ -16,9 +16,11 @@ const calls = [];
 let failUpdate = true;
 let failAudio = true;
 let failAsk = true;
+let audioDelay = 0;
 const server = http.createServer(async (req, res) => {
   let text = ''; for await (const chunk of req) text += chunk;
   const body = JSON.parse(text); calls.push({ endpoint: req.url, body });
+  if (req.url === '/capture' && body.kind === 'audio' && audioDelay) await new Promise(resolve => setTimeout(resolve, audioDelay));
   res.setHeader('Content-Type', 'application/json');
   if (req.url === '/answer' && failAsk) {
     failAsk = false; res.statusCode = 502;
@@ -95,6 +97,17 @@ try {
   await client.evaluate(`(async () => {
     await submitAsk({ preventDefault() {} });
     check(state.askResult.followUpsRemaining === 5, 'Five followups available');
+    document.getElementById('askFollowupInput').value = 'Please refine.';
+    fieldDictation.refresh();
+    await new Promise(resolve => setTimeout(resolve, 150));
+    document.querySelector('[data-dictation-for="askFollowupInput"]').click();
+  })()`);
+  await pause(1500);
+  await client.evaluate(`(async () => {
+    await dictationRecorder.stop(true);
+    check(document.getElementById('askFollowupInput').value.includes('A dictated coaching note.'), 'Follow-up dictation fills the right field');
+    check(els.askPromptInput.value === 'Give me three questions', 'Follow-up dictation leaves original question unchanged');
+    check(state.askTurns.length === 1, 'Dictation does not submit a follow-up');
     document.getElementById('askFollowupInput').value = 'Make them shorter';
     await submitAsk({ preventDefault() {} }, true);
     check(state.askTurns.length === 2 && document.querySelectorAll('.ask-turn').length === 2, 'Followup history displayed');
@@ -199,14 +212,14 @@ try {
   await screenshot('wrapup-complete');
   await client.evaluate(`(async () => {
     document.getElementById('wrapupDialog').close(); await openAddNoteDialog();
-    document.getElementById('dictateNoteBtn').click();
+    document.querySelector('[data-dictation-for="noteTextInput"]').click();
   })()`);
   await pause(2200);
-  await client.evaluate(`check(document.getElementById('dictateNoteBtn').getAttribute('aria-pressed') === 'true', 'Recording started'); check(els.updateNoteSubmitBtn.disabled, 'Cannot submit during recording');`);
+  await client.evaluate(`check(document.querySelector('[data-dictation-for="noteTextInput"]').getAttribute('aria-pressed') === 'true', 'Recording started'); check(els.updateNoteSubmitBtn.disabled, 'Cannot submit during recording');`);
   await screenshot('recording');
   // Simulate a failed transcription independently of the earlier workflow failure.
   failAudio = true;
-  await client.evaluate(`(async () => { await noteCapture.stop(true); check(document.querySelector('[data-transcribe]'), 'Audio preserved after transcription failure'); check(!document.getElementById('recordingStatus').hidden === false, 'Recording stopped'); })()`);
+  await client.evaluate(`(async () => { await noteCapture.stop(true); check(document.querySelector('[data-transcribe]'), 'Audio preserved after transcription failure'); check(!dictationRecorder.active, 'Recording stopped'); })()`);
   await client.evaluate(`document.querySelector('[data-transcribe]').click();`);
   await pause(600);
   await client.evaluate(`(async () => {
@@ -216,6 +229,119 @@ try {
   })()`);
   await client.call('Page.reload'); await pause(800);
   await client.evaluate(`(async () => { await selectClient(state.clients[0].id); await openAddNoteDialog(); if (!els.noteTextInput.value.includes('A dictated coaching note.')) throw new Error('Draft survives renderer restart'); })()`);
+  await client.evaluate(`window.check = (condition, message) => { if (!condition) throw new Error(message); }; window.noteBefore = els.noteTextInput.value; document.querySelector('[data-dictation-for="noteAnnotationInput"]').click();`);
+  await pause(1500);
+  await client.evaluate(`(async () => {
+    await dictationRecorder.stop(true);
+    check(els.noteAnnotationInput.value.includes('A dictated coaching note.'), 'Annotation dictation fills annotation');
+    check(els.noteTextInput.value === window.noteBefore, 'Annotation dictation leaves note text unchanged');
+    els.addNoteDialog.close(); openAskDialog(); fieldDictation.refresh();
+    await new Promise(resolve => setTimeout(resolve, 150));
+    check(!document.querySelector('[data-dictation-for="baselineJsonInput"]'), 'Raw JSON has no microphone');
+    els.askPromptInput.value = 'Keep my typed question.';
+    document.querySelector('[data-dictation-for="askPromptInput"]').click();
+  })()`);
+  await pause(1500);
+  await client.evaluate(`check(els.askSubmitBtn.disabled, 'ASK disabled during recording'); check(document.querySelector('[data-dictation-for="askFollowupInput"]').disabled, 'Only one microphone owner');`);
+  await screenshot('ask-dictation');
+  await client.evaluate(`(async () => {
+    els.askPromptInput.value += ' And this edit.';
+    await dictationRecorder.stop(true);
+    check(els.askPromptInput.value === 'Keep my typed question. And this edit. A dictated coaching note.', 'Typed edits preserved and transcript appended');
+    check(!els.askSubmitBtn.disabled && !dictationRecorder.active, 'ASK ready after transcription');
+    check(state.askTurns.length === 0, 'Dictation never sends question');
+    document.querySelector('[data-dictation-for="askPromptInput"]').click();
+  })()`);
+  await pause(1500);
+  failAudio = true;
+  await client.evaluate(`(async () => {
+    await dictationRecorder.stop(true);
+    check(!els.askPromptInput.closest('label').querySelector('.dictation-recovery').hidden, 'Failed ASK recording offers retry');
+    els.askDialog.close();
+  })()`);
+  await client.call('Page.reload'); await pause(800);
+  await client.evaluate(`(async () => {
+    window.check = (condition, message) => { if (!condition) throw new Error(message); };
+    await selectClient(state.clients[0].id); openAskDialog(); fieldDictation.refresh();
+    await new Promise(resolve => setTimeout(resolve, 150));
+    check(!els.askPromptInput.closest('label').querySelector('.dictation-recovery').hidden, 'ASK audio survives renderer reload');
+    els.askPromptInput.maxLength = 5;
+    els.askPromptInput.closest('label').querySelector('.dictation-recovery button').click();
+    await new Promise(resolve => setTimeout(resolve, 350));
+    check(els.askPromptInput.value === '', 'Long transcript not silently truncated');
+    check(els.askPromptInput.closest('label').textContent.includes('too long'), 'Length limit explained');
+    els.askPromptInput.removeAttribute('maxlength');
+    els.askPromptInput.closest('label').querySelector('.dictation-recovery button').click();
+    await new Promise(resolve => setTimeout(resolve, 250));
+    check(els.askPromptInput.value.includes('A dictated coaching note.'), 'Recovered ASK recording transcribes');
+    document.querySelector('[data-dictation-for="askPromptInput"]').click();
+  })()`);
+  await pause(1500);
+  audioDelay = 800;
+  await client.evaluate(`void (window.stoppingDictation = dictationRecorder.stop(true));`);
+  await pause(150);
+  await client.evaluate(`(async () => {
+    window.originalDictationClient = state.selectedClientId;
+    els.askDialog.close(); await selectClient(state.clients[1].id); openAskDialog();
+    await window.stoppingDictation; await new Promise(resolve => setTimeout(resolve, 100));
+    check(els.askPromptInput.value === '', 'Late transcript never enters another client question');
+    check(els.askPromptInput.closest('label').querySelector('.dictation-recovery').hidden, 'Other client cannot see pending audio');
+    els.askDialog.close(); await selectClient(window.originalDictationClient); openAskDialog();
+    await new Promise(resolve => setTimeout(resolve, 150));
+    check(!els.askPromptInput.closest('label').querySelector('.dictation-recovery').hidden, 'Original client can recover late transcript');
+    els.askPromptInput.closest('label').querySelector('.dictation-recovery button').click();
+    await new Promise(resolve => setTimeout(resolve, 200));
+    document.querySelector('[data-dictation-for="askPromptInput"]').click();
+  })()`);
+  audioDelay = 0;
+  await pause(1500);
+  await client.evaluate(`(async () => {
+    els.askDialog.close(); await new Promise(resolve => setTimeout(resolve, 250));
+    check(!dictationRecorder.active, 'Closing ASK releases microphone');
+    openAskDialog(); await new Promise(resolve => setTimeout(resolve, 150));
+    check(!els.askPromptInput.closest('label').querySelector('.dictation-recovery').hidden, 'Closing ASK keeps unfinished audio');
+    els.askPromptInput.closest('label').querySelector('.dictation-recovery button:last-child').click();
+    await new Promise(resolve => setTimeout(resolve, 150));
+    check(els.askPromptInput.closest('label').querySelector('.dictation-recovery').hidden, 'Explicit discard removes pending recording');
+    els.askDialog.close(); openAddTodoDialog(); fieldDictation.refresh();
+    await new Promise(resolve => setTimeout(resolve, 150));
+    document.querySelector('[data-dictation-for="todoDetailsInput"]').click();
+  })()`);
+  await pause(1500);
+  await client.evaluate(`(async () => {
+    await dictationRecorder.stop(true);
+    check(document.getElementById('todoDetailsInput').value.includes('A dictated coaching note.'), 'To-do details support editable dictation');
+    check(els.addTodoDialog.open, 'To-do dictation never saves automatically');
+    els.addTodoDialog.close(); openSettings(); fieldDictation.refresh();
+    for (const id of ['coachApproachInput', 'messageStyleInput', 'curriculumNotesInput']) check(document.querySelector('[data-dictation-for="' + id + '"]'), 'Coaching guidance microphone: ' + id);
+  })()`);
+  await screenshot('settings-dictation');
+  await client.evaluate(`(async () => {
+    els.settingsDialog.close(); openEditSection('overview'); fieldDictation.refresh();
+    check(!document.querySelector('[data-dictation-for="editSectionInput"]').hidden, 'Narrative profile editor has microphone');
+    els.editSectionDialog.close(); openEditSection('coachTasks'); fieldDictation.refresh();
+    check(document.querySelector('[data-dictation-for="editSectionInput"]').hidden, 'Format-sensitive list editor has no microphone');
+    els.editSectionDialog.close();
+    state.detailPage = 'goals'; renderClientDetail(state.selectedClientDetail); setViewMode('detail');
+    const menu = document.querySelector('.item-planning-menu'); menu.open = true; fieldDictation.refresh();
+    await new Promise(resolve => setTimeout(resolve, 150));
+    window.planningField = menu.querySelector('textarea'); window.planningBefore = window.planningField.value;
+    check(menu.querySelector('.dictation-button'), 'Dynamic task editor has microphone');
+    menu.querySelector('.dictation-button').click();
+  })()`);
+  await pause(1500);
+  await client.evaluate(`(async () => {
+    check(window.planningField.closest('.item-planning-controls').querySelector('.save-planning-item').disabled, 'Task save waits for transcription');
+    await dictationRecorder.stop(true);
+    check(window.planningField.value.includes('A dictated coaching note.'), 'Dynamic task detail dictation');
+    check(!window.planningField.closest('.item-planning-controls').querySelector('.save-planning-item').disabled, 'Task save re-enabled');
+    window.planningField.scrollIntoView({block:'center'});
+  })()`);
+  await screenshot('planning-dictation');
+  await client.evaluate(`(() => {
+    setViewMode('intake'); fieldDictation.refresh();
+    check(document.querySelector('[data-dictation-for="sourceTextInput"]') && document.querySelector('[data-dictation-for="coachNoteInput"]'), 'Onboarding prose fields have microphones');
+  })()`);
   const asks = calls.filter(c => c.endpoint === '/answer');
   assert.equal(asks.length, 7);
   assert.deepEqual(asks[1].body.sources, asks[6].body.sources);
