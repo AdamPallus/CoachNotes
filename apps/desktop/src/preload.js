@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('coachNotes', {
   getNoteDraft: (payload) => ipcRenderer.invoke('app:get-note-draft', payload),
   saveNoteDraft: (payload) => ipcRenderer.invoke('app:save-note-draft', payload),
   getWrapup: (payload) => ipcRenderer.invoke('app:get-wrapup', payload),
+  addWrapupTask: (payload) => ipcRenderer.invoke('app:add-wrapup-task', payload),
   saveWrapup: (payload) => ipcRenderer.invoke('app:save-wrapup', payload),
   selectNoteImages: () => ipcRenderer.invoke('app:select-note-images'),
   pasteNoteImage: (payload) => ipcRenderer.invoke('app:paste-note-image', payload),

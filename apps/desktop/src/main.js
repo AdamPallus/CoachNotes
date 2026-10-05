@@ -3057,7 +3057,12 @@ app.whenReady().then(async () => {
   await ensureVaultRootFolder();
   setupIpc();
   captureStore = createCaptureStore({ app, nativeImage, dialog, ipcMain, powerMonitor, getWindow: () => mainWindow, callProxy });
-  noteWorkspace = createNoteWorkspace({ db, ipcMain, getClients: () => getClients() });
+  noteWorkspace = createNoteWorkspace({ db, ipcMain, getClients: () => getClients(), addCoachTask(clientId, task) {
+    const row = getAcceptedBaselineRow(clientId);
+    if (!row) throw new Error('Accepted client baseline not found.');
+    const tasks = parseJsonObject(row.structuredJson).coachTasks;
+    updateClientSection({ clientId, sectionKey: 'coachTasks', value: [...(Array.isArray(tasks) ? tasks : []), task] });
+  } });
   ipcMain.handle('app:microphone-permission', async () => (!app.isPackaged && process.env.COACHNOTES_VISUAL_FIXTURE === '1') || process.platform !== 'darwin' || systemPreferences.askForMediaAccess('microphone'));
   ipcMain.handle('app:open-note-attachment', async (_event, { sourceId, index }) => {
     const row = db.prepare('SELECT metadata_json FROM intake_sources WHERE id=?').get(Number(sourceId));

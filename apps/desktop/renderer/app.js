@@ -4417,6 +4417,7 @@ async function submitAddTodo(event) {
 
 async function submitAddedNote(event) {
   event.preventDefault();
+  if (dailyWrapup.navigating) return;
   if (state.noteRetryBlocked) {
     showToast('Reopen the client before retrying this note to avoid a duplicate.', 'error');
     return;
@@ -5279,7 +5280,10 @@ async function init() {
   els.copyAskResultBtn.addEventListener('click', copyAskResult);
   els.saveAskResultBtn.addEventListener('click', saveAskResultAsNote);
   els.addNoteForm.addEventListener('submit', submitAddedNote);
-  els.cancelAddNoteBtn.addEventListener('click', () => els.addNoteDialog.close());
+  els.cancelAddNoteBtn.addEventListener('click', () => {
+    if (dailyWrapup.activeDay) dailyWrapup.saveDraftAndNext().catch((error) => showNoteError(error.message));
+    else els.addNoteDialog.close();
+  });
   els.saveNoteTitlePresetBtn.addEventListener('click', saveNoteTitlePreset);
   els.saveNoteAnnotationPresetBtn.addEventListener('click', saveNoteAnnotationPreset);
   els.noteTitlePresetList.addEventListener('click', (event) => {

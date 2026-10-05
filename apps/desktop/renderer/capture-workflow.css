@@ -38,3 +38,16 @@
 .wrapup-complete { padding: 28px 0; }
 .wrapup-complete h3 { font-size: 24px; color: var(--moss); }
 .client-weekly-review > .weekly-review-client { margin-top: 16px; }
+.wrapup-followup { border-top: 1px solid var(--line); margin: 20px 0 12px; padding-top: 16px; }
+.wrapup-followup > input { width: 100%; min-width: 0; }
+.wrapup-task-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.wrapup-task-controls label { width: 170px; max-width: 100%; }
+.wrapup-task-controls input { width: 100%; min-width: 0; }
+.wrapup-task-status { color: var(--moss); overflow-wrap: anywhere; margin-bottom: 0; }
+.wrapup-draft-status { color: var(--muted); font-size: 13px; }
+.wrapup-footer, #wrapupActions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.wrapup-footer { justify-content: space-between; }
+.wrapup-footer .btn { white-space: normal; }
+.wrapup-pending { padding-left: 20px; }
+.wrapup-pending li { margin: 12px 0; overflow-wrap: anywhere; }
+.wrapup-pending span { display: block; color: var(--muted); font-size: 13px; }

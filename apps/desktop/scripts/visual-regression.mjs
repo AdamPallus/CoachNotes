@@ -28,6 +28,7 @@ const screens = [
   { name: 'client-snapshot', prepare: 'client' },
   { name: 'add-note', prepare: 'add-note' },
   { name: 'daily-wrapup', prepare: 'wrapup' },
+  { name: 'daily-wrapup-step', prepare: 'wrapup-step' },
   { name: 'client-weekly-context', prepare: 'client-weekly' },
   { name: 'ask', prepare: 'ask' },
   { name: 'onboarding', prepare: 'onboarding' },
@@ -165,6 +166,10 @@ async function prepareScreen(client, screen, theme) {
       await selectClient(state.clients[0].id, { recordHistory: false, detailPage: 'snapshot' });
       document.activeElement?.blur();
     } else if (prepare === 'wrapup') {
+      await dailyWrapup.open();
+      document.activeElement?.blur();
+    } else if (prepare === 'wrapup-step') {
+      await window.coachNotes.saveWrapup({ day: ${JSON.stringify(visualDate)}, progress: { selected: [state.clients[0].id], done: {}, started: true } });
       await dailyWrapup.open();
       document.activeElement?.blur();
     } else if (prepare === 'client-weekly') {
