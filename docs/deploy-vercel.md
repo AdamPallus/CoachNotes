@@ -103,6 +103,8 @@ In CoachNotes desktop Settings:
 
 ## Workflow limits and diagnostics
 
+Release 0.2.21 adds `/capture` (authenticated JSON, maximum 2 MiB decoded media) and optional alternating `history` messages to `/answer`. The desktop sends compressed recordings after recording stops, not a live audio connection. See [capture and wrap-up](capture-and-wrapup.md) for validation and deployment boundaries. This route uses the existing OpenAI key; no new secrets are required.
+
 Note updates use a compact partial-update response contract. Defaults are built into the proxy:
 
 - `WORKFLOW_UPDATE_MAX_OUTPUT_TOKENS`: `9000`

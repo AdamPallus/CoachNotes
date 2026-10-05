@@ -1,6 +1,6 @@
 {
   "name": "coachnotes-desktop",
-  "version": "0.2.20",
+  "version": "0.2.21",
   "private": true,
   "description": "CoachNotes desktop app for health coach client notes",
   "author": "Adam Pallus",
@@ -8,10 +8,11 @@
   "scripts": {
     "dev": "electron .",
     "start": "electron .",
-    "lint": "node --check src/main.js src/preload.js src/timeline.js src/workflow-update.js src/weekly-review.js renderer/app.js scripts/style-contract.mjs scripts/visual-fixture.js scripts/visual-regression.mjs scripts/weekly-review-fixture.js scripts/seed-weekly-review-fixture.js scripts/evaluate-weekly-review.js && npm run style:check",
+    "lint": "node ../../scripts/check-javascript.mjs src renderer scripts test && npm run style:check",
     "test": "node --test test/*.test.js",
     "style:check": "node scripts/style-contract.mjs",
     "visual:check": "node scripts/visual-regression.mjs",
+    "test:capture": "node scripts/capture-smoke.mjs",
     "visual:update": "node scripts/visual-regression.mjs --update",
     "fixture:weekly": "electron scripts/seed-weekly-review-fixture.js",
     "evaluate:weekly": "electron scripts/evaluate-weekly-review.js",
@@ -39,6 +40,9 @@
       "category": "public.app-category.healthcare-fitness",
       "artifactName": "CoachNotes-${version}-${arch}.${ext}",
       "hardenedRuntime": false,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Record a coach note when you press the microphone button. Recording stops after five minutes."
+      },
       "gatekeeperAssess": false,
       "target": [
         {

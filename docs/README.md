@@ -8,8 +8,11 @@
 - [Desktop release](release-desktop.md): validation, GitHub artifacts, and coordinated proxy/desktop releases.
 - [Weekly client review](weekly-client-review.md): product behavior, data boundary, judgment rubric, and evaluation commands.
 - [0.2.20 release notes](releases/v0.2.20.md): archive and restore clients.
+- [0.2.21 release notes](releases/v0.2.21.md): daily wrap-up, images, dictation, client weekly context, and ASK follow-ups.
+- [Capture and daily wrap-up](capture-and-wrapup.md): implementation details, recovery, and validation.
 
 ## Future work
+
 
 - [Hierarchical summary plan](hierarchical-summary-plan.md): possible future portfolio-scale summary architecture.
 

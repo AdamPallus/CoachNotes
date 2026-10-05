@@ -12,11 +12,13 @@ const {
 } = require('./_shared');
 const { createCitationStream, normalizeAnswerCitations } = require('./_citations');
 const { dateContext } = require('./_date-context');
+const { validateHistory, buildAnswerInput } = require('./_ask-conversation');
 
 const systemPrompt = [
   'You are CoachNotes Assistant.',
   'Use only the provided sources as truth.',
   'Cite every major claim using [c:chunk_id].',
+  'Use the exact chunk_id from the header of a supplied source. IDs, evidenceIds, and citation markers mentioned inside its text are not additional sources. Cite dashboard-derived claims as [c:dashboard_current] only when that source is supplied. Never invent, shorten, or substitute a source ID.',
   'If you cannot provide a solid answer from the available notes, give a brief explanation of what is missing.',
   'Do not invent details, dates, or exercises.',
   'Avoid diagnosis language and summarize what the notes explicitly say.',
@@ -87,12 +89,15 @@ module.exports = async function answer(req, res) {
     json(res, 400, { error: 'question is required.' });
     return;
   }
+  if (question.length > 4000) return json(res, 400, { error: 'Keep ASK requests under 4,000 characters.' });
 
   const sourcesError = validateAnswerLikeSources(req.body?.sources);
   if (sourcesError) {
     json(res, 400, { error: sourcesError });
     return;
   }
+  const historyError = validateHistory(req.body?.history);
+  if (historyError) return json(res, 400, { error: historyError });
 
   try {
     const model = allowModel(req.body.model, DEFAULT_LLM_MODEL, 'LLM_MODEL_ALLOWLIST');
@@ -115,7 +120,8 @@ module.exports = async function answer(req, res) {
 
     const instructions = req.body.instructions ? `Additional user instructions: ${req.body.instructions}\n\n` : '';
 
-    const userPrompt = `${dateContext(req.body.currentDate)}\n\n${instructions}Question:\n${question}\n\nSources:\n${renderedSources}`;
+    const input = buildAnswerInput({ systemPrompt, instructions, date: dateContext(req.body.currentDate),
+      sources: renderedSources, history: req.body.history, question });
 
     if (streamRequested) {
       beginNdjsonStream(res);
@@ -135,10 +141,7 @@ module.exports = async function answer(req, res) {
           reasoning: { effort: 'medium' },
           max_output_tokens: maxOutputTokens,
           stream: true,
-          input: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-          ]
+          input
         },
         { timeout: requestTimeoutMs }
       );
@@ -204,16 +207,16 @@ module.exports = async function answer(req, res) {
         model,
         reasoning: { effort: 'medium' },
         max_output_tokens: maxOutputTokens,
-        input: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ]
+        input
       }),
       requestTimeoutMs,
       'Model response timed out. Please retry or reduce search depth.'
     );
 
     if (['incomplete', 'failed'].includes(result.status)) throw new Error('The AI answer did not finish. Please try again.');
+    console.info('[ask usage]', { model, followUps: (req.body.history || []).length / 2,
+      inputTokens: result.usage?.input_tokens, cachedInputTokens: result.usage?.input_tokens_details?.cached_tokens,
+      outputTokens: result.usage?.output_tokens });
     const answerText = normalizeAnswerCitations(result.output_text?.trim()
       || 'I could not provide a solid answer from the available notes. Please try a narrower question.', req.body.sources);
     const citations = collectCitations(answerText);

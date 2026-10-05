@@ -61,6 +61,9 @@ test('text endpoints normalize real response bodies and reject invalid reference
             assert.ok(data.error);
           }
           assert.match(JSON.stringify(requests.at(-1).input), /Reference date: 2026-09-23/);
+          if (route === 'answer') {
+            assert.match(JSON.stringify(requests.at(-1).input), /Use the exact chunk_id from the header/);
+          }
           assert.equal(requests.at(-1).reasoning.effort, 'medium');
         }
       }

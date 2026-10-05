@@ -194,6 +194,7 @@ const detailPages = [
   { key: 'timeline', label: 'Timeline' },
   { key: 'program', label: 'Program Changes' },
   { key: 'progress', label: 'Progress' },
+  { key: 'weekly', label: 'Weekly Review' },
   { key: 'notes', label: 'Session Notes' },
   { key: 'resources', label: 'Resources' }
 ];
@@ -1373,6 +1374,7 @@ function normalizeSource(source) {
     sourceDate: String(source.sourceDate || source.date || '').trim(),
     annotation: String(source.annotation || '').trim(),
     originalPath: String(source.originalPath || '').trim(),
+    attachmentIds: source.attachmentIds || [],
     rawText
   };
 }
@@ -1418,6 +1420,7 @@ function renderSources() {
 }
 
 function renderNoteSources() {
+  if (typeof noteCapture !== 'undefined') noteCapture.scheduleSave();
   els.noteSourceList.innerHTML = '';
   if (!state.noteSources.length) {
     els.noteSourceList.innerHTML = `
@@ -1721,12 +1724,13 @@ function formatAddNoteRefreshError() {
   ].join(' ');
 }
 
-function openAddNoteDialog() {
+async function openAddNoteDialog() {
   if (!state.selectedClientDetail?.client?.id) {
     showToast('Select a client before adding a note.', 'error');
     return;
   }
-  resetNoteDialog();
+  try { await noteCapture.open(state.selectedClientDetail.client.id); }
+  catch (error) { showToast(`Could not open saved draft: ${error.message}`, 'error'); return; }
   els.addNoteTitle.textContent = `Add Note for ${state.selectedClientDetail.client.name}`;
   els.addNoteDialog.showModal();
   window.requestAnimationFrame(resizeNoteAnnotation);
@@ -1734,6 +1738,11 @@ function openAddNoteDialog() {
 }
 
 function resetAskDialog() {
+  state.askTurns = [];
+  document.getElementById('askFollowupInput').value = '';
+  document.getElementById('askError').hidden = true;
+  document.getElementById('newAskBtn').hidden = true;
+  els.askSubmitBtn.hidden = false;
   state.askResult = null;
   state.askAppliedPresetPrompt = '';
   state.askCustomPromptDraft = '';
@@ -1759,7 +1768,8 @@ function openAskDialog() {
     showToast('Select a client before using ASK.', 'error');
     return;
   }
-  resetAskDialog();
+  if (state.askClientId !== state.selectedClientDetail.client.id) resetAskDialog();
+  state.askClientId = state.selectedClientDetail.client.id;
   els.askTitle.textContent = `Ask about ${state.selectedClientDetail.client.name}`;
   els.askDialog.showModal();
   els.askPromptInput.focus();
@@ -1815,8 +1825,14 @@ function setAskLoading(on, message = 'Using the selected client context.') {
       control.disabled = state.askLoading;
     }
   });
+  document.getElementById('askFollowupBtn').disabled = state.askLoading || !state.askResult?.followUpsRemaining;
+  document.getElementById('askFollowupInput').disabled = state.askLoading || !state.askResult?.followUpsRemaining;
+  document.getElementById('newAskBtn').disabled = state.askLoading;
+  const inConversation = Boolean(state.askResult?.sessionId);
+  for (const control of [els.askOutputTypeInput, els.askScopeInput, els.askTimeWindowInput]) control.disabled = state.askLoading || inConversation;
+  els.askPromptInput.readOnly = inConversation;
   els.askRequestPresetList?.querySelectorAll('button').forEach((button) => {
-    button.disabled = state.askLoading;
+    button.disabled = state.askLoading || inConversation;
   });
   syncChoiceGroups();
 }
@@ -1968,10 +1984,14 @@ function renderAskSources(sources = []) {
 
 function renderAskResult(result) {
   state.askResult = result;
+  state.askTurns = [...(state.askTurns || []), result];
   els.askResultPanel.hidden = false;
   els.askResultMeta.textContent = `${result.outputLabel || 'ASK'} • ${result.scopeLabel || 'selected context'} • ${result.timeWindowLabel || 'time window'}`;
-  els.askResultOutput.innerHTML = renderAskAnswerText(result.answer || '', result.selectedSources || []);
+  els.askResultOutput.innerHTML = state.askTurns.map((turn) => `<section class="ask-turn"><h4>${escapeHtml(turn.question)}</h4>${renderAskAnswerText(turn.answer || '', turn.selectedSources || [])}</section>`).join('');
   els.askSourceList.innerHTML = renderAskSources(result.selectedSources || []);
+  document.getElementById('askFollowupCount').textContent = `${result.followUpsRemaining} follow-ups left`;
+  document.getElementById('newAskBtn').hidden = false;
+  els.askSubmitBtn.hidden = true;
 }
 
 function openAskCitationSource(sourceId) {
@@ -1995,10 +2015,11 @@ function openAskCitationSource(sourceId) {
   openCitedSource(normalized);
 }
 
-async function submitAsk(event) {
+async function submitAsk(event, followup = false) {
   event.preventDefault();
+  if (state.askLoading) return;
   const clientId = state.selectedClientDetail?.client?.id;
-  const prompt = String(els.askPromptInput.value || '').trim();
+  const prompt = String((followup ? document.getElementById('askFollowupInput') : els.askPromptInput).value || '').trim();
   if (!clientId) {
     showToast('Select a client before using ASK.', 'error');
     return;
@@ -2010,18 +2031,26 @@ async function submitAsk(event) {
   }
 
   setAskLoading(true, 'Using the selected client context.');
+  document.getElementById('askError').hidden = true;
   try {
     const result = await window.coachNotes.askClient({
       clientId,
       prompt,
+      sessionId: followup ? state.askResult?.sessionId : undefined,
       outputType: els.askOutputTypeInput.value,
       scope: els.askScopeInput.value,
       timeWindow: els.askTimeWindowInput.value
     });
     renderAskResult(result);
-    showToast('ASK draft ready.');
+    document.getElementById('askFollowupInput').value = '';
+    document.getElementById('askFollowupPanel').scrollIntoView({ block: 'nearest' });
   } catch (error) {
-    showToast(`ASK failed: ${error.message}`, 'error');
+    const message = /source reference/i.test(error.message || '')
+      ? 'The answer contained a source reference that could not be verified. Your request is unchanged. Please try again.'
+      : 'CoachNotes could not finish the answer. Your request and conversation are unchanged. Please try again.';
+    document.getElementById('askError').textContent = message;
+    document.getElementById('askError').hidden = false;
+    document.getElementById('askError').scrollIntoView({ block: 'nearest' });
   } finally {
     setAskLoading(false);
   }
@@ -2748,12 +2777,12 @@ function weeklyReviewLabel(value) {
   return labels[value] || 'Insufficient evidence';
 }
 
-function renderWeeklyReviewClient(review) {
+function renderWeeklyReviewClient(review, embedded = false) {
   const clientId = String(review.clientId || '');
   const forceOpen = review.attentionLevel === 'needs_attention'
     || review.attentionLevel === 'watch'
     || review.retentionConcern === 'high';
-  const open = forceOpen || state.expandedWeeklyReviewClients.has(clientId);
+  const open = embedded || forceOpen || state.expandedWeeklyReviewClients.has(clientId);
   const evidence = Array.isArray(review.evidence) ? review.evidence : [];
   const counterevidence = Array.isArray(review.counterevidence) ? review.counterevidence : [];
   return `
@@ -2791,9 +2820,9 @@ function renderWeeklyReviewClient(review) {
             </div>
           </div>
         ` : ''}
-        <button class="weekly-open-client" type="button" data-weekly-open-client="${escapeHtml(clientId)}">
+        ${embedded ? '' : `<button class="weekly-open-client" type="button" data-weekly-open-client="${escapeHtml(clientId)}">
           Open client profile <span aria-hidden="true">→</span>
-        </button>
+        </button>`}
       </div>
     </details>
   `;
@@ -2815,6 +2844,14 @@ function renderWeeklyReviewGroup(title, description, reviews, tone) {
       </div>
     </section>
   `;
+}
+
+function renderClientWeeklyReview(detail) {
+  const saved = detail.weeklyReview || state.weeklyReview;
+  const review = saved?.report?.clientReviews?.find((item) => String(item.clientId) === String(detail.client.id));
+  if (!review) return '<section class="client-weekly-review"><h3>Weekly Review</h3><p>No saved review for this client yet.</p><button type="button" class="btn btn-ghost" data-full-weekly-review>Open Weekly Review</button></section>';
+  const stale = new Date(detail.baseline?.updatedAt).getTime() > new Date(saved.generatedAt).getTime();
+  return `<section class="client-weekly-review"><div class="capture-toolbar"><p class="muted">Week of ${escapeHtml(formatDate(saved.weekOf))} &middot; Generated ${escapeHtml(formatDate(saved.generatedAt))}</p><button type="button" class="btn btn-ghost" data-full-weekly-review>Full Weekly Review</button></div>${stale ? '<p class="source-annotation">Client information has changed since this review.</p>' : ''}${renderWeeklyReviewClient(review, true)}</section>`;
 }
 
 function weeklyReviewGroupingOptions() {
@@ -3656,6 +3693,7 @@ function renderSourceDrawer(source) {
         </span>
       </summary>
       ${source.annotation ? `<p class="source-annotation">${escapeHtml(source.annotation)}</p>` : ''}
+      ${(source.attachments || []).map((item, index) => `<button type="button" class="btn btn-ghost" data-note-attachment="${source.id}" data-attachment-index="${index}">Open ${escapeHtml(item.name || 'image')}</button>`).join('')}
       <pre>${escapeHtml(source.rawText || '')}</pre>
     </details>
   `;
@@ -3923,6 +3961,7 @@ function renderClientDetail(detail) {
     timeline: timelineBand,
     program: programBand,
     progress: progressBand,
+    weekly: renderClientWeeklyReview(detail),
     notes: notesBand,
     resources: resourcesBand
   };
@@ -4383,7 +4422,9 @@ async function submitAddedNote(event) {
     return;
   }
   clearNoteError();
-  addPastedNoteSource({ silent: true });
+  let submission;
+  try { submission = await noteCapture.prepare(); }
+  catch (error) { showNoteError(error.message); return; }
   if (!state.noteSources.length) {
     showToast('Add a note source before updating.', 'error');
     return;
@@ -4397,10 +4438,12 @@ async function submitAddedNote(event) {
   setBusy(true, 'Updating client dashboard...');
   try {
     const result = await window.coachNotes.updateClientFromNote({
-      clientId: state.selectedClientDetail.client.id,
+      ...submission,
+      wrapupDay: dailyWrapup.activeDay,
       sources
     });
     updateCompleted = true;
+    noteCapture.complete();
     state.selectedClientDetail = result.detail || result;
     const changedSections = Array.isArray(result.changedSections) ? result.changedSections : [];
     state.lastUpdateNotice = {
@@ -4414,6 +4457,7 @@ async function submitAddedNote(event) {
     resetNoteDialog();
     const changeCount = changedSections.length || (Array.isArray(result.changes) ? result.changes.length : 0);
     showToast(changeCount ? `Dashboard updated: ${changeCount} section${changeCount === 1 ? '' : 's'} changed.` : 'Dashboard updated.');
+    await dailyWrapup.afterUpdate();
   } catch (error) {
     reopenDialogOnError = true;
     if (updateCompleted) {

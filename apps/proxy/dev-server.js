@@ -6,9 +6,10 @@ const answer = require('./api/answer');
 const summarize = require('./api/summarize');
 const workflow = require('./api/workflow');
 const weeklyReview = require('./api/weekly-review');
+const capture = require('./api/capture');
 
 const app = express();
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '4mb' }));
 
 app.get('/', index);
 app.get('/health', health);
@@ -17,6 +18,7 @@ app.post('/answer', answer);
 app.post('/summarize', summarize);
 app.post('/workflow', workflow);
 app.post('/weekly-review', weeklyReview);
+app.post('/capture', capture);
 app.options('/*rest', (_req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type');

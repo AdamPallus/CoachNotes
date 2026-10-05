@@ -1,4 +1,10 @@
-const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell, nativeImage, powerMonitor, systemPreferences } = require('electron');
+const { createCaptureStore } = require('./capture-store');
+const { createNoteWorkspace } = require('./note-workspace');
+let captureStore;
+let noteWorkspace;
+const noteUpdatesInFlight = new Set();
+const askSessions = new Map();
 const path = require('node:path');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
@@ -618,6 +624,7 @@ function normalizeProxyBaseUrl(value) {
 }
 
 function getInviteToken() {
+  if (!app.isPackaged && process.env.COACHNOTES_VISUAL_FIXTURE === '1') return 'visual-fixture';
   const result = spawnSync(
     'security',
     ['find-generic-password', '-a', KEYCHAIN_ACCOUNT, '-s', KEYCHAIN_SERVICE, '-w'],
@@ -676,6 +683,7 @@ async function callProxy(endpoint, payload, settings = getAppSettings()) {
   }
 
   const response = await fetch(`${baseUrl}${endpoint}`, {
+    signal: AbortSignal.timeout(300000),
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -731,6 +739,7 @@ function normalizeIntakeSources(values) {
       sourceDate: parseDate(source?.sourceDate || source?.date) || '',
       annotation: normalizeMultilineText(source?.annotation || '', 1200),
       originalPath: String(source?.originalPath || source?.path || '').trim(),
+      attachmentIds: Array.isArray(source?.attachmentIds) ? source.attachmentIds.slice(0, 6) : [],
       rawText
     };
   }).filter(Boolean);
@@ -767,13 +776,15 @@ async function saveIntakeSource({ clientId, clientName, rootFolder, source }) {
   const sourceDate = source.sourceDate || currentDate().toISOString().slice(0, 10);
   const stem = `${sourceDate}-${source.sourceType}-${slugifyFileStem(source.title)}`.slice(0, 140);
   const vaultPath = await getUniqueFilePath(importDirectory, stem, '.md');
+  const attachments = await captureStore.persist(source.attachmentIds, importDirectory);
   const content = buildIntakeSourceContent({
     ...source,
     clientName,
     sourceDate
   });
 
-  await fsp.writeFile(vaultPath, content, 'utf8');
+  const attachmentLinks = attachments.map((item) => `\n![Attachment](${encodeURIComponent(path.basename(item.path))})`).join('\n');
+  await fsp.writeFile(vaultPath, content + attachmentLinks, 'utf8');
   const result = db.prepare(
     `INSERT INTO intake_sources
       (client_id, title, source_type, source_date, annotation, original_path, vault_path, raw_text, created_at, metadata_json)
@@ -788,7 +799,7 @@ async function saveIntakeSource({ clientId, clientName, rootFolder, source }) {
     vaultPath,
     source.rawText,
     nowIso(),
-    JSON.stringify({})
+    JSON.stringify({ attachments })
   );
 
   return {
@@ -2124,6 +2135,16 @@ function undoClientSection(payload) {
 }
 
 async function updateClientFromNote(payload) {
+  const clientId = Number(payload?.clientId);
+  const receipt = noteWorkspace.receipt(payload?.requestId, clientId);
+  if (receipt) return { ...receipt, detail: getClientDetail({ clientId }) };
+  if (noteUpdatesInFlight.has(clientId)) throw new Error('This client already has an update in progress.');
+  noteUpdatesInFlight.add(clientId);
+  try { return await performClientNoteUpdate(payload); }
+  finally { noteUpdatesInFlight.delete(clientId); }
+}
+
+async function performClientNoteUpdate(payload) {
   requireDb();
   const rootFolder = await ensureVaultRootFolder();
   const settings = getAppSettings();
@@ -2169,6 +2190,10 @@ async function updateClientFromNote(payload) {
       sources: buildWorkflowSourcePayload(savedSources)
     }, settings);
     partialUpdate = extractPartialUpdateResponse(response);
+    const latest = getAcceptedBaselineRow(clientId);
+    if (!latest || latest.baselineId !== row.baselineId || latest.structuredJson !== row.structuredJson || latest.sourceIdsJson !== row.sourceIdsJson) {
+      throw new Error('This client changed while the note was processing. Your draft is preserved; retry against the updated profile.');
+    }
   } catch (error) {
     for (const source of savedSources) {
       db.prepare('DELETE FROM intake_sources WHERE id = ?').run(source.id);
@@ -2191,33 +2216,36 @@ async function updateClientFromNote(payload) {
       comparableBaselineSectionValue(nextStructured, sectionKey)
     ));
 
-  for (const sectionKey of changedSections) {
-    pushSectionUndo({
-      baselineId: row.baselineId,
-      sectionKey,
-      previousValue: currentStructured[sectionKey],
-      currentValue: nextStructured[sectionKey],
-      reason: `AI update from ${savedSources.length} new source${savedSources.length === 1 ? '' : 's'}`
-    });
-  }
+  db.transaction(() => {
+    for (const sectionKey of changedSections) {
+      pushSectionUndo({
+        baselineId: row.baselineId,
+        sectionKey,
+        previousValue: currentStructured[sectionKey],
+        currentValue: nextStructured[sectionKey],
+        reason: `AI update from ${savedSources.length} new source${savedSources.length === 1 ? '' : 's'}`
+      });
+    }
 
-  const sourceIds = new Set(parseJsonArray(row.sourceIdsJson).map((id) => Number(id)).filter(Number.isFinite));
-  for (const source of savedSources) {
-    sourceIds.add(source.id);
-  }
-  const updatedAt = nowIso();
-  db.prepare(
-    `UPDATE client_baselines
-     SET structured_json = ?, source_ids_json = ?, model = ?, raw_output = ?, updated_at = ?
-     WHERE id = ?`
-  ).run(
-    JSON.stringify(nextStructured),
-    JSON.stringify([...sourceIds]),
-    response.model || DEFAULT_LLM_MODEL,
-    response.rawOutput || '',
-    updatedAt,
-    row.baselineId
-  );
+    const sourceIds = new Set(parseJsonArray(row.sourceIdsJson).map((id) => Number(id)).filter(Number.isFinite));
+    for (const source of savedSources) sourceIds.add(source.id);
+    db.prepare(
+      `UPDATE client_baselines
+       SET structured_json = ?, source_ids_json = ?, model = ?, raw_output = ?, updated_at = ?
+       WHERE id = ?`
+    ).run(
+      JSON.stringify(nextStructured),
+      JSON.stringify([...sourceIds]),
+      response.model || DEFAULT_LLM_MODEL,
+      response.rawOutput || '',
+      nowIso(),
+      row.baselineId
+    );
+    noteWorkspace.complete({ requestId: payload.requestId, clientId, wrapupDay: payload.wrapupDay,
+      result: { changes, changedSections, updateSummary } });
+  })();
+  try { captureStore.discard(sources.flatMap((source) => source.attachmentIds || [])); }
+  catch { /* The vault copy and committed note remain authoritative if cleanup fails. */ }
 
   return {
     detail: getClientDetail({ clientId }),
@@ -2600,7 +2628,11 @@ async function askClient(payload) {
   if (!prompt) {
     throw new Error('Ask request is required.');
   }
-  const outputType = normalizeAskChoice(
+  const session = payload?.sessionId ? askSessions.get(payload.sessionId) : null;
+  if (payload?.sessionId && (!session || session.clientId !== clientId)) throw new Error('This conversation has expired. Start a new ASK.');
+  if (session && (session.history.length >= 12 || session.history.reduce((n, turn) => n + turn.content.length, 0) > 48000)) throw new Error('This conversation is full. Start a new ASK.');
+  if (session?.busy) throw new Error('An answer is already in progress.');
+  const outputType = session?.outputType || normalizeAskChoice(
     payload?.outputType,
     new Set(['client-message', 'initial-welcome-message', 'session-prep', 'client-profile-export', 'general-answer']),
     'client-message'
@@ -2619,6 +2651,7 @@ async function askClient(payload) {
     scope = 'all-sources';
     timeWindow = 'all-time';
   }
+  if (session) { scope = session.scope; timeWindow = session.timeWindow; }
   const row = getAcceptedBaselineRow(clientId);
   if (!row) {
     throw new Error('Accepted client baseline not found.');
@@ -2626,7 +2659,7 @@ async function askClient(payload) {
 
   const structured = parseJsonObject(row.structuredJson);
   const allSources = getAskSourcesForClient(clientId, parseJsonArray(row.sourceIdsJson));
-  const selected = selectAskSources({
+  const selected = session?.selected || selectAskSources({
     clientName: row.clientName,
     structured,
     sources: allSources,
@@ -2634,24 +2667,33 @@ async function askClient(payload) {
     scope,
     timeWindow
   });
-  const sources = fitAskSourcesForProxy(selected);
+  const sources = session?.sources || fitAskSourcesForProxy(selected);
   if (!sources.length) {
     throw new Error('No local context is available for this client.');
   }
 
-  const response = await callProxy('/answer', {
+  const conversation = session || { clientId, outputType, scope, timeWindow, selected, sources,
+    currentDate: dateKeyFromDate(currentDate()), history: [],
+    instructions: buildAskInstructions({ outputType, scope, timeWindow, coachTemplate: settings.coachTemplate }) };
+  conversation.busy = true;
+  let response;
+  try { response = await callProxy('/answer', {
     model: DEFAULT_LLM_MODEL,
     question: prompt,
-    instructions: buildAskInstructions({
-      outputType,
-      scope,
-      timeWindow,
-      coachTemplate: settings.coachTemplate
-    }),
+    currentDate: conversation.currentDate,
+    history: conversation.history,
+    instructions: conversation.instructions,
     sources
-  }, settings);
+  }, settings); } finally { conversation.busy = false; }
+  if (!response.answer?.trim()) throw new Error('No answer was returned. Please try again.');
+  conversation.history.push({ role: 'user', content: prompt }, { role: 'assistant', content: response.answer });
+  const sessionId = payload.sessionId || crypto.randomUUID();
+  askSessions.set(sessionId, conversation);
+  if (askSessions.size > 20) askSessions.delete(askSessions.keys().next().value);
 
   return {
+    sessionId,
+    followUpsRemaining: Math.max(0, 6 - conversation.history.length / 2),
     outputType,
     outputLabel: askOutputLabel(outputType),
     scope,
@@ -2662,7 +2704,7 @@ async function askClient(payload) {
     answer: response.answer || '',
     citations: Array.isArray(response.citations) ? response.citations : [],
     model: response.model || DEFAULT_LLM_MODEL,
-    selectedSources: selected.map((source, index) => ({
+    selectedSources: selected.filter((source) => sources.some((item) => item.chunk_id === source.chunk_id)).map((source, index) => ({
       chunkId: source.chunk_id,
       sourceId: source.sourceId,
       title: source.displayTitle || source.title,
@@ -2788,6 +2830,7 @@ function getClientDetail(payload) {
 
   sources = sources.map((source) => ({
     ...source,
+    attachments: parseJsonObject(db.prepare('SELECT metadata_json FROM intake_sources WHERE id=?').get(source.id)?.metadata_json).attachments || [],
     sourceId: `intake_source_${source.id}`,
     rawText: normalizeTextContent(source.rawText || '')
   }));
@@ -2808,6 +2851,7 @@ function getClientDetail(payload) {
       updatedAt: row.updatedAt,
       structured: normalizeStructuredTimeline(parseJsonObject(row.structuredJson))
     } : null,
+    weeklyReview: getLatestWeeklyReview(),
     undoCounts: getUndoCounts(row.baselineId),
     sources
   };
@@ -2932,6 +2976,13 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  const localRenderer = (url) => url?.startsWith('file:') && url.includes('/renderer/index.html');
+  mainWindow.webContents.session.setPermissionRequestHandler((contents, permission, callback, details) => {
+    callback(contents === mainWindow?.webContents && localRenderer(contents.getURL()) && permission === 'media'
+      && details.mediaTypes?.length > 0 && details.mediaTypes.every((type) => type === 'audio'));
+  });
+  mainWindow.webContents.session.setPermissionCheckHandler((contents, permission) =>
+    contents === mainWindow?.webContents && localRenderer(contents.getURL()) && permission === 'media');
 }
 
 function setupIpc() {
@@ -3005,6 +3056,15 @@ app.whenReady().then(async () => {
   }
   await ensureVaultRootFolder();
   setupIpc();
+  captureStore = createCaptureStore({ app, nativeImage, dialog, ipcMain, powerMonitor, getWindow: () => mainWindow, callProxy });
+  noteWorkspace = createNoteWorkspace({ db, ipcMain, getClients: () => getClients() });
+  ipcMain.handle('app:microphone-permission', async () => (!app.isPackaged && process.env.COACHNOTES_VISUAL_FIXTURE === '1') || process.platform !== 'darwin' || systemPreferences.askForMediaAccess('microphone'));
+  ipcMain.handle('app:open-note-attachment', async (_event, { sourceId, index }) => {
+    const row = db.prepare('SELECT metadata_json FROM intake_sources WHERE id=?').get(Number(sourceId));
+    const attachment = parseJsonObject(row?.metadata_json).attachments?.[Number(index)];
+    if (!attachment?.path) throw new Error('Attachment not found.');
+    return shell.openPath(attachment.path);
+  });
   createWindow();
 });
 

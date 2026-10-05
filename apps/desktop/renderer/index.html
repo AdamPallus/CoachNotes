@@ -6,6 +6,7 @@
     <title>CoachNotes</title>
     <link rel="stylesheet" href="./tokens.css" />
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./capture-workflow.css" />
   </head>
   <body>
     <div class="app-shell">
@@ -106,6 +107,7 @@
                 <p>Your live practice briefing, calculated locally from saved client records.</p>
               </div>
               <div class="surface-actions">
+                <button id="openWrapupBtn" class="btn btn-ghost" type="button">End of Day</button>
                 <button id="generateWeeklyReviewBtn" class="btn btn-primary weekly-review-generate" type="button">
                   <svg viewBox="0 0 20 20" aria-hidden="true">
                     <path d="M5 3.5h7l3 3V16.5H5z" />
@@ -385,8 +387,14 @@
           </div>
           <div id="askResultOutput" class="ask-result-output"></div>
           <div id="askSourceList" class="ask-source-list"></div>
+          <div id="askFollowupPanel" class="ask-followup">
+            <label>Follow up<textarea id="askFollowupInput" rows="2" maxlength="4000" placeholder="Ask another question or refine this answer..."></textarea></label>
+            <div class="capture-toolbar"><span id="askFollowupCount" class="muted"></span><button id="askFollowupBtn" type="button" class="btn btn-primary">Follow up</button></div>
+          </div>
         </section>
+        <div id="askError" class="dialog-error" role="alert" hidden></div>
         <div class="dialog-actions">
+          <button id="newAskBtn" class="btn btn-ghost" type="button" hidden>New ASK</button>
           <button id="cancelAskBtn" class="btn btn-ghost" type="button">Cancel</button>
           <button id="askSubmitBtn" class="btn btn-primary" type="submit">Ask</button>
         </div>
@@ -459,12 +467,19 @@
           </label>
         </div>
         <div class="note-dialog-actions">
+          <button id="attachNoteImagesBtn" class="btn btn-ghost" type="button" title="Attach images"><span class="capture-icon image-icon" aria-hidden="true"></span>Images</button>
+          <button id="captureNoteImageBtn" class="btn btn-ghost" type="button" title="Capture a screen region"><span class="capture-icon screen-icon" aria-hidden="true"></span>Screenshot</button>
+          <button id="dictateNoteBtn" class="btn btn-ghost" type="button" title="Record a note (up to 5 minutes)" aria-pressed="false"><span class="capture-icon mic-icon" aria-hidden="true"></span><span id="dictateNoteLabel">Dictate</span></button>
           <button id="importNoteFilesBtn" class="btn btn-ghost" type="button">Import Files</button>
           <button id="clearNoteSourcesBtn" class="btn btn-subtle" type="button">Clear Sources</button>
         </div>
+        <div id="recordingStatus" class="recording-status" role="status" hidden><span class="recording-light"></span><span id="recordingTime">0:00 / 5:00</span><canvas id="recordingWaveform" width="180" height="32" aria-hidden="true"></canvas></div>
+        <p id="captureStatus" class="muted" role="status" hidden></p>
+        <div id="noteCaptureList" class="note-capture-list"></div>
         <div id="noteSourceList" class="source-list"></div>
         <div class="dialog-actions">
-          <button id="cancelAddNoteBtn" class="btn btn-ghost" type="button">Cancel</button>
+          <button id="discardNoteDraftBtn" class="btn btn-subtle" type="button">Discard Draft</button>
+          <button id="cancelAddNoteBtn" class="btn btn-ghost" type="button">Save & Close</button>
           <button id="updateNoteSubmitBtn" class="btn btn-primary" type="submit">Update Dashboard</button>
         </div>
       </form>
@@ -529,6 +544,16 @@
       </div>
     </div>
 
+    <dialog id="wrapupDialog" class="wrapup-dialog">
+      <div class="dialog-form">
+        <div class="wrapup-heading"><div><p class="section-kicker">Close the loop</p><h2>End of Day</h2></div><label>Date<input id="wrapupDate" type="date" /></label></div>
+        <div id="wrapupError" class="dialog-error" role="alert" hidden></div>
+        <div id="wrapupContent"></div>
+        <div class="dialog-actions"><button id="closeWrapupBtn" type="button" class="btn btn-ghost">Save & Close</button></div>
+      </div>
+    </dialog>
     <script src="./app.js"></script>
+    <script src="./capture.js"></script>
+    <script src="./wrapup.js"></script>
   </body>
 </html>

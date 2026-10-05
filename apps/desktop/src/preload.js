@@ -2,6 +2,26 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('coachNotes', {
   visualDate: process.env.COACHNOTES_VISUAL_DATE || '',
+  getNoteDraft: (payload) => ipcRenderer.invoke('app:get-note-draft', payload),
+  saveNoteDraft: (payload) => ipcRenderer.invoke('app:save-note-draft', payload),
+  getWrapup: (payload) => ipcRenderer.invoke('app:get-wrapup', payload),
+  saveWrapup: (payload) => ipcRenderer.invoke('app:save-wrapup', payload),
+  selectNoteImages: () => ipcRenderer.invoke('app:select-note-images'),
+  pasteNoteImage: (payload) => ipcRenderer.invoke('app:paste-note-image', payload),
+  captureNoteImage: () => ipcRenderer.invoke('app:capture-note-image'),
+  microphonePermission: () => ipcRenderer.invoke('app:microphone-permission'),
+  beginRecording: (payload) => ipcRenderer.invoke('app:begin-recording', payload),
+  appendRecording: (payload) => ipcRenderer.invoke('app:append-recording', payload),
+  endRecording: (payload) => ipcRenderer.invoke('app:end-recording', payload),
+  processCapture: (payload) => ipcRenderer.invoke('app:process-capture', payload),
+  getCapture: (payload) => ipcRenderer.invoke('app:get-capture', payload),
+  discardCaptures: (payload) => ipcRenderer.invoke('app:discard-captures', payload),
+  openNoteAttachment: (payload) => ipcRenderer.invoke('app:open-note-attachment', payload),
+  onRecordingStop: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('app:recording-stop', listener);
+    return () => ipcRenderer.removeListener('app:recording-stop', listener);
+  },
   getState: () => ipcRenderer.invoke('app:get-state'),
   saveSettings: (payload) => ipcRenderer.invoke('app:save-settings', payload),
   selectVaultFolder: () => ipcRenderer.invoke('app:select-vault-folder'),

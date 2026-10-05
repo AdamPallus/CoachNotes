@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
+import { pathToFileURL } from 'node:url';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
 
@@ -26,6 +27,8 @@ const screens = [
   { name: 'weekly-review-progress', prepare: 'weekly-progress' },
   { name: 'client-snapshot', prepare: 'client' },
   { name: 'add-note', prepare: 'add-note' },
+  { name: 'daily-wrapup', prepare: 'wrapup' },
+  { name: 'client-weekly-context', prepare: 'client-weekly' },
   { name: 'ask', prepare: 'ask' },
   { name: 'onboarding', prepare: 'onboarding' },
   { name: 'archived-client', prepare: 'archived-client' },
@@ -35,7 +38,7 @@ const screens = [
 const viewportHeight = (width) => width === 1024 ? 760 : width === 1280 ? 820 : 900;
 const pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-async function waitForTarget(timeoutMs = 20000) {
+export async function waitForTarget(timeoutMs = 20000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     try {
@@ -50,7 +53,7 @@ async function waitForTarget(timeoutMs = 20000) {
   throw new Error('CoachNotes visual fixture did not start.');
 }
 
-class CdpClient {
+export class CdpClient {
   constructor(url) {
     this.socket = new WebSocket(url);
     this.nextId = 0;
@@ -160,9 +163,15 @@ async function prepareScreen(client, screen, theme) {
     } else if (prepare === 'client') {
       await selectClient(state.clients[0].id, { recordHistory: false, detailPage: 'snapshot' });
       document.activeElement?.blur();
+    } else if (prepare === 'wrapup') {
+      await dailyWrapup.open();
+      document.activeElement?.blur();
+    } else if (prepare === 'client-weekly') {
+      await selectClient(state.clients[0].id, { recordHistory: false, detailPage: 'weekly' });
+      document.activeElement?.blur();
     } else if (prepare === 'add-note') {
       await selectClient(state.clients[0].id, { recordHistory: false, detailPage: 'snapshot' });
-      openAddNoteDialog();
+      await openAddNoteDialog();
       els.noteDateInput.value = ${JSON.stringify(visualDate)};
       els.noteTextInput.focus();
     } else if (prepare === 'ask') {
@@ -372,7 +381,7 @@ async function testClientArchiving(client) {
   process.stdout.write('Client archive integration checks passed.\n');
 }
 
-main().catch((error) => {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch((error) => {
   process.stderr.write(`${error.stack || error.message}\n`);
   process.exitCode = 1;
 });

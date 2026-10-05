@@ -1869,11 +1869,11 @@ dialog::backdrop {
 }
 
 .dialog-error {
-  border: 1px solid rgba(148, 59, 50, 0.42);
+  border: 1px solid var(--danger);
   border-radius: var(--radius);
   padding: 10px 12px;
-  background: rgba(244, 215, 205, 0.62);
-  color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--ink);
   font-size: 13px;
   font-weight: 650;
   line-height: 1.45;
