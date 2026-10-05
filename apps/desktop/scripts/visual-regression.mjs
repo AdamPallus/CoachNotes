@@ -109,7 +109,8 @@ async function prepareScreen(client, screen, theme) {
     if (!style) {
       style = document.createElement('style');
       style.id = 'visualRegressionStyle';
-      style.textContent = '* { animation: none !important; transition: none !important; caret-color: transparent !important; }';
+      // Match overlay-scrollbar geometry regardless of the host macOS preference.
+      style.textContent = '* { animation: none !important; transition: none !important; caret-color: transparent !important; scrollbar-width: none !important; } *::-webkit-scrollbar { display: none !important; }';
       document.head.append(style);
     }
     const prepare = ${JSON.stringify(screen.prepare)};
