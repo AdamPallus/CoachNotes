@@ -2,7 +2,7 @@
 
 Introduced in 0.2.21. See [release notes and coach testing checklist](releases/v0.2.21.md).
 
-The follow-up scheduling, Next controls, and shared field microphones below are unreleased desktop-only improvements. Version 0.2.21 remains the public release; no proxy deployment or API changes are needed for these refinements.
+The follow-up scheduling, Next controls, and shared field microphones below are desktop-only improvements in [0.2.22](releases/v0.2.22.md). No proxy deployment or API changes are needed for these refinements; coaches can continue using 0.2.21 until they choose to update.
 
 ## Coach workflows
 
@@ -32,7 +32,7 @@ ASK history is in desktop memory, bounded to six answers, 48,000 history charact
 
 ## Deployment and validation
 
-This needs both desktop and proxy updates: the new `/capture` route and `/answer` history support. Existing one-shot ASK clients remain valid. Deploy the proxy before using the new desktop features; coordinate the release normally and do not push `main` merely to try the UI. No new secret or model allowlist setting is needed. The server API key must have permission to use transcription and Luna image input. macOS builds include `NSMicrophoneUsageDescription`.
+The original 0.2.21 feature set needed both desktop and proxy updates: the `/capture` route and `/answer` history support. Those proxy changes are already deployed. The 0.2.22 refinements use that same contract and require only a desktop update. Existing one-shot ASK clients remain valid. No new secret or model allowlist setting is needed. The server API key must have permission to use transcription and Luna image input. macOS builds include `NSMicrophoneUsageDescription`.
 
 Checks:
 
