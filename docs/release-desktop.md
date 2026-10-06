@@ -56,6 +56,14 @@ Do not merge the staged branch into `main` before the user is ready. The old and
 
 ## Notes
 
+Trello release handoff follows [trello-workflow.md](trello-workflow.md). Use one
+release card in **Try in CoachNotes**, not a version-specific list. Only describe
+the release as available after verifying the GitHub downloads and any required
+server cutover. Link the shipped feature cards, comment with their release
+outcome, and archive them. Read the previous release's comments and preserve
+unresolved feedback on linked cards before archiving its summary. Keep unshipped
+work in **Ready to Release**, separate from the current public release.
+
 - Builds are unsigned/unnotarized (no Apple Developer account required).
 - macOS may require first-run trust override (`Right-click -> Open`).
 - Auto-download/auto-install updates are not configured.

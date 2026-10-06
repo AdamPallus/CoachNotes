@@ -1,5 +1,17 @@
 # CoachNotes Ops Notes
 
+## Trello feedback and release notes
+
+Canonical guide: `/Users/pallusa/projects/CoachNotes/docs/trello-workflow.md`.
+Read it before board triage, card updates, cleanup, or release handoff.
+
+- Use Feedback, Next, Ready to Release, Try in CoachNotes, and Later.
+- One card per release, never one list per release. Only the current release
+  summary belongs in Try in CoachNotes; built-but-unshipped work stays separate.
+- Read comments and preserve unfinished scope with linked cards before archiving.
+- Archive resolved/shipped/duplicate cards; never delete their discussion history.
+- This supersedes older Trello instructions and memory using Planned/In Review.
+
 ## Desktop release/update process
 
 Canonical guide:
