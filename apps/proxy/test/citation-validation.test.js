@@ -68,3 +68,48 @@ test('accepts inline source evidence but rejects invented inline and section ref
   assert.throws(() => validateWorkflowEvidence(patch([], ['invented']), body(), 'client_note_update'), /unrecognized/);
   assert.throws(() => validateWorkflowEvidence({ flags: [{ evidenceIds: ['invented'] }] }, body(), 'client_intake_baseline'), /unrecognized/);
 });
+
+test('normalizes grouped known references without inventing or dropping evidence', () => {
+  const input = body();
+  const result = validateWorkflowEvidence({ sectionUpdates: [
+    { sectionKey: 'overview', value: 'Progress [intake_source_1, intake_source_2].', evidenceIds: ['[c:intake_source_2]'] },
+    { sectionKey: 'coachTasks', value: [{ title: 'Follow up', evidenceIds: ['intake_source_1; intake_source_2', '[intake_source_2]'] }], evidenceIds: ['intake_source_2'] }
+  ] }, input, 'client_note_update');
+  assert.equal(result.sectionUpdates[0].value, 'Progress [intake_source_1] [intake_source_2].');
+  assert.deepEqual(result.sectionUpdates[0].evidenceIds, ['intake_source_2']);
+  assert.deepEqual(result.sectionUpdates[1].value[0].evidenceIds, ['intake_source_1', 'intake_source_2']);
+  assert.equal(input.currentBaseline.coachTasks[0].title, 'Coach-entered task');
+});
+
+test('a grouped reference with any unknown ID fails, including changed inline items', () => {
+  for (const value of [
+    [{ title: 'Follow up', evidenceIds: ['intake_source_1, intake_source_999'] }],
+    [{ title: 'Follow up [intake_source_1; intake_source_999]' }],
+    [{ title: 'Follow up', evidenceIds: ['source_2'] }],
+    [{ title: 'Follow up', evidenceIds: ['2'] }],
+    [{ title: 'Follow up', evidenceIds: ['source_id'] }]
+  ]) assert.throws(() => validateWorkflowEvidence(patch(value), body(), 'client_note_update'), /unrecognized/);
+});
+
+test('preserves individual references from grouped legacy baseline citations', () => {
+  const input = body();
+  input.currentBaseline.overview = 'Historical context [intake_source_0, intake_source_1].';
+  const result = validateWorkflowEvidence(patch([{ title: 'A historical follow-up', evidenceIds: ['intake_source_0', 'intake_source_2'] }]), input, 'client_note_update');
+  assert.deepEqual(result.sectionUpdates[0].value[0].evidenceIds, ['intake_source_0', 'intake_source_2']);
+  assert.equal(input.currentBaseline.overview, 'Historical context [intake_source_0, intake_source_1].');
+});
+
+test('validator and prompt agree on trimmed and fallback source IDs', () => {
+  const input = { sources: [{ text: 'A note with the source_1 fallback.' }, { source_id: ' intake_source_2 ', text: 'Another note.' }], currentBaseline: {} };
+  assert.doesNotThrow(() => validateWorkflowEvidence(patch([{ title: 'Follow up', evidenceIds: ['source_1', 'intake_source_2'] }]), input, 'client_note_update'));
+});
+
+test('citation diagnostics do not expose rejected IDs or client text', () => {
+  let error;
+  try { validateWorkflowEvidence(patch([{ title: 'Private client text', evidenceIds: ['private rejected value'] }]), body(), 'client_note_update'); }
+  catch (caught) { error = caught; }
+  assert.equal(error.workflowDiagnostics.code, 'unknown_source_reference');
+  assert.equal(error.workflowDiagnostics.allowedSourceCount, 2);
+  assert.doesNotMatch(JSON.stringify(error.workflowDiagnostics) + error.message, /private|client text/i);
+  assert.match(error.retryFeedback, /private rejected value/);
+});

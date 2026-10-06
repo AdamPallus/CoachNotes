@@ -118,3 +118,47 @@ test('workflow retries missing item citations once and never returns an invalid 
     delete require.cache[require.resolve('../api/workflow')];
   }
 });
+
+test('workflow retries with specific citation feedback and keeps rejected values out of logs', async () => {
+  const savedClient = shared.getOpenAIClient;
+  const savedTokens = process.env.INVITE_TOKENS;
+  const originalWarn = console.warn;
+  const warnings = [];
+  const requests = [];
+  process.env.INVITE_TOKENS = 'citation-repair-test';
+  console.warn = (...args) => warnings.push(args);
+  shared.getOpenAIClient = () => ({ responses: { create: async (request) => {
+    requests.push(request);
+    return { status: 'completed', output_text: JSON.stringify({
+      schemaVersion: 'client_update_patch.v1', updateSummary: 'Adds a follow-up.',
+      sectionUpdates: [{ sectionKey: 'coachTasks', operation: 'append', evidenceIds: ['intake_source_42'], value: [
+        { title: 'Follow up', evidenceIds: [requests.length === 1 ? 'private-invalid-reference' : 'intake_source_42'] }
+      ] }]
+    }) };
+  } } });
+  delete require.cache[require.resolve('../api/workflow')];
+  try {
+    const res = responseRecorder();
+    await require('../api/workflow')({ method: 'POST', headers: { authorization: 'Bearer citation-repair-test' }, body: {
+      model: 'gpt-5.6-luna', workflow: 'client_note_update', currentBaseline: { coachTasks: [] },
+      sources: [{ source_id: 'intake_source_42', text: 'Synthetic coach agreed to follow up.' }]
+    } }, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(requests.length, 2);
+    assert.match(requests[0].input[1].content, /Permitted source IDs/);
+    assert.match(requests[0].input[1].content, /\[intake_source_42\]/);
+    assert.doesNotMatch(requests[0].input[1].content, /"evidenceIds": \[\s*"source_id"/);
+    assert.equal(requests[1].input[1].content, requests[0].input[1].content);
+    assert.match(requests[1].input.at(-1).content, /unrecognized source reference/);
+    assert.match(requests[1].input.at(-1).content, /private-invalid-reference/);
+    assert.match(JSON.stringify(warnings), /unknown_source_reference/);
+    assert.doesNotMatch(JSON.stringify(warnings), /private-invalid-reference|Synthetic coach/);
+    assert.deepEqual(res.payload.structured.sectionUpdates[0].value[0].evidenceIds, ['intake_source_42']);
+  } finally {
+    shared.getOpenAIClient = savedClient;
+    console.warn = originalWarn;
+    if (savedTokens === undefined) delete process.env.INVITE_TOKENS;
+    else process.env.INVITE_TOKENS = savedTokens;
+    delete require.cache[require.resolve('../api/workflow')];
+  }
+});

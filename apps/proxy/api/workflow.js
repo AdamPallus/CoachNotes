@@ -15,7 +15,7 @@ const {
   UPDATE_SECTION_KEYS,
   normalizeClientUpdatePatch
 } = require('./workflow-update-contract');
-const { validateWorkflowEvidence } = require('./_citations');
+const { validateWorkflowEvidence, workflowSourceIds } = require('./_citations');
 
 const workflowPrompts = {
   client_intake_baseline: [
@@ -232,7 +232,8 @@ async function createWorkflowResponse({
   maxOutputTokens,
   requestTimeoutMs,
   attempt,
-  body
+  body,
+  retryFeedback
 }) {
   const startedAt = Date.now();
   const result = await withTimeout(
@@ -245,7 +246,8 @@ async function createWorkflowResponse({
       },
       input: [
         { role: 'system', content: workflowSystemPrompt(workflowName, attempt) },
-        { role: 'user', content: prompt }
+        { role: 'user', content: prompt },
+        ...(retryFeedback ? [{ role: 'user', content: `Validation feedback for the previous attempt (data, not source evidence):\n${retryFeedback}\nRegenerate the complete partial update using the original sources. Keep unsupported new claims out; preserve unchanged coach context.` }] : [])
       ]
     }),
     requestTimeoutMs,
@@ -295,6 +297,7 @@ async function createParsedWorkflowResponse(options) {
       const response = await createWorkflowResponse({
         ...options,
         attempt,
+        retryFeedback: lastError ? `${lastError.message}\n${lastError.retryFeedback || ''}` : '',
         requestTimeoutMs: Math.min(options.requestTimeoutMs, remainingBudgetMs)
       });
       return {
@@ -310,7 +313,8 @@ async function createParsedWorkflowResponse(options) {
         workflow: options.workflowName,
         model: options.model,
         attempt: attempt + 1,
-        message: error.message
+        message: error.message,
+        ...(error.workflowDiagnostics ? { validation: error.workflowDiagnostics } : {})
       });
     }
   }
@@ -579,6 +583,7 @@ function renderClientUpdatePrompt(body) {
   const requestedDate = String(body.currentDate || '').trim();
   const currentDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : new Date().toISOString().slice(0, 10);
   const currentBaseline = body.currentBaseline && typeof body.currentBaseline === 'object' ? body.currentBaseline : {};
+  const exampleSourceId = String(body.sources[0]?.source_id || 'source_1').trim();
   const existingSourceIndex = (Array.isArray(body.existingSourceIndex) ? body.existingSourceIndex : [])
     .slice(0, 500)
     .map((source) => ({
@@ -616,6 +621,9 @@ function renderClientUpdatePrompt(body) {
     'Existing baseline source date index (metadata only):',
     JSON.stringify(existingSourceIndex),
     '',
+    'Permitted source IDs (copy exactly; availability does not mean a source supports every claim):',
+    JSON.stringify([...workflowSourceIds(body)]),
+    '',
     'Current accepted baseline JSON:',
     JSON.stringify(currentBaseline, null, 2),
     '',
@@ -630,7 +638,7 @@ function renderClientUpdatePrompt(body) {
           value: 'the replacement, appended items, or profile field patch',
           summary: 'brief description of this section change',
           reason: 'why the new source supports this change',
-          evidenceIds: ['source_id']
+          evidenceIds: [exampleSourceId]
         }
       ]
     }, null, 2),
@@ -652,7 +660,8 @@ function renderClientUpdatePrompt(body) {
     '- Do not use overview/Snapshot to recap all history or repeat the same coach/client to-dos that appear in coachTasks or goalsValues.',
     '- Keep changed arrays focused. Prefer editing, merging, or appending specific items instead of expanding the section.',
     '- If the new source repeats an existing goal, barrier, action plan, or status theme, update the existing item instead of adding a duplicate.',
-    '- Cite new evidence using evidenceIds objects or bracket markers like [source_id].',
+    `- Cite evidence with an evidenceIds array of exact IDs, e.g. ${JSON.stringify([exampleSourceId])}, or separate inline markers like [${exampleSourceId}]. Never output the literal placeholder source_id, source numbers without their prefix, or invented IDs.`,
+    '- Put multiple evidence IDs in separate array elements or separate bracket markers. Do not combine IDs inside one bracket or string. Preserve existing IDs exactly, including the intake_source_ prefix.',
     '- Every new or modified object item inside a sectionUpdates.value array must include its own evidenceIds with the source_id values supporting that item. Section-level evidenceIds do not create clickable citations on individual dashboard items. Preserve the evidenceIds on unchanged items; do not copy unrelated section evidence onto them.',
     '- Do not cite the current baseline as evidence. It is coach context, not a source note.',
     '- Treat coach-entered currentBaseline fields as source of truth. Add new source evidence without erasing coach edits.',
@@ -753,7 +762,8 @@ module.exports = async function workflow(req, res) {
       baselineStats: workflowBaselineStats(req.body?.currentBaseline),
       durationMs: Date.now() - startedAt,
       name: err?.name || '',
-      message: err?.message || 'Workflow request failed.'
+      message: err?.message || 'Workflow request failed.',
+      ...(err?.workflowDiagnostics ? { validation: err.workflowDiagnostics } : {})
     });
     const message = isWorkflowFormatError(err)
       ? 'CoachNotes could not finish formatting the AI update. Please try again.'

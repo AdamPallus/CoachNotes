@@ -114,6 +114,16 @@ Note updates use a compact partial-update response contract. Defaults are built 
 
 These may be overridden through Vercel environment variables, but increasing them should not be the first response to a timeout. Vercel logs emit `[workflow model response]` entries containing duration, prompt/output character counts, input/output tokens, cached input tokens, reasoning tokens, completion status, and incomplete reason. Logs do not include client note or dashboard content.
 
+The October 6 citation hotfix normalizes grouped/wrapped references only when
+each referenced ID is allowed. It never guesses a source or strips an unknown
+reference to force success. Update prompts give exact permitted IDs and concrete
+examples; the single bounded retry receives the specific validation failure.
+`[workflow format retry]` and `[workflow failed]` may include a `validation`
+object with an error category, reference-format category, allowed-ID count, or
+section key. Rejected reference text is sent only back to the model for the retry,
+not to logs or user-visible errors. See
+[the incident note](incidents/2026-10-06-workflow-citations.md).
+
 For a coordinated proxy/desktop cutover:
 
 1. Publish the matching desktop tag from a staged branch while leaving `main` unchanged.
