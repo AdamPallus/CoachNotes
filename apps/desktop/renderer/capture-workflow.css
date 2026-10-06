@@ -6,23 +6,27 @@
 .screen-icon { --capture-mask: url('../assets/lucide/scan-line.svg'); }
 .mic-icon { --capture-mask: url('../assets/lucide/mic.svg'); }
 .dictation-field { position: relative; min-width: 0; width: 100%; }
-.dictation-field.dictation-enabled > textarea { padding-right: 48px; min-height: 54px; box-sizing: border-box; width: 100%; }
+.dictation-field.dictation-enabled { border: 1px solid var(--line); border-radius: 10px; background: var(--paper-strong); overflow: hidden; }
+.dictation-field.dictation-enabled:hover { border-color: var(--line-strong); }
+.dictation-field.dictation-enabled:focus-within { border-color: var(--moss); box-shadow: 0 0 0 3px var(--focus-ring); }
+.dictation-field.dictation-enabled > textarea { display: block; padding-right: 48px; min-height: 54px; box-sizing: border-box; width: 100%; border: 0; border-radius: 0; box-shadow: none; background: transparent; }
+.dictation-field.has-dictation-feedback > textarea { padding-right: 11px; }
 .dictation-button { position: absolute; right: 9px; bottom: 10px; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 50%; color: var(--muted); background: var(--paper-muted); cursor: pointer; }
 .dictation-button:hover:not(:disabled), .dictation-button:focus-visible { color: var(--moss); border-color: var(--moss); }
 .dictation-button[aria-pressed="true"] { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }
 .dictation-button[aria-pressed="true"] .mic-icon { mask: none; width: 10px; height: 10px; flex-basis: 10px; border-radius: 2px; }
 .dictation-button:disabled { opacity: 0.45; cursor: default; }
-.dictation-feedback:empty { display: none; }
+.dictation-feedback { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 6px 48px 10px 11px; min-height: 48px; }
+.dictation-feedback:has(.dictation-recovery:not([hidden])) { padding-right: 10px; }
 .dictation-meter { display: flex; align-items: center; gap: 10px; min-height: 30px; color: var(--ink); font-size: 12px; font-variant-numeric: tabular-nums; }
 .dictation-bars { display: flex; align-items: center; gap: 3px; height: 20px; }
 .dictation-bars i { display: block; width: 3px; height: 3px; border-radius: 2px; background: var(--moss); }
-.dictation-status { padding: 6px 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.dictation-status { flex: 1 1 140px; padding: 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
 .dictation-status.dictation-error { color: var(--danger); }
-.dictation-recovery { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0; }
-.dictation-button[hidden], .dictation-meter[hidden], .dictation-status[hidden], .dictation-recovery[hidden] { display: none; }
+.dictation-recovery { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.dictation-recovery .btn { padding: 5px 8px; min-height: 32px; }
+.dictation-button[hidden], .dictation-feedback[hidden], .dictation-meter[hidden], .dictation-status[hidden], .dictation-recovery[hidden] { display: none; }
 .capture-toolbar { justify-content: space-between; }
-.recording-status { display: flex; align-items: center; gap: 12px; min-height: 40px; color: var(--ink); font-variant-numeric: tabular-nums; }
-.recording-status[hidden] { display: none; }
 .recording-light { width: 9px; height: 9px; border-radius: 50%; background: var(--danger); }
 .note-capture-list { display: flex; flex-wrap: wrap; gap: 10px; }
 .capture-item { border: 1px solid var(--line); border-radius: 4px; padding: 8px; width: 170px; overflow-wrap: anywhere; }

@@ -36,23 +36,31 @@ const fieldDictation = (() => {
   }
   function render(widget) {
     const { field, button, status, meter, recovery, retry, remove } = widget;
+    const noteState = widget.note ? noteCapture.dictationState(field.id) : null;
+    const pending = noteState?.pending || widget.pending;
     const enabled = Boolean(staticFields[field.id] || field.dataset.dictation);
-    hide(button, !enabled);
+    hide(button, !enabled || Boolean(pending.length && dictationRecorder.owner?.field !== field));
     widget.shell.classList.toggle('dictation-enabled', enabled);
     const owner = dictationRecorder.owner?.field === field;
-    const busy = processing === widget;
+    const busy = processing === widget || Boolean(noteState?.busy);
     const noteBusy = widget.note && noteCapture.dictationBusy;
     const pressed = owner && dictationRecorder.phase !== 'stopping';
     button.setAttribute('aria-pressed', String(pressed));
     const title = pressed ? 'Stop dictation' : `Dictate ${widget.label}`;
     button.title = title; button.setAttribute('aria-label', title);
-    button.disabled = field.disabled || field.readOnly || widget.loading || busy || noteBusy || (dictationRecorder.active && !owner) || Boolean(processing && !busy) || Boolean(!widget.note && widget.pending.length && !owner);
+    button.disabled = field.disabled || field.readOnly || widget.loading || busy || noteBusy || (dictationRecorder.active && !owner) || Boolean(processing && !busy) || Boolean(pending.length && !owner);
     hide(meter, !owner);
-    hide(status, !(widget.message || busy));
-    setText(status, busy ? 'Transcribing...' : widget.message);
-    status.classList.toggle('dictation-error', Boolean(widget.message));
-    hide(recovery, !enabled || widget.note || !widget.pending.length || owner);
-    retry.disabled = remove.disabled = dictationRecorder.active || Boolean(processing);
+    const message = noteState?.message || widget.message;
+    hide(status, !(message || busy || pending.length) || owner);
+    setText(status, busy ? (dictationRecorder.phase === 'opening' ? 'Opening microphone...' : 'Transcribing...') : message || `${pending.length === 1 ? 'Recording' : `${pending.length} recordings`} saved.`);
+    status.classList.toggle('dictation-error', Boolean(message));
+    hide(recovery, !enabled || !pending.length || owner || busy);
+    retry.disabled = remove.disabled = dictationRecorder.active || Boolean(processing) || noteBusy;
+    if (widget.note && pending.length && !owner && !busy) retry.dataset.transcribe = pending[0].id;
+    else delete retry.dataset.transcribe;
+    const hasFeedback = enabled && (!meter.hidden || !status.hidden || !recovery.hidden);
+    hide(widget.feedback, !hasFeedback);
+    widget.shell.classList.toggle('has-dictation-feedback', hasFeedback);
     if (!widget.note && (owner || busy)) {
       for (const control of controls(widget)) {
         if (!widget.locks.has(control)) widget.locks.set(control, control.disabled);
@@ -97,7 +105,8 @@ const fieldDictation = (() => {
       widget.pending = widget.pending.filter((item) => item.id !== entry.id);
       await api.discardCaptures({ ids: [entry.id] }).catch(() => {});
     } catch (error) {
-      widget.message = `Transcription unavailable. Recording saved for retry. ${errorText(error)}`;
+      widget.message = error.message.includes('Text is too long') ? error.message : 'Transcription failed. Recording saved.';
+      widget.status.title = errorText(error);
     } finally { processing = null; refresh(); }
   }
   async function start(widget) {
@@ -129,8 +138,8 @@ const fieldDictation = (() => {
     button.dataset.dictationFor = field.id || field.dataset.dictation;
     button.innerHTML = '<span class="capture-icon mic-icon" aria-hidden="true"></span>';
     shell.append(button);
-    const feedback = document.createElement('div'); feedback.className = 'dictation-feedback'; shell.after(feedback);
-    feedback.innerHTML = '<div class="dictation-meter" hidden><span class="recording-light"></span><span class="dictation-bars" aria-hidden="true">' + '<i></i>'.repeat(12) + '</span><span class="dictation-time">0:00 / 5:00</span></div><div class="dictation-status" role="status" hidden></div><div class="dictation-recovery" hidden><button type="button" class="btn btn-subtle">Transcribe recording</button><button type="button" class="btn btn-ghost">Discard</button></div>';
+    const feedback = document.createElement('div'); feedback.className = 'dictation-feedback'; feedback.hidden = true; shell.append(feedback);
+    feedback.innerHTML = '<div class="dictation-meter" hidden><span class="recording-light"></span><span class="dictation-bars" aria-hidden="true">' + '<i></i>'.repeat(12) + '</span><span class="dictation-time">0:00 / 5:00</span></div><div class="dictation-status" role="status" hidden></div><div class="dictation-recovery" hidden><button type="button" class="btn btn-ghost">Retry transcription</button><button type="button" class="btn btn-subtle">Discard</button></div>';
     const widget = { field, shell, button, feedback, label: staticFields[field.id] || field.closest('label')?.querySelector('span')?.textContent.trim() || 'text',
       note: ['noteTextInput', 'noteAnnotationInput'].includes(field.id), pending: [], key: '', epoch: 0, shown: false, message: '', locks: new Map(),
       meter: feedback.querySelector('.dictation-meter'), time: feedback.querySelector('.dictation-time'), bars: [...feedback.querySelectorAll('i')],
@@ -141,9 +150,13 @@ const fieldDictation = (() => {
       const action = dictationRecorder.owner?.field === field ? dictationRecorder.stop(true) : start(widget);
       action.catch((error) => { widget.message = error.message; refresh(); });
     };
-    widget.retry.onclick = () => transcribe(widget, widget.pending[0]);
+    widget.retry.onclick = () => widget.note ? noteCapture.transcribe(noteCapture.dictationState(field.id).pending[0]?.id) : transcribe(widget, widget.pending[0]);
     widget.remove.onclick = async () => {
-      try { await api.discardCaptures({ ids: widget.pending.map((entry) => entry.id) }); widget.pending = []; widget.message = ''; }
+      try {
+        if (widget.note) await noteCapture.removeRecording(noteCapture.dictationState(field.id).pending[0]?.id);
+        else { await api.discardCaptures({ ids: widget.pending.map((entry) => entry.id) }); widget.pending = []; }
+        widget.message = '';
+      }
       catch (error) { widget.message = error.message; }
       refresh();
     };

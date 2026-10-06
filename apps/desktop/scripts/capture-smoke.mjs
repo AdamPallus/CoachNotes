@@ -46,6 +46,26 @@ async function screenshot(name) {
   const result = await client.call('Page.captureScreenshot', { format: 'png' });
   await fs.writeFile(path.join(artifacts, `${name}.png`), Buffer.from(result.data, 'base64'));
 }
+async function screenshotDictation(name, fieldId) {
+  for (const theme of ['light', 'dark']) {
+    await client.call('Emulation.setDeviceMetricsOverride', { width: 1040, height: 700, deviceScaleFactor: 1, mobile: false });
+    await client.evaluate(`applyTheme('${theme}', false); document.getElementById('${fieldId}').closest('.dictation-field').scrollIntoView({block:'center'});`);
+    await pause(180);
+    const clip = await client.evaluate(`(() => {
+      const field = document.getElementById('${fieldId}');
+      const shell = field.closest('.dictation-field');
+      const frame = shell.getBoundingClientRect();
+      const footer = shell.querySelector('.dictation-feedback').getBoundingClientRect();
+      check(footer.top >= field.getBoundingClientRect().bottom - 1, 'Dictation controls do not cover editable text');
+      check(footer.bottom <= frame.bottom && footer.left >= frame.left && footer.right <= frame.right, 'Dictation controls stay inside the input frame');
+      check(frame.left >= 0 && frame.right <= innerWidth && frame.top >= 0 && frame.bottom <= innerHeight, 'Input frame fits the small window');
+      return {x:frame.x,y:frame.y,width:frame.width,height:frame.height,scale:1};
+    })()`);
+    const result = await client.call('Page.captureScreenshot', { format: 'png', clip });
+    await fs.writeFile(path.join(artifacts, `${name}-${theme}.png`), Buffer.from(result.data, 'base64'));
+  }
+  await client.call('Emulation.clearDeviceMetricsOverride');
+}
 try {
   client = new CdpClient((await waitForTarget()).webSocketDebuggerUrl); await client.connect();
   await client.evaluate(`(async () => {
@@ -217,9 +237,12 @@ try {
   await pause(2200);
   await client.evaluate(`check(document.querySelector('[data-dictation-for="noteTextInput"]').getAttribute('aria-pressed') === 'true', 'Recording started'); check(els.updateNoteSubmitBtn.disabled, 'Cannot submit during recording');`);
   await screenshot('recording');
+  await screenshotDictation('note-recording-inline', 'noteTextInput');
   // Simulate a failed transcription independently of the earlier workflow failure.
   failAudio = true;
   await client.evaluate(`(async () => { await noteCapture.stop(true); check(document.querySelector('[data-transcribe]'), 'Audio preserved after transcription failure'); check(!dictationRecorder.active, 'Recording stopped'); })()`);
+  await client.evaluate(`check(els.noteTextInput.closest('.dictation-field').querySelector('[data-transcribe]'), 'Note retry stays inside its text box'); check(!document.querySelector('#noteCaptureList [data-transcribe]'), 'No separate recording card');`);
+  await screenshotDictation('note-retry-inline', 'noteTextInput');
   await client.evaluate(`document.querySelector('[data-transcribe]').click();`);
   await pause(600);
   await client.evaluate(`(async () => {
@@ -231,8 +254,12 @@ try {
   await client.evaluate(`(async () => { await selectClient(state.clients[0].id); await openAddNoteDialog(); if (!els.noteTextInput.value.includes('A dictated coaching note.')) throw new Error('Draft survives renderer restart'); })()`);
   await client.evaluate(`window.check = (condition, message) => { if (!condition) throw new Error(message); }; window.noteBefore = els.noteTextInput.value; document.querySelector('[data-dictation-for="noteAnnotationInput"]').click();`);
   await pause(1500);
+  failAudio = true;
   await client.evaluate(`(async () => {
     await dictationRecorder.stop(true);
+    const retry = els.noteAnnotationInput.closest('.dictation-field').querySelector('[data-transcribe]');
+    check(retry && !els.noteTextInput.closest('.dictation-field').querySelector('[data-transcribe]'), 'Annotation retry stays with annotation');
+    retry.click(); await new Promise(resolve => setTimeout(resolve, 400));
     check(els.noteAnnotationInput.value.includes('A dictated coaching note.'), 'Annotation dictation fills annotation');
     check(els.noteTextInput.value === window.noteBefore, 'Annotation dictation leaves note text unchanged');
     els.addNoteDialog.close(); openAskDialog(); fieldDictation.refresh();
@@ -244,6 +271,7 @@ try {
   await pause(1500);
   await client.evaluate(`check(els.askSubmitBtn.disabled, 'ASK disabled during recording'); check(document.querySelector('[data-dictation-for="askFollowupInput"]').disabled, 'Only one microphone owner');`);
   await screenshot('ask-dictation');
+  await screenshotDictation('ask-recording-inline', 'askPromptInput');
   await client.evaluate(`(async () => {
     els.askPromptInput.value += ' And this edit.';
     await dictationRecorder.stop(true);
@@ -257,8 +285,9 @@ try {
   await client.evaluate(`(async () => {
     await dictationRecorder.stop(true);
     check(!els.askPromptInput.closest('label').querySelector('.dictation-recovery').hidden, 'Failed ASK recording offers retry');
-    els.askDialog.close();
   })()`);
+  await screenshotDictation('ask-retry-inline', 'askPromptInput');
+  await client.evaluate(`els.askDialog.close();`);
   await client.call('Page.reload'); await pause(800);
   await client.evaluate(`(async () => {
     window.check = (condition, message) => { if (!condition) throw new Error(message); };

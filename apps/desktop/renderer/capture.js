@@ -12,6 +12,8 @@ const noteCapture = (() => {
   let recordingId = null;
   let working = false;
   let statusText = '';
+  let dictationField = '';
+  const dictationMessages = new Map();
   let suppressSave = false;
   const error = (err) => showNoteError(err.message || String(err));
   const recording = () => dictationRecorder.owner?.kind === 'note';
@@ -30,17 +32,16 @@ const noteCapture = (() => {
     if (!suppressSave) { clearTimeout(timer); timer = setTimeout(() => save().catch(error), 180); }
   }
   function render() {
-    byId('noteCaptureList').innerHTML = [...images, ...recordings].map((item) => `
+    byId('noteCaptureList').innerHTML = images.map((item) => `
       <div class="capture-item">
         ${item.preview ? `<img src="${item.preview}" alt="Attached image preview" />` : ''}
         <strong>${escapeHtml(item.name)}</strong>
-        ${item.kind === 'audio' ? `<button type="button" class="btn btn-ghost" data-transcribe="${item.id}" ${recordingId === item.id || working ? 'disabled' : ''}>Transcribe</button>` : ''}
         <button type="button" class="btn btn-subtle" data-remove-capture="${item.id}" ${recordingId === item.id || working ? 'disabled' : ''}>Remove</button>
       </div>`).join('');
     els.updateNoteSubmitBtn.disabled = Boolean(recording() || working || state.noteRetryBlocked);
     for (const id of ['attachNoteImagesBtn', 'captureNoteImageBtn', 'discardNoteDraftBtn']) byId(id).disabled = Boolean(recording() || working);
     els.cancelAddNoteBtn.disabled = working;
-    byId('captureStatus').hidden = !working;
+    byId('captureStatus').hidden = !working || Boolean(dictationField);
     byId('captureStatus').textContent = statusText;
     window.dispatchEvent(new Event('dictation-state'));
   }
@@ -50,7 +51,7 @@ const noteCapture = (() => {
     await save();
     suppressSave = true;
     clientId = id;
-    images = []; recordings = [];
+    images = []; recordings = []; dictationField = ''; dictationMessages.clear();
     requestId = crypto.randomUUID();
     try {
       resetNoteDialog();
@@ -72,6 +73,9 @@ const noteCapture = (() => {
   }
   async function transcribe(id) {
     if (working || recording()) return;
+    const entry = recordings.find((item) => item.id === id);
+    if (!entry) return;
+    dictationField = entry.targetField || 'noteTextInput'; dictationMessages.delete(dictationField);
     working = true; statusText = 'Transcribing your recording...'; render(); clearNoteError();
     try {
       const result = await api.processCapture({ id });
@@ -81,23 +85,25 @@ const noteCapture = (() => {
       recordings = recordings.filter((item) => item.id !== id);
       await save();
       await api.discardCaptures({ ids: [id] }).catch(() => {});
-    } catch (err) { error(new Error(`Transcription failed. Your recording is saved; press Transcribe to retry. ${err.message}`)); }
-    finally { working = false; render(); }
+    } catch { dictationMessages.set(dictationField, 'Transcription failed. Recording saved.'); }
+    finally { working = false; dictationField = ''; render(); }
   }
   async function start(field = els.noteTextInput) {
     if (dictationRecorder.active || working) return;
+    dictationField = field.id; dictationMessages.delete(field.id);
+    const recordingError = (err) => { dictationMessages.set(field.id, err.message || String(err)); render(); };
     working = true; statusText = 'Opening microphone...'; render(); clearNoteError();
     try {
       await dictationRecorder.start({ owner: { kind: 'note', field }, targetField: field.id,
         onCreated: async (entry) => { recordingId = entry.id; recordings.push(entry); await save(); },
         onAborted: async (entry) => { recordings = recordings.filter((item) => item.id !== entry.id); recordingId = null; await save(); },
         onMeter: (seconds, samples) => window.dispatchEvent(new CustomEvent('dictation-meter', { detail: { field, seconds, samples } })),
-        onError: error,
+        onError: recordingError,
         onStopped: async (entry, shouldTranscribe) => { recordingId = null; render(); await save(); if (shouldTranscribe) await transcribe(entry.id); }
       });
     } catch (err) {
-      recordingId = null; error(err);
-    } finally { working = false; render(); }
+      recordingId = null; recordingError(err);
+    } finally { working = false; dictationField = ''; render(); }
   }
   async function stop(shouldTranscribe = true) {
     if (recording()) await dictationRecorder.stop(shouldTranscribe);
@@ -125,7 +131,18 @@ const noteCapture = (() => {
     } finally { working = false; render(); }
   }
   function complete() {
-    clearTimeout(timer); clientId = null; images = []; recordings = []; requestId = ''; render();
+    clearTimeout(timer); clientId = null; images = []; recordings = []; requestId = ''; dictationMessages.clear(); render();
+  }
+  async function removeRecording(id) {
+    if (working || recording()) return;
+    const entry = recordings.find((item) => item.id === id);
+    if (!entry) return;
+    const previous = recordings;
+    recordings = recordings.filter((item) => item.id !== id);
+    try { await save(); }
+    catch (err) { recordings = previous; throw err; }
+    dictationMessages.delete(entry.targetField || 'noteTextInput'); render();
+    await api.discardCaptures({ ids: [id] });
   }
   async function discard() {
     if (!confirm('Discard this draft and its attachments?')) return;
@@ -134,7 +151,7 @@ const noteCapture = (() => {
     const ids = [...images, ...recordings].map((item) => item.id).concat(state.noteSources.flatMap((source) => source.attachmentIds || []));
     await api.saveNoteDraft({ clientId, draft: null });
     await api.discardCaptures({ ids });
-    requestId = crypto.randomUUID(); images = []; recordings = [];
+    requestId = crypto.randomUUID(); images = []; recordings = []; dictationMessages.clear();
     suppressSave = true; resetNoteDialog(); suppressSave = false; render();
   }
   for (const field of fields) byId(field).addEventListener('input', scheduleSave);
@@ -153,11 +170,12 @@ const noteCapture = (() => {
   byId('captureNoteImageBtn').onclick = () => api.captureNoteImage().then((item) => item && addImages([item])).catch(error);
   byId('discardNoteDraftBtn').onclick = () => discard().catch(error);
   byId('noteCaptureList').onclick = async (event) => {
-    const transcribeId = event.target.closest('[data-transcribe]')?.dataset.transcribe;
-    if (transcribeId) return transcribe(transcribeId);
     const remove = event.target.closest('[data-remove-capture]')?.dataset.removeCapture;
     if (remove) { images = images.filter((item) => item.id !== remove); recordings = recordings.filter((item) => item.id !== remove); render(); try { await save(); await api.discardCaptures({ ids: [remove] }); } catch (err) { error(err); } }
   };
   window.addEventListener('beforeunload', () => { save().catch(() => {}); });
-  return { open, save, scheduleSave, prepare, complete, stop, start, get dictationBusy() { return working; }, hasDraft: () => Boolean(images.length || recordings.length || state.noteSources.length || fields.slice(1).some((id) => id !== 'noteDateInput' && byId(id).value.trim())) };
+  return { open, save, scheduleSave, prepare, complete, stop, start, transcribe, removeRecording,
+    dictationState: (fieldId) => ({ pending: recordings.filter((item) => (item.targetField || 'noteTextInput') === fieldId),
+      busy: working && dictationField === fieldId, message: dictationMessages.get(fieldId) || '' }),
+    get dictationBusy() { return working; }, hasDraft: () => Boolean(images.length || recordings.length || state.noteSources.length || fields.slice(1).some((id) => id !== 'noteDateInput' && byId(id).value.trim())) };
 })();
