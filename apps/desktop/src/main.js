@@ -3057,7 +3057,15 @@ app.whenReady().then(async () => {
   await ensureVaultRootFolder();
   setupIpc();
   captureStore = createCaptureStore({ app, nativeImage, dialog, ipcMain, powerMonitor, getWindow: () => mainWindow, callProxy });
-  noteWorkspace = createNoteWorkspace({ db, ipcMain, getClients: () => getClients(), addCoachTask(clientId, task) {
+  noteWorkspace = createNoteWorkspace({ db, ipcMain, getClients: () => getClients(), today: () => dateKeyFromDate(currentDate()),
+    getWorklistContext() {
+      const flags = getAcceptedClientRows().flatMap(row => {
+        const structured = parseJsonObject(row.structuredJson);
+        return getSectionArray(structured, 'flags').map((item, index) => buildHomeItem(row, structured, 'flags', item, index))
+          .filter(item => isOpenPlanningStatus(item.planningStatus));
+      });
+      return { home: getCoachHome(), flags };
+    }, addCoachTask(clientId, task) {
     const row = getAcceptedBaselineRow(clientId);
     if (!row) throw new Error('Accepted client baseline not found.');
     const tasks = parseJsonObject(row.structuredJson).coachTasks;

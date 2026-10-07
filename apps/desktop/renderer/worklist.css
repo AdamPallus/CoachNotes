@@ -1,0 +1,42 @@
+.worklist-dialog { width: min(850px, calc(100vw - 40px)); }
+.coach-home-head { display: flex; flex-wrap: wrap; }
+.coach-home-head > div:first-child { flex: 1 1 220px; min-width: 200px; }
+.coach-home-head > .surface-actions { flex-wrap: wrap; justify-content: flex-end; }
+.coach-home-head h2 { letter-spacing: 0; }
+.worklist-dialog > .dialog-form { display: flex; flex-direction: column; overflow: hidden; color: var(--ink); }
+.worklist-heading, .worklist-tools, .worklist-strip-head, .worklist-strip-body, .worklist-row-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.worklist-heading h2 { margin: 0; }
+.worklist-dialog .dialog-actions { position: static; flex-shrink: 0; justify-content: space-between; }
+.worklist-dialog summary { cursor: pointer; color: var(--muted); padding: 8px 0; }
+.worklist-rules { display: grid; gap: 10px; padding: 8px 0 16px; }
+.worklist-rules label, .worklist-message { display: flex; flex-direction: row; align-items: center; gap: 8px; }
+.worklist-rules input[type="checkbox"], .worklist-row input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 18px; accent-color: var(--action); }
+.worklist-rules input[type="number"] { width: 64px; }
+.worklist-rules button { justify-self: start; }
+.worklist-tools { margin: 12px 0; }
+.worklist-tools input { min-width: 0; flex: 1; }
+.worklist-roster { overflow-y: auto; min-height: 80px; flex: 1; border-top: 1px solid var(--line); }
+.worklist-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; padding: 14px 4px; border-bottom: 1px solid var(--line); }
+.worklist-row.is-selected { border-left: 3px solid var(--moss); padding-left: 12px; }
+.worklist-select { display: flex; flex-direction: row; align-items: center; gap: 10px; min-width: 0; }
+.worklist-select span { min-width: 0; overflow-wrap: anywhere; }
+.worklist-select small { display: block; color: var(--muted); font-size: var(--fs-record); margin-top: 3px; }
+.worklist-message { font-size: var(--fs-record); white-space: nowrap; }
+.worklist-row-controls button { width: 30px; height: 30px; flex: 0 0 30px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink); cursor: pointer; }
+.worklist-context { grid-column: 1 / -1; font-size: var(--fs-record); color: var(--muted); overflow-wrap: anywhere; }
+.worklist-context ul { margin: 0; padding-left: 18px; }
+.worklist-context p { margin: 6px 0 0; }
+.worklist-radar { color: var(--clay); }
+.worklist-strip { position: sticky; top: 0; z-index: 8; background: var(--paper); border-bottom: 2px solid var(--moss); padding: 8px 20px 12px; color: var(--ink); }
+.worklist-strip-head { font-size: var(--fs-record); color: var(--muted); margin-bottom: 6px; }
+.worklist-strip-head .btn { padding: 4px 0; }
+.worklist-strip-body { flex-wrap: wrap; align-items: start; }
+.worklist-current { flex: 1 1 320px; min-width: 0; max-height: 145px; overflow-y: auto; display: grid; gap: 4px; font-size: var(--fs-body); overflow-wrap: anywhere; }
+.worklist-current small { color: var(--muted); font-size: var(--fs-record); }
+.worklist-strip-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.worklist-strip-actions .btn { font-size: var(--fs-record); padding: 7px 10px; }
+@media (max-width: 700px) {
+  .worklist-row { grid-template-columns: minmax(0, 1fr); }
+  .worklist-row-controls { justify-content: start; }
+  .worklist-strip { padding: 8px 12px; }
+}

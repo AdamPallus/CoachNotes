@@ -155,7 +155,6 @@ const dailyWrapup = (() => {
         await save(); followupSaved = ''; render();
       } else if (event.target.closest('[data-wrapup-start]')) {
         if (!progress.selected.length) throw new Error('Select at least one client.');
-        progress.selected.sort((a, b) => data.clients.find((c) => c.id === a).name.localeCompare(data.clients.find((c) => c.id === b).name));
         progress.started = true; await save(); render();
       } else if (event.target.closest('[data-wrapup-later]')) { progress.deferred.push(Number(event.target.closest('[data-wrapup-later]').dataset.wrapupLater)); await save(); followupSaved = ''; render(); }
       else if (event.target.closest('[data-wrapup-resume]')) { progress.deferred = []; await save(); render(); }

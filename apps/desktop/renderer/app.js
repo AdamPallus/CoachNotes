@@ -736,6 +736,7 @@ function setViewMode(mode) {
   document.body.dataset.viewMode = state.viewMode;
   updateIntakeActionState();
   updateBackButton();
+  document.dispatchEvent(new Event('coachnotes:navigation'));
 }
 
 function updateIntakeActionState() {
@@ -2820,6 +2821,7 @@ function renderWeeklyReviewClient(review, embedded = false) {
             </div>
           </div>
         ` : ''}
+        <button class="btn btn-ghost" type="button" data-worklist-weekly="${escapeHtml(clientId)}">Add to Today</button>
         ${embedded ? '' : `<button class="weekly-open-client" type="button" data-weekly-open-client="${escapeHtml(clientId)}">
           Open client profile <span aria-hidden="true">→</span>
         </button>`}
@@ -4600,6 +4602,7 @@ async function loadClients() {
   }
   renderClients();
   updateStatusLine();
+  document.dispatchEvent(new Event('coachnotes:clients-updated'));
 }
 
 async function openCoachHome(options = {}) {

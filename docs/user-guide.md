@@ -98,6 +98,26 @@ The review assesses every active accepted client from their current structured d
 
 Clients appear alphabetically by default. Use the grouping control to view the same scrolling report by retention concern, cohort, or curriculum. Retention labels are model-supported coaching judgments, not numeric predictions or final decisions.
 
+## Daily worklist (next desktop release)
+
+Choose `Start of Day` in Mission Control to select clients for today. Mark anyone
+with a `New message`, adjust the suggested selection, and drag or use arrows to
+choose your order. You do not need to know what you will do before reviewing a
+client. Suggestion settings are available here and through Settings.
+
+`Next` changes clients without marking them done. `Done for Today` marks the
+client reviewed, not their to-dos completed. `Later Today`, `Tomorrow`, and
+`Skip` keep those choices separate. The Today strip preserves your place when
+you open ASK, another profile, or Mission Control, and after restarting the app.
+Open Today to change the list or return a deferred client to review.
+
+Weekly Review can `Add to Today`, keeping its suggested focus beside the profile.
+End of Day includes your selected clients and reconciles completed reviews.
+An unfinished note remains a draft until its dashboard update succeeds.
+`No note recorded` never means the app knows you have not contacted the client.
+
+See [daily worklist behavior and safeguards](daily-worklist.md).
+
 ## Quick way to test with demo notes
 
 If you don’t have notes yet:

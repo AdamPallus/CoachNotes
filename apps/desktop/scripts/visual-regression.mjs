@@ -33,7 +33,9 @@ const screens = [
   { name: 'ask', prepare: 'ask' },
   { name: 'onboarding', prepare: 'onboarding' },
   { name: 'archived-client', prepare: 'archived-client' },
-  { name: 'archived-weekly-review', prepare: 'archived-weekly' }
+  { name: 'archived-weekly-review', prepare: 'archived-weekly' },
+  { name: 'daily-worklist', prepare: 'worklist' },
+  { name: 'daily-worklist-client', prepare: 'worklist-client' }
 ];
 
 const viewportHeight = (width) => width === 1024 ? 760 : width === 1280 ? 820 : 900;
@@ -115,6 +117,11 @@ async function prepareScreen(client, screen, theme) {
       document.head.append(style);
     }
     const prepare = ${JSON.stringify(screen.prepare)};
+    const worklist = await window.coachNotes.getWorklist();
+    if (worklist.plan.started) {
+      await window.coachNotes.saveWorklist({ day: worklist.day, plan: { ...worklist.plan, started: false } });
+      await dailyWorklist.refresh();
+    }
     const showArchive = prepare.startsWith('archived-');
     await window.coachNotes.setClientArchived({ clientId: state.clients[0].id, archived: showArchive });
     await loadClients();
@@ -132,7 +139,15 @@ async function prepareScreen(client, screen, theme) {
       renderCoachHome();
       document.activeElement?.blur();
     }
-    if (prepare === 'mission') {
+    if (prepare === 'worklist' || prepare === 'worklist-client') {
+      const data = await window.coachNotes.getWorklist();
+      const entries = data.candidates.slice(0, 5).map((c, i) => ({ clientId: c.id, status: 'pending', message: i === 0, reasons: c.reasons.map(r => r.text) }));
+      await window.coachNotes.saveWorklist({ day: data.day, plan: { ...data.plan, entries, currentId: entries[0].clientId, started: prepare === 'worklist-client' } });
+      await dailyWorklist.refresh();
+      if (prepare === 'worklist') { await openCoachHome({ recordHistory: false }); await dailyWorklist.open(); }
+      else await selectClient(entries[0].clientId, { recordHistory: false, detailPage: 'snapshot' });
+      document.activeElement?.blur();
+    } else if (prepare === 'mission') {
       state.coachHomeTab = 'attention';
       await openCoachHome({ recordHistory: false });
       renderCoachHome();
@@ -200,6 +215,13 @@ async function prepareScreen(client, screen, theme) {
     document.activeElement?.blur();
     await document.fonts.ready;
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    if (!els.coachHomePanel.hidden) {
+      const title = document.querySelector('.coach-home-head > div:first-child').getBoundingClientRect();
+      const actions = document.querySelector('.coach-home-head > .surface-actions').getBoundingClientRect();
+      const overlap = Math.min(title.right, actions.right) - Math.max(title.left, actions.left) > 1
+        && Math.min(title.bottom, actions.bottom) - Math.max(title.top, actions.top) > 1;
+      if (overlap) throw new Error('Mission Control heading overlaps its action buttons.');
+    }
     return true;
   })()`);
   await pause(80);

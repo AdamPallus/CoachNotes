@@ -34,7 +34,8 @@ function normalizeWrapup(value, clients) {
     }
   }
   const deferred = [...new Set((value?.deferred || []).map(Number))].filter((id) => selected.includes(id) && (!done[id] || followupDrafts[id]));
-  return { selected, done, deferred, followupDrafts, started: Boolean(value?.started), updatedAt: new Date().toISOString() };
+  const worklistImported = [...new Set((value?.worklistImported || []).map(Number))].filter(id => ids.has(id));
+  return { selected, done, deferred, followupDrafts, worklistImported, started: Boolean(value?.started), updatedAt: new Date().toISOString() };
 }
 
 function isCalendarDay(value) {

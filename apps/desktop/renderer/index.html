@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="./tokens.css" />
     <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="./capture-workflow.css" />
+    <link rel="stylesheet" href="./worklist.css" />
   </head>
   <body>
     <div class="app-shell">
@@ -99,6 +100,7 @@
         </aside>
 
         <section class="main-surface">
+          <section id="dailyWorklistStrip" class="worklist-strip" aria-label="Today's worklist" hidden></section>
           <section id="coachHomePanel" class="coach-home-panel" hidden>
             <div class="surface-head compact coach-home-head">
               <div>
@@ -107,6 +109,7 @@
                 <p>Your live practice briefing, calculated locally from saved client records.</p>
               </div>
               <div class="surface-actions">
+                <button id="openWorklistBtn" class="btn btn-primary" type="button">Start of Day</button>
                 <button id="openWrapupBtn" class="btn btn-ghost" type="button">End of Day</button>
                 <button id="generateWeeklyReviewBtn" class="btn btn-primary weekly-review-generate" type="button">
                   <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -243,6 +246,7 @@
     <dialog id="settingsDialog">
       <form method="dialog" id="settingsForm" class="dialog-form">
         <h2>Settings</h2>
+        <section class="settings-section"><strong>Daily worklist</strong><button id="worklistSettingsBtn" class="btn btn-ghost" type="button">Suggestion Settings</button></section>
         <section class="settings-section">
           <div class="settings-section-head">
             <strong>Connection</strong>
@@ -550,10 +554,26 @@
         <div class="dialog-actions wrapup-footer"><div id="wrapupActions"></div><button id="closeWrapupBtn" type="button" class="btn btn-subtle">Close</button></div>
       </div>
     </dialog>
+    <dialog id="worklistDialog" class="worklist-dialog">
+      <div class="dialog-form">
+        <header class="worklist-heading"><div><p class="section-kicker" id="worklistDate"></p><h2>Today</h2></div><button id="closeWorklistBtn" class="btn btn-ghost" type="button" aria-label="Close daily worklist" title="Close">&times;</button></header>
+        <div id="worklistError" class="dialog-error" role="alert" hidden></div>
+        <details id="worklistRules"><summary>Suggestion settings</summary><div class="worklist-rules">
+          <label><input id="worklistDue" type="checkbox" /> Due and overdue to-dos</label>
+          <label><input id="worklistAlerts" type="checkbox" /> High-priority items and active flags</label>
+          <label><input id="worklistStale" type="checkbox" /> No recorded note in <input id="worklistDays" aria-label="Days without a recorded note" type="number" min="1" max="90" /> days</label>
+          <button id="saveWorklistRulesBtn" class="btn btn-ghost" type="button">Save Settings</button>
+        </div></details>
+        <div class="worklist-tools"><input id="worklistSearch" type="search" placeholder="Find a client" aria-label="Find a client for today" /><button id="suggestWorklistBtn" class="btn btn-ghost" type="button">Suggest Order</button></div>
+        <div id="worklistRoster" class="worklist-roster"></div>
+        <footer class="dialog-actions"><span id="worklistCount" role="status"></span><button id="startWorklistBtn" class="btn btn-primary" type="button">Begin Review</button></footer>
+      </div>
+    </dialog>
     <script src="./app.js"></script>
     <script src="./audio-recorder.js"></script>
     <script src="./capture.js"></script>
     <script src="./dictation.js"></script>
     <script src="./wrapup.js"></script>
+    <script src="./worklist.js"></script>
   </body>
 </html>

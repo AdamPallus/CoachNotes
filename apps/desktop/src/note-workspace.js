@@ -1,11 +1,14 @@
 const { buildDayActivity, normalizeWrapup, isCalendarDay, buildWrapupTask, hasNoteDraft } = require('./daily-wrapup');
+const { normalizeRules, buildCandidates, normalizePlan, createPlan } = require('./daily-worklist');
 
-function createNoteWorkspace({ db, ipcMain, getClients, addCoachTask }) {
+function createNoteWorkspace({ db, ipcMain, getClients, addCoachTask, getWorklistContext, today }) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS note_drafts (client_id INTEGER PRIMARY KEY REFERENCES clients(id) ON DELETE CASCADE, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS daily_wrapups (day TEXT PRIMARY KEY, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS note_receipts (request_id TEXT PRIMARY KEY, client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS wrapup_task_receipts (request_id TEXT PRIMARY KEY, client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE, data TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS daily_worklists (day TEXT PRIMARY KEY, data TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS daily_worklist_settings (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);
   `);
   const client = (id) => {
     if (!db.prepare('SELECT id FROM clients WHERE id = ?').get(Number(id))) throw new Error('Client not found.');
@@ -16,10 +19,56 @@ function createNoteWorkspace({ db, ipcMain, getClients, addCoachTask }) {
     return day;
   };
   const readWrapup = (day) => JSON.parse(db.prepare('SELECT data FROM daily_wrapups WHERE day = ?').get(dayKey(day))?.data || 'null');
+  const readPlan = (day) => JSON.parse(db.prepare('SELECT data FROM daily_worklists WHERE day=?').get(dayKey(day))?.data || 'null');
+  const worklist = () => {
+    const day = today();
+    const rules = normalizeRules(JSON.parse(db.prepare('SELECT data FROM daily_worklist_settings WHERE id=1').get()?.data || '{}'));
+    const lastNotes = Object.fromEntries(db.prepare('SELECT client_id AS id, MAX(created_at) AS date FROM intake_sources GROUP BY client_id').all().map(row => [row.id, row.date]));
+    const candidates = buildCandidates({ clients: getClients(), ...getWorklistContext(), lastNotes, day, rules });
+    const saved = readPlan(day);
+    const previous = JSON.parse(db.prepare('SELECT data FROM daily_worklists WHERE day < ? ORDER BY day DESC LIMIT 1').get(day)?.data || 'null');
+    const drafts = new Set(db.prepare('SELECT client_id AS id,data FROM note_drafts').all().filter(row => hasNoteDraft(JSON.parse(row.data))).map(row => row.id));
+    return { day, rules, candidates: candidates.map(c => ({ ...c, hasDraft: drafts.has(c.id) })), plan: saved ? normalizePlan(saved, candidates) : createPlan(candidates, previous, day) };
+  };
+  ipcMain.handle('app:get-worklist', worklist);
+  ipcMain.handle('app:save-worklist', (_event, { day, plan, rules }) => {
+    const data = worklist();
+    if (day !== data.day) throw new Error('A new day has started. Reopen Today to continue.');
+    if (plan.revision !== data.plan.revision) throw new Error('Your worklist changed. Reopen Today before continuing.');
+    const normalized = normalizePlan(plan, data.candidates);
+    for (const entry of normalized.entries) {
+      if (entry.status === 'done' && data.plan.entries.find(e => e.clientId === entry.clientId)?.status !== 'done'
+        && data.candidates.find(c => c.id === entry.clientId)?.hasDraft) throw new Error('This client has a saved note draft. Finish the note or choose Later.');
+    }
+    normalized.revision += 1;
+    db.transaction(() => {
+      if ((readPlan(day)?.revision || 0) !== plan.revision) throw new Error('Your worklist changed. Reopen Today before continuing.');
+      db.prepare('INSERT INTO daily_worklists VALUES (?, ?) ON CONFLICT(day) DO UPDATE SET data=excluded.data').run(day, JSON.stringify(normalized));
+      if (rules) db.prepare('INSERT INTO daily_worklist_settings VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(JSON.stringify(normalizeRules(rules)));
+    })();
+    return worklist();
+  });
   const saveWrapup = (day, value) => {
     const normalized = normalizeWrapup(value, getClients());
-    db.prepare('INSERT INTO daily_wrapups VALUES (?, ?) ON CONFLICT(day) DO UPDATE SET data=excluded.data')
-      .run(dayKey(day), JSON.stringify(normalized));
+    const previous = readWrapup(day);
+    db.transaction(() => {
+      db.prepare('INSERT INTO daily_wrapups VALUES (?, ?) ON CONFLICT(day) DO UPDATE SET data=excluded.data')
+        .run(dayKey(day), JSON.stringify(normalized));
+      const plan = readPlan(day);
+      let changed = false;
+      for (const entry of plan?.entries || []) {
+        if (!normalized.done[entry.clientId] || normalized.followupDrafts[entry.clientId] || entry.status === 'done' || entry.deferredUntil > day) continue;
+        if (previous?.done?.[entry.clientId] === normalized.done[entry.clientId] && !previous?.followupDrafts?.[entry.clientId]) continue;
+        const draft = JSON.parse(db.prepare('SELECT data FROM note_drafts WHERE client_id=?').get(entry.clientId)?.data || 'null');
+        if (hasNoteDraft(draft)) continue;
+        entry.status = 'done'; entry.deferredUntil = ''; changed = true;
+      }
+      if (changed) {
+        plan.revision += 1;
+        if (!plan.entries.some(e => e.clientId === plan.currentId && e.status === 'pending')) plan.currentId = plan.entries.find(e => e.status === 'pending')?.clientId || null;
+        db.prepare('UPDATE daily_worklists SET data=? WHERE day=?').run(JSON.stringify(plan), day);
+      }
+    })();
     return normalized;
   };
   ipcMain.handle('app:get-note-draft', (_event, { clientId }) => JSON.parse(db.prepare('SELECT data FROM note_drafts WHERE client_id=?').get(client(clientId))?.data || 'null'));
@@ -39,7 +88,15 @@ function createNoteWorkspace({ db, ipcMain, getClients, addCoachTask }) {
       .all(new Date(`${day}T00:00:00`).toISOString(), new Date(new Date(`${day}T00:00:00`).getTime() + 26 * 3600000).toISOString());
     const revisions = db.prepare(`SELECT b.client_id AS clientId,u.section_key AS section,u.reason,u.created_at AS createdAt FROM client_section_undo u JOIN client_baselines b ON b.id=u.baseline_id WHERE u.created_at >= ?`)
       .all(new Date(`${day}T00:00:00`).toISOString());
-    const saved = readWrapup(day);
+    let saved = readWrapup(day);
+    const plan = readPlan(day);
+    if (plan?.started) {
+      saved ||= { selected: buildDayActivity({ clients, sources, revisions, day }).filter(c => c.activity.length).map(c => c.id), done: {}, started: false };
+      const imported = new Set(saved.worklistImported || []);
+      const planned = plan.entries.filter(e => e.status !== 'skipped' && !imported.has(e.clientId)).map(e => e.clientId);
+      saved.selected = [...new Set(saved.started ? [...saved.selected, ...planned] : [...planned, ...saved.selected])];
+      saved.worklistImported = [...imported, ...planned];
+    }
     const draftClients = new Set(db.prepare('SELECT client_id AS clientId,data FROM note_drafts').all()
       .filter((row) => hasNoteDraft(JSON.parse(row.data))).map((row) => row.clientId));
     return { day, clients: buildDayActivity({ clients, sources, revisions, day }).map((item) => ({ ...item, hasDraft: draftClients.has(item.id) })), progress: saved ? normalizeWrapup(saved, clients) : null };
