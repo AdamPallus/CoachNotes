@@ -98,7 +98,7 @@ The review assesses every active accepted client from their current structured d
 
 Clients appear alphabetically by default. Use the grouping control to view the same scrolling report by retention concern, cohort, or curriculum. Retention labels are model-supported coaching judgments, not numeric predictions or final decisions.
 
-## Daily worklist (next desktop release)
+## Daily worklist (0.2.23)
 
 Choose `Start of Day` in Mission Control to select clients for today. Mark anyone
 with a `New message`, adjust the suggested selection, and drag or use arrows to

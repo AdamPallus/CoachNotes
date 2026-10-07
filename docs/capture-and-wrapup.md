@@ -16,7 +16,7 @@ The follow-up scheduling, Next controls, and shared field microphones below are 
 
 ## Data and AI boundaries
 
-The next desktop release connects End of Day with the persistent
+Desktop release [0.2.23](releases/v0.2.23.md) connects End of Day with the persistent
 [daily worklist](daily-worklist.md). It includes the coach's chosen clients and
 reconciles completed reviews without completing underlying coach to-dos or
 discarding drafts. Existing End of Day note submission still runs the normal AI

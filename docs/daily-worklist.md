@@ -1,7 +1,7 @@
 # Daily Worklist
 
-Implemented on `codex/daily-worklist`; not released. Desktop-only, no proxy
-contract, model, or prompt changes. Trello: https://trello.com/c/FOWCsI71
+Introduced in [0.2.23](releases/v0.2.23.md). Desktop-only, no proxy contract,
+model, or prompt changes. Trello: https://trello.com/c/FOWCsI71
 
 ## Coach workflow
 
@@ -89,6 +89,6 @@ midnight rejection, archives, and settings. App-only screenshots cover light and
 dark themes at 1024 and 1440 pixels. Unit tests cover rule boundaries, date math,
 deduplication, coach order, and cross-day carry-forward.
 
-Human review before release: check that suggested ordering matches how Liz wants
+Human feedback during use: check that suggested ordering matches how Liz wants
 to begin, that Next/Done/Later feel distinct, and that returning from a detour is
 obvious. No deployment or desktop tag is implied by implementation completion.

@@ -49,6 +49,11 @@ confirmation.
 
 ## Verification
 
+- Production deployment completed October 6; the synthetic production check
+  passed on its first attempt. Adam then confirmed that Liz retried the affected
+  note successfully. The incident is resolved for that note; the exact rejected
+  citation format remains unknown.
+
 - Added regression coverage for grouped/wrapped known references, grouped legacy
   references, trimmed/fallback IDs, unknown IDs, numeric-only IDs, placeholders,
   targeted retry feedback, and privacy-safe diagnostics.
