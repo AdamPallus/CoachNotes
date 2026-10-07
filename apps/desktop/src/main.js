@@ -657,6 +657,7 @@ function getAppSettings() {
     vaultFolder: getSetting('vaultFolder', ''),
     proxyBaseUrl: normalizeProxyBaseUrl(getSetting('proxyBaseUrl', DEFAULT_PROXY_URL)),
     inviteToken: getInviteToken(),
+    wrapupCelebrations: getSetting('wrapupCelebrations', 'true') !== 'false',
     coachTemplate: getCoachTemplateSetting()
   };
 }
@@ -683,7 +684,7 @@ async function callProxy(endpoint, payload, settings = getAppSettings()) {
   }
 
   const response = await fetch(`${baseUrl}${endpoint}`, {
-    signal: AbortSignal.timeout(300000),
+    signal: AbortSignal.timeout(endpoint === '/wrapup-closing' ? 20000 : 300000),
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -3018,6 +3019,7 @@ function setupIpc() {
     if (Object.prototype.hasOwnProperty.call(payload || {}, 'coachTemplate')) {
       setSetting(COACH_TEMPLATE_SETTING_KEY, JSON.stringify(normalizeCoachTemplate(payload.coachTemplate)));
     }
+    if (typeof payload?.wrapupCelebrations === 'boolean') setSetting('wrapupCelebrations', String(payload.wrapupCelebrations));
     return {
       ...getAppSettings(),
       vaultFolder: await ensureVaultRootFolder()
@@ -3058,6 +3060,9 @@ app.whenReady().then(async () => {
   setupIpc();
   captureStore = createCaptureStore({ app, nativeImage, dialog, ipcMain, powerMonitor, getWindow: () => mainWindow, callProxy });
   noteWorkspace = createNoteWorkspace({ db, ipcMain, getClients: () => getClients(), today: () => dateKeyFromDate(currentDate()),
+    callProxy, getCelebrationsEnabled: () => getSetting('wrapupCelebrations', 'true') !== 'false',
+    getCoachTasks: clientId => getSectionArray(parseJsonObject(getAcceptedBaselineRow(clientId)?.structuredJson), 'coachTasks')
+      .filter(task => isOpenPlanningStatus(task.planningStatus || task.status)),
     getWorklistContext() {
       const flags = getAcceptedClientRows().flatMap(row => {
         const structured = parseJsonObject(row.structuredJson);

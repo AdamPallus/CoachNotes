@@ -7,6 +7,7 @@ const summarize = require('./api/summarize');
 const workflow = require('./api/workflow');
 const weeklyReview = require('./api/weekly-review');
 const capture = require('./api/capture');
+const wrapupClosing = require('./api/wrapup-closing');
 
 const app = express();
 app.use(express.json({ limit: '4mb' }));
@@ -19,6 +20,7 @@ app.post('/summarize', summarize);
 app.post('/workflow', workflow);
 app.post('/weekly-review', weeklyReview);
 app.post('/capture', capture);
+app.post('/wrapup-closing', wrapupClosing);
 app.options('/*rest', (_req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type');

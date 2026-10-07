@@ -13,6 +13,7 @@
 
 ## Future work
 
+- [End of Day completion](wrapup-completion.md): implemented, unreleased polish and its optional server message.
 
 - [Hierarchical summary plan](hierarchical-summary-plan.md): possible future portfolio-scale summary architecture.
 

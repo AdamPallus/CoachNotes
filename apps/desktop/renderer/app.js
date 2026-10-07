@@ -4808,6 +4808,7 @@ function collectCoachTemplateFromSettings() {
 }
 
 function openSettings() {
+  document.getElementById('wrapupCelebrationsInput').checked = state.settings?.wrapupCelebrations !== false;
   els.vaultInput.value = state.settings?.vaultFolder || '';
   els.proxyInput.value = state.settings?.proxyBaseUrl || '';
   els.tokenInput.value = state.settings?.inviteToken || '';
@@ -4821,6 +4822,7 @@ async function saveSettings(event) {
   setBusy(true, 'Saving settings...');
   try {
     state.settings = await window.coachNotes.saveSettings({
+      wrapupCelebrations: document.getElementById('wrapupCelebrationsInput').checked,
       vaultFolder: els.vaultInput.value,
       proxyBaseUrl: els.proxyInput.value,
       inviteToken: els.tokenInput.value,

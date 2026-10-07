@@ -13,6 +13,7 @@
     "style:check": "node scripts/style-contract.mjs",
     "visual:check": "node scripts/visual-regression.mjs",
     "test:capture": "node scripts/capture-smoke.mjs",
+    "test:closing": "ELECTRON_RUN_AS_NODE=1 electron scripts/closing-store-test.js && node scripts/closing-smoke.mjs",
     "visual:update": "node scripts/visual-regression.mjs --update",
     "fixture:weekly": "electron scripts/seed-weekly-review-fixture.js",
     "evaluate:weekly": "electron scripts/evaluate-weekly-review.js",

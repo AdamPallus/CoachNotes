@@ -22,7 +22,7 @@ reconciles completed reviews without completing underlying coach to-dos or
 discarding drafts. Existing End of Day note submission still runs the normal AI
 dashboard update.
 
-Daily activity uses source ingestion time and manual-edit timestamps in the computer's local timezone, not the source's historical date. The wrap-up does not infer Everfit activity, create client messages, mark coach tasks complete, or call AI until a note is submitted. Undo history is bounded, so a profile-update timestamp supplies a fallback when detailed edits are no longer present.
+Daily activity uses source ingestion time and manual-edit timestamps in the computer's local timezone, not the source's historical date. The wrap-up does not infer Everfit activity, create client messages, or mark coach tasks complete. Notes run the normal AI dashboard update. The unreleased [completion polish](wrapup-completion.md) also makes one optional, bounded AI request at completion. Undo history is bounded, so a profile-update timestamp supplies a fallback when detailed edits are no longer present.
 
 Images are normalized to JPEG, at most 2400 pixels on the longest edge and 2 MiB, with up to six images per note. `/capture` asks the server-selected Luna model to extract visible source information, marking unclear text and not guessing prior workouts or what changed. This text is combined with the coach's note for the existing dashboard update. ASK can retrieve the extracted text as part of the source; it does not re-send images on every question. This is useful extraction, not a guarantee that every screenshot detail is legible or preserved.
 

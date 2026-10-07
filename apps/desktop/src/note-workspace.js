@@ -1,7 +1,8 @@
 const { buildDayActivity, normalizeWrapup, isCalendarDay, buildWrapupTask, hasNoteDraft } = require('./daily-wrapup');
 const { normalizeRules, buildCandidates, normalizePlan, createPlan } = require('./daily-worklist');
+const { createWrapupClosing } = require('./wrapup-closing');
 
-function createNoteWorkspace({ db, ipcMain, getClients, addCoachTask, getWorklistContext, today }) {
+function createNoteWorkspace({ db, ipcMain, getClients, addCoachTask, getCoachTasks, getWorklistContext, today, callProxy, getCelebrationsEnabled }) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS note_drafts (client_id INTEGER PRIMARY KEY REFERENCES clients(id) ON DELETE CASCADE, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS daily_wrapups (day TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -10,6 +11,7 @@ function createNoteWorkspace({ db, ipcMain, getClients, addCoachTask, getWorklis
     CREATE TABLE IF NOT EXISTS daily_worklists (day TEXT PRIMARY KEY, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS daily_worklist_settings (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);
   `);
+  const closing = createWrapupClosing({ db, ipcMain, getClients, getCoachTasks, today, callProxy, getCelebrationsEnabled });
   const client = (id) => {
     if (!db.prepare('SELECT id FROM clients WHERE id = ?').get(Number(id))) throw new Error('Client not found.');
     return Number(id);
@@ -121,6 +123,7 @@ function createNoteWorkspace({ db, ipcMain, getClients, addCoachTask, getWorklis
       if (progress.followupDrafts?.[clientId]?.requestId === requestId) delete progress.followupDrafts[clientId];
       saveWrapup(day, progress);
       db.prepare('INSERT INTO wrapup_task_receipts VALUES (?, ?, ?)').run(requestId, clientId, JSON.stringify(task));
+      closing.record(day, clientId, 'Scheduled follow-up', `${task.title} (due ${task.dueDate})`);
       return task;
     })();
   });
@@ -135,6 +138,7 @@ function createNoteWorkspace({ db, ipcMain, getClients, addCoachTask, getWorklis
       if (wrapupDay) {
         const progress = readWrapup(wrapupDay);
         if (progress?.selected?.includes(clientId)) {
+          closing.record(wrapupDay, clientId, 'Saved dashboard update', result.updateSummary || `Updated sections: ${(result.changedSections || []).join(', ')}`);
           progress.done[clientId] = 'updated';
           saveWrapup(wrapupDay, progress);
         }

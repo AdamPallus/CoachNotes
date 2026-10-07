@@ -13,6 +13,7 @@ const dailyWrapup = (() => {
   let followupSaved = '';
   let followupSavedFor = null;
   let saving = Promise.resolve();
+  let stopCelebration = () => {};
   const error = (err) => {
     errorPanel.textContent = String(err.message || err).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
     errorPanel.hidden = false;
@@ -35,7 +36,7 @@ const dailyWrapup = (() => {
     saving = saving.catch(() => {}).then(() => api.saveWrapup(payload));
     return saving;
   };
-  async function load(day) {
+  async function load(day, celebrate = false) {
     await saving;
     data = await api.getWrapup({ day });
     progress = data.progress || { selected: data.clients.filter((item) => item.activity.length).map((item) => item.id), done: {}, started: false };
@@ -45,13 +46,14 @@ const dailyWrapup = (() => {
     date.value = day;
     date.max = todayLocalDate();
     errorPanel.hidden = true;
-    render();
+    render(celebrate);
   }
   async function open() {
     try { activeDay = null; activeClientId = null; composerLabels(false); await load(todayLocalDate()); dialog.showModal(); }
     catch (err) { showToast(`Could not open wrap-up: ${err.message}`, 'error'); }
   }
-  function render() {
+  function render(celebrate = false) {
+    stopCelebration();
     actions.innerHTML = '';
     content.scrollTop = 0;
     date.disabled = Boolean(activeDay);
@@ -59,11 +61,12 @@ const dailyWrapup = (() => {
       content.innerHTML = `<h3>Who did you work with?</h3><p class="muted">Clients updated in CoachNotes on ${escapeHtml(formatDate(data.day))} are selected. Add anyone else you worked with.</p><input id="wrapupSearch" type="search" placeholder="Find a client..." aria-label="Find a client" /><div class="wrapup-roster">${data.clients.map((client) => `<label class="wrapup-client" data-wrapup-name="${escapeHtml(client.name.toLowerCase())}"><input type="checkbox" data-wrapup-client="${client.id}" ${progress.selected.includes(client.id) ? 'checked' : ''} /><span><strong>${escapeHtml(client.name)}</strong><small>${client.activity.length ? `${client.activity.length} updates in CoachNotes` : 'No CoachNotes activity'}</small></span></label>`).join('')}</div><button class="btn btn-primary" type="button" data-wrapup-start>Review ${progress.selected.length} clients</button>`;
       return;
     }
-    const pending = progress.selected.filter((id) => !progress.done[id] || progress.followupDrafts[id]?.title?.trim());
+    const pending = progress.selected.filter((id) => !progress.done[id] || progress.followupDrafts[id]?.title?.trim() || data.clients.find(client => client.id === id)?.hasDraft);
     const completed = progress.selected.length - pending.length;
     if (!pending.length) {
       const updated = Object.values(progress.done).filter((status) => status === 'updated').length;
-      content.innerHTML = `<section class="wrapup-complete"><p class="section-kicker">Day complete</p><h3>All caught up.</h3><p>${completed} client${completed === 1 ? '' : 's'} reviewed. ${updated} dashboard${updated === 1 ? '' : 's'} updated.</p></section><button class="btn btn-ghost" type="button" data-wrapup-select>Review more clients</button>`;
+      content.innerHTML = `<section class="wrapup-complete"><div class="wrapup-complete-mark" aria-hidden="true">&#10003;</div><p class="section-kicker">End of Day complete</p><h3>Your day is wrapped up.</h3><p class="wrapup-recap">${completed} client${completed === 1 ? '' : 's'} reviewed &middot; ${updated} dashboard${updated === 1 ? '' : 's'} updated</p><p class="wrapup-closing-message" role="status" aria-live="polite"></p></section><button class="btn btn-ghost" type="button" data-wrapup-select>Review more clients</button>`;
+      stopCelebration = wrapupCelebration.mount(content.querySelector('.wrapup-complete'), data.day, celebrate);
       return;
     }
     const ready = pending.filter((id) => !progress.deferred.includes(id));
@@ -152,7 +155,7 @@ const dailyWrapup = (() => {
         if (progress.followupDrafts[id]?.title?.trim()) throw new Error('Add the follow-up first, or choose Later to keep it as a draft.');
         if (data.clients.find((item) => item.id === id)?.hasDraft) throw new Error('Finish the saved note first, or choose Later. The dashboard has not been updated.');
         progress.done[id] ||= 'no-updates';
-        await save(); followupSaved = ''; render();
+        await save(); followupSaved = ''; render(true);
       } else if (event.target.closest('[data-wrapup-start]')) {
         if (!progress.selected.length) throw new Error('Select at least one client.');
         progress.started = true; await save(); render();
@@ -168,12 +171,13 @@ const dailyWrapup = (() => {
   document.getElementById('openWrapupBtn').onclick = open;
   document.getElementById('closeWrapupBtn').onclick = async () => { if (working) return; try { await save(); activeDay = null; dialog.close(); } catch (err) { error(err); } };
   dialog.addEventListener('cancel', (event) => { if (working) event.preventDefault(); });
+  dialog.addEventListener('close', () => stopCelebration());
   date.onchange = () => load(date.value).catch(error);
   els.addNoteDialog.addEventListener('cancel', (event) => { if (working) event.preventDefault(); });
   els.addNoteDialog.addEventListener('close', () => {
     if (activeDay && !state.busyCount && !working) setTimeout(async () => {
       if (!activeDay || state.busyCount || working || els.addNoteDialog.open) return;
-      try { await noteCapture.stop(false); await noteCapture.save(); await load(activeDay); dialog.showModal(); activeDay = null; activeClientId = null; composerLabels(false); }
+      try { await noteCapture.stop(false); await noteCapture.save(); await load(activeDay, true); dialog.showModal(); activeDay = null; activeClientId = null; composerLabels(false); }
       catch (err) { error(err); }
     }, 0);
   });
@@ -201,6 +205,6 @@ const dailyWrapup = (() => {
     if (!activeDay) return;
     const day = activeDay; activeDay = null;
     activeClientId = null; composerLabels(false);
-    await load(day); dialog.showModal();
+    await load(day, true); dialog.showModal();
   } };
 })();

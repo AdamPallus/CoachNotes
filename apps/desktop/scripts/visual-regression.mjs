@@ -29,6 +29,8 @@ const screens = [
   { name: 'add-note', prepare: 'add-note' },
   { name: 'daily-wrapup', prepare: 'wrapup' },
   { name: 'daily-wrapup-step', prepare: 'wrapup-step' },
+  { name: 'daily-wrapup-complete', prepare: 'wrapup-complete' },
+  { name: 'settings', prepare: 'settings' },
   { name: 'client-weekly-context', prepare: 'client-weekly' },
   { name: 'ask', prepare: 'ask' },
   { name: 'onboarding', prepare: 'onboarding' },
@@ -189,6 +191,16 @@ async function prepareScreen(client, screen, theme) {
       document.activeElement?.blur();
     } else if (prepare === 'client-weekly') {
       await selectClient(state.clients[0].id, { recordHistory: false, detailPage: 'weekly' });
+    } else if (prepare === 'wrapup-complete') {
+      await window.coachNotes.saveWrapup({ day: ${JSON.stringify(visualDate)}, progress: { selected: [state.clients[0].id], done: { [state.clients[0].id]: 'no-updates' }, started: true } });
+      await dailyWrapup.open();
+      const message = document.querySelector('.wrapup-closing-message');
+      message.textContent = 'The workout changes and follow-ups from this review are captured.';
+      message.classList.add('is-ready');
+      document.activeElement?.blur();
+    } else if (prepare === 'settings') {
+      openSettings();
+      document.activeElement?.blur();
       document.activeElement?.blur();
     } else if (prepare === 'add-note') {
       await selectClient(state.clients[0].id, { recordHistory: false, detailPage: 'snapshot' });

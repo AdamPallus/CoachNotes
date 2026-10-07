@@ -31,6 +31,7 @@ const server = http.createServer(async (req, res) => {
   }
   const result = req.url === '/workflow'
     ? { model: 'test', structured: { schemaVersion: 'client_update_patch.v1', sectionUpdates: [{ sectionKey: 'overview', operation: 'replace', value: 'Updated with the new coach note.' }], changes: [], updateSummary: 'New context captured.' } }
+    : req.url === '/wrapup-closing' ? { message: 'You captured the workout changes and scheduled a follow-up for tomorrow.' }
     : req.url === '/capture' ? { text: body.kind === 'audio' ? 'A dictated coaching note.' : 'Workout: Goblet squat, 3 sets of 8 repetitions, 12 kg.' }
     : { model: 'test', answer: `Try asking about the recent workout. [c:${body.sources[0].chunk_id}]`, citations: [body.sources[0].chunk_id] };
   res.end(JSON.stringify(result));
@@ -230,6 +231,16 @@ try {
     check((await window.coachNotes.getWrapup({day:todayLocalDate()})).progress.done[state.selectedClientId]==='updated', 'Wrapup completion persisted');
   })()`);
   await screenshot('wrapup-complete');
+  await pause(3100);
+  await client.evaluate(`check(document.querySelector('.wrapup-closing-message').textContent.includes('workout changes'), 'Personal closing appears after completion');`);
+  const closingCalls = calls.filter(c => c.endpoint === '/wrapup-closing');
+  assert.equal(closingCalls.length, 1);
+  assert.equal(closingCalls[0].body.context.reviewed, 2);
+  assert.equal(closingCalls[0].body.context.updated, 1);
+  assert.equal(closingCalls[0].body.context.followups, 1);
+  assert.ok(closingCalls[0].body.context.details.some(s => s.includes('Send revised workout')));
+  assert.ok(closingCalls[0].body.context.details.some(s => s.includes('New context captured.')));
+  await screenshot('wrapup-personal-message');
   await client.evaluate(`(async () => {
     document.getElementById('wrapupDialog').close(); await openAddNoteDialog();
     document.querySelector('[data-dictation-for="noteTextInput"]').click();

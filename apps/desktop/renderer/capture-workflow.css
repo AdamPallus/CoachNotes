@@ -54,8 +54,22 @@
 .wrapup-step h3 { font-size: 22px; margin: 18px 0 10px; }
 .wrapup-activity { border-left: 3px solid var(--line-strong); margin: 14px 0; padding: 0 14px; }
 .wrapup-activity p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; color: var(--muted); }
-.wrapup-complete { padding: 28px 0; }
-.wrapup-complete h3 { font-size: 24px; color: var(--moss); }
+.wrapup-complete { position: relative; isolation: isolate; overflow: hidden; padding: 36px 20px 12px; text-align: center; }
+.wrapup-complete h3 { font-size: 28px; color: var(--ink); margin: 10px 0; overflow-wrap: anywhere; }
+.wrapup-complete-mark { display: grid; place-items: center; width: 64px; height: 64px; margin: 0 auto 24px; border-radius: 50%; font-size: 32px; color: var(--moss); background: var(--moss-soft); border: 1px solid var(--moss); }
+.wrapup-recap { font-size: 13px; color: var(--muted); }
+.wrapup-closing-message { min-height: 96px; max-width: 480px; margin: 24px auto 0; font-size: 16px; line-height: 1.6; color: var(--ink); overflow-wrap: anywhere; opacity: 0; transition: opacity 450ms ease; }
+.wrapup-closing-message.is-ready { opacity: 1; }
+.wrapup-confetti { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: -1; }
+.is-celebrating .wrapup-complete-mark { animation: wrapup-check-arrive 550ms ease-out both; }
+.wrapup-celebration-setting { display: flex; align-items: center; gap: 10px; }
+.wrapup-celebration-setting input { width: 18px; height: 18px; flex: 0 0 18px; }
+@keyframes wrapup-check-arrive { 0% { transform: scale(0.65) rotate(-12deg); } 65% { transform: scale(1.12) rotate(3deg); } 100% { transform: scale(1) rotate(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .is-celebrating .wrapup-complete-mark { animation: none; }
+  .wrapup-confetti { display: none; }
+  .wrapup-closing-message { transition: none; }
+}
 .client-weekly-review > .weekly-review-client { margin-top: 16px; }
 .wrapup-followup { border-top: 1px solid var(--line); margin: 20px 0 12px; padding-top: 16px; }
 .wrapup-followup > input { width: 100%; min-width: 0; }

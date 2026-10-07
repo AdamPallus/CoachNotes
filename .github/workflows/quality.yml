@@ -31,6 +31,9 @@ jobs:
       - name: Tests
         run: npm test
 
+      - name: End of Day completion checks
+        run: npm --workspace apps/desktop run test:closing
+
       - name: Visual regression
         run: npm run visual:check
 
@@ -39,5 +42,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: visual-failure-evidence
-          path: output/playwright/regression/
+          path: |
+            output/playwright/regression/
+            output/playwright/closing/
           retention-days: 7
