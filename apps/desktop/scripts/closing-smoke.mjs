@@ -39,6 +39,7 @@ try {
     };
     try {
       client = new CdpClient((await waitForTarget()).webSocketDebuggerUrl); await client.connect(); await pause(500);
+      await client.call('Page.bringToFront');
       await client.call('Emulation.setDeviceMetricsOverride', { width: 1024, height: 760, deviceScaleFactor: 1, mobile: false });
       await client.call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: mode === 'reduced' ? 'reduce' : 'no-preference' }] });
       await evaluate(`
@@ -59,8 +60,18 @@ try {
         check(document.getElementById('wrapupError').hidden,'No error in successful completion');
       `);
       if (mode === 'normal') {
-        await evaluate(`const canvas=document.querySelector('.wrapup-confetti'); check(canvas,'Animation starts');
-          check(canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data.some((v,i)=>i%4===3&&v>0),'Confetti is actually rendered');`);
+        await evaluate(`
+          const deadline = performance.now() + 1500;
+          let painted = false;
+          while (performance.now() < deadline) {
+            const canvas = document.querySelector('.wrapup-confetti');
+            if (canvas?.width && canvas?.height && canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data.some((v,i)=>i%4===3&&v>0)) {
+              painted = true; break;
+            }
+            await new Promise(resolve => setTimeout(resolve, 30));
+          }
+          check(painted, 'Confetti is actually rendered');
+        `);
         await screenshot('celebration-light');
       } else if (mode === 'disabled' || mode === 'reduced') await evaluate(`check(!document.querySelector('.wrapup-confetti'),'No animation when disabled or reduced motion');`);
       if (mode === 'failure') {
