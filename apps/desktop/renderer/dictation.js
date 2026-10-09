@@ -14,7 +14,7 @@ const fieldDictation = (() => {
   const visible = (field) => field.isConnected && field.getClientRects().length > 0 && !field.closest('[hidden]');
   const setText = (element, value) => { if (element.textContent !== value) element.textContent = value; };
   const hide = (element, value) => { if (element.hidden !== value) element.hidden = value; };
-  const errorText = (error) => String(error?.message || error).replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, '');
+  const errorText = cleanError;
   function keyFor(field) {
     const scope = globalFields.has(field.id) ? 'coach' : `client:${state.selectedClientId || state.selectedClientDetail?.client?.id || 'intake'}`;
     return `dictation:v1:${scope}:${field.dataset.dictation || field.id}`;

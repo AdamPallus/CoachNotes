@@ -1,15 +1,7 @@
 # Next release (not shipped)
 
-## Coach-facing notes
+End of Day finishing touches are assigned to [0.2.24](v0.2.24.md).
 
-- A little extra polish for finishing End of Day.
-
-## Release preparation (internal)
-
-Keep the first-use experience a surprise; do not copy technical details or
-completion screenshots into the GitHub/Trello release description. See
-[implementation and verification](../wrapup-completion.md).
-
-Deploy the additive `/wrapup-closing` server endpoint before publishing the
-desktop. No changes to existing note-update or ASK contracts. The previous
-desktop remains usable. Do not announce availability before verifying shipment.
+The remaining profile-navigation experiment, broader copy changes, and
+structured-editor redesign stay on `codex/ux-reliability-prototype`.
+The verified reliability subset is included in 0.2.24.

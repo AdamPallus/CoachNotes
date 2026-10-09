@@ -293,6 +293,11 @@
           <div id="profileOptionsPanel" class="profile-options-panel"></div>
           <button id="resetCoachTemplateBtn" class="btn btn-subtle" type="button">Restore Default Template</button>
         </section>
+        <section class="settings-template-section" aria-labelledby="aboutTitle">
+          <h3 id="aboutTitle">About &amp; Updates</h3>
+          <p id="appVersion"></p>
+          <button id="checkUpdatesBtn" class="btn btn-ghost" type="button">Check Updates</button>
+        </section>
         <div class="dialog-actions">
           <button id="cancelSettingsBtn" class="btn btn-ghost" type="button">Cancel</button>
           <button class="btn btn-primary" type="submit">Save</button>
@@ -539,13 +544,13 @@
     </dialog>
 
     <div id="citationTooltip" class="citation-tooltip" popover="manual" role="tooltip"></div>
-    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-    <div id="busyOverlay" class="busy-overlay" hidden>
+    <div id="toast" class="toast" popover="manual" role="status" aria-live="polite" hidden></div>
+    <dialog id="busyOverlay" class="busy-overlay" aria-labelledby="busyText" closedby="none" hidden>
       <div class="busy-box">
         <div class="spinner" aria-hidden="true"></div>
         <p id="busyText">Working...</p>
       </div>
-    </div>
+    </dialog>
 
     <dialog id="wrapupDialog" class="wrapup-dialog">
       <div class="dialog-form">

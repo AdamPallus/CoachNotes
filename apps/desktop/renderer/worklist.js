@@ -9,7 +9,6 @@ const dailyWorklist = (() => {
   let draggedId = null;
   const candidate = id => data.candidates.find(c => c.id === id);
   const eligible = entry => entry.status === 'pending';
-  const cleanError = err => String(err.message || err).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
   function error(err) {
     if (dialog.open) { byId('worklistError').textContent = cleanError(err); byId('worklistError').hidden = false; }
     else showToast(cleanError(err), 'error');
@@ -92,6 +91,9 @@ const dailyWorklist = (() => {
       ${onClient && eligible(entry) ? '<button class="btn btn-primary" type="button" data-worklist-status="done">Done for Today</button><button class="btn btn-ghost" type="button" data-worklist-status="later">Later Today</button><button class="btn btn-ghost" type="button" data-worklist-tomorrow>Tomorrow</button><button class="btn btn-subtle" type="button" data-worklist-status="skipped">Skip</button>' : `<span>${entry.status === 'pending' ? '' : escapeHtml(entry.status === 'later' ? 'Deferred' : entry.status === 'done' ? 'Reviewed today' : 'Skipped today')}</span>`}
       <button class="btn btn-ghost" type="button" data-worklist-next>Next &rarr;</button></div></div>` : `<div class="worklist-strip-body"><strong>${remaining ? 'Clients deferred for later.' : 'Today\'s review is complete.'}</strong><button class="btn btn-ghost" type="button" data-worklist-edit>Review List</button><button class="btn btn-primary" type="button" data-worklist-wrapup>End of Day</button></div>`}`;
   }
+  new ResizeObserver(() => {
+    els.mainSurface.style.setProperty('--strip-height', `${strip.hidden ? 0 : strip.getBoundingClientRect().height}px`);
+  }).observe(strip);
   function add(clientId) {
     let entry = data.plan.entries.find(e => e.clientId === clientId);
     if (!entry) {

@@ -36,6 +36,9 @@ jobs:
       - name: End of Day completion checks
         run: npm --workspace apps/desktop run test:closing
 
+      - name: UX reliability checks
+        run: npm --workspace apps/desktop run test:ux
+
       - name: Visual regression
         run: npm run visual:check
 

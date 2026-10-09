@@ -8,6 +8,10 @@ const state = {
   viewMode: 'intake',
   detailPage: 'snapshot',
   editSectionKey: '',
+  editSectionOriginal: null,
+  editSectionText: '',
+  editSectionSaving: false,
+  askSaving: false,
   lastUpdateNotice: null,
   askResult: null,
   askLoading: false,
@@ -576,17 +580,46 @@ function wordCount(text) {
   return words.length;
 }
 
-function showToast(message, kind = 'info') {
+function cleanError(error) {
+  return String(error?.message || error || '').replace(/Error invoking remote method '[^']+': (?:Error: )?/g, '');
+}
+
+function feedbackHost() {
+  if (els.busyOverlay.open) return els.busyOverlay;
+  return document.activeElement?.closest('dialog[open]') || [...document.querySelectorAll('dialog[open]')].at(-1) || document.body;
+}
+
+function hideToast() {
   clearTimeout(toastTimer);
-  els.toast.textContent = message;
+  if (els.toast.matches(':popover-open')) els.toast.hidePopover();
+  els.toast.hidden = true;
+  els.toast.classList.remove('is-visible');
+}
+
+function positionToast() {
+  if (els.toast.matches(':popover-open')) els.toast.hidePopover();
+  feedbackHost().append(els.toast);
+  els.toast.showPopover();
+}
+
+function showToast(message, kind = 'info') {
+  hideToast();
+  const text = document.createElement('span');
+  text.textContent = cleanError(message);
+  const close = document.createElement('button');
+  close.type = 'button'; close.className = 'section-link'; close.textContent = '\u00d7';
+  close.setAttribute('aria-label', 'Dismiss notification');
+  close.onclick = hideToast;
+  els.toast.replaceChildren(text, close);
+  els.toast.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+  els.toast.setAttribute('aria-live', kind === 'error' ? 'assertive' : 'polite');
   els.toast.className = `toast is-visible ${kind === 'error' ? 'error' : ''}`;
   els.toast.hidden = false;
-  toastTimer = setTimeout(() => {
-    els.toast.classList.remove('is-visible');
-    setTimeout(() => {
-      els.toast.hidden = true;
-    }, 180);
-  }, kind === 'error' ? 9000 : 3200);
+  positionToast();
+  const dismissLater = () => { if (kind !== 'error') toastTimer = setTimeout(hideToast, 5000); };
+  els.toast.onmouseenter = els.toast.onfocusin = () => clearTimeout(toastTimer);
+  els.toast.onmouseleave = els.toast.onfocusout = dismissLater;
+  dismissLater();
 }
 
 function setBusy(on, message = 'Working...') {
@@ -594,7 +627,14 @@ function setBusy(on, message = 'Working...') {
   if (on) {
     els.busyText.textContent = message;
   }
-  els.busyOverlay.hidden = state.busyCount === 0;
+  if (state.busyCount && !els.busyOverlay.open) {
+    els.busyOverlay.hidden = false;
+    els.busyOverlay.showModal();
+  } else if (!state.busyCount && els.busyOverlay.open) {
+    els.busyOverlay.close();
+    els.busyOverlay.hidden = true;
+  }
+  if (!els.toast.hidden) positionToast();
 }
 
 function setClientNavigationLoading(clientId, active) {
@@ -1745,6 +1785,8 @@ function resetAskDialog() {
   document.getElementById('newAskBtn').hidden = true;
   els.askSubmitBtn.hidden = false;
   state.askResult = null;
+  els.saveAskResultBtn.textContent = 'Save as Note';
+  els.saveAskResultBtn.disabled = false;
   state.askAppliedPresetPrompt = '';
   state.askCustomPromptDraft = '';
   setAskLoading(false);
@@ -1823,7 +1865,7 @@ function setAskLoading(on, message = 'Using the selected client context.') {
   ];
   controls.forEach((control) => {
     if (control) {
-      control.disabled = state.askLoading;
+      control.disabled = state.askLoading || (control === els.saveAskResultBtn && Boolean(state.askResult?.savedAsNote));
     }
   });
   document.getElementById('askFollowupBtn').disabled = state.askLoading || !state.askResult?.followUpsRemaining;
@@ -1985,6 +2027,8 @@ function renderAskSources(sources = []) {
 
 function renderAskResult(result) {
   state.askResult = result;
+  els.saveAskResultBtn.textContent = 'Save as Note';
+  els.saveAskResultBtn.disabled = false;
   state.askTurns = [...(state.askTurns || []), result];
   els.askResultPanel.hidden = false;
   els.askResultMeta.textContent = `${result.outputLabel || 'ASK'} • ${result.scopeLabel || 'selected context'} • ${result.timeWindowLabel || 'time window'}`;
@@ -2046,10 +2090,22 @@ async function submitAsk(event, followup = false) {
     document.getElementById('askFollowupInput').value = '';
     document.getElementById('askFollowupPanel').scrollIntoView({ block: 'nearest' });
   } catch (error) {
-    const message = /source reference/i.test(error.message || '')
+    const cause = cleanError(error);
+    const needsSettings = /proxy URL or invite token is missing/i.test(cause);
+    const needsNewAsk = /conversation.*(?:expired|full)/i.test(cause);
+    const message = needsSettings ? 'Connect CoachNotes in Settings, then retry your request.'
+      : needsNewAsk ? 'This conversation has ended. Start a new Ask to continue.'
+      : /source reference/i.test(cause)
       ? 'The answer contained a source reference that could not be verified. Your request is unchanged. Please try again.'
       : 'CoachNotes could not finish the answer. Your request and conversation are unchanged. Please try again.';
     document.getElementById('askError').textContent = message;
+    if (needsSettings || needsNewAsk) {
+      const action = document.createElement('button');
+      action.type = 'button'; action.className = 'btn btn-ghost';
+      action.textContent = needsSettings ? 'Open Settings' : 'Start a new Ask';
+      action.onclick = needsSettings ? openSettings : () => { resetAskDialog(); els.askPromptInput.focus(); };
+      document.getElementById('askError').append(action);
+    }
     document.getElementById('askError').hidden = false;
     document.getElementById('askError').scrollIntoView({ block: 'nearest' });
   } finally {
@@ -2100,11 +2156,16 @@ async function copyAskResult() {
 }
 
 async function saveAskResultAsNote() {
+  if (state.askSaving || state.askResult?.savedAsNote) return;
   if (!state.askResult?.answer || !state.selectedClientDetail?.client?.id) {
     showToast('Run ASK before saving.', 'error');
     return;
   }
+  state.askSaving = true;
+  const result = state.askResult;
+  els.saveAskResultBtn.disabled = true;
   setBusy(true, 'Saving ASK note...');
+  let saved = false;
   try {
     const detail = await window.coachNotes.saveAskResultAsNote({
       clientId: state.selectedClientDetail.client.id,
@@ -2115,14 +2176,19 @@ async function saveAskResultAsNote() {
       question: state.askResult.question,
       answer: state.askResult.answer
     });
+    saved = true;
+    result.savedAsNote = true;
     state.selectedClientDetail = detail;
     await loadClients();
     renderClientDetail(detail);
     setViewMode('detail');
     showToast('ASK output saved as a note.');
   } catch (error) {
-    showToast(`Save failed: ${error.message}`, 'error');
+    showToast(saved ? 'The note was saved, but the profile could not refresh. Reopen the client to view it.' : `Save failed: ${error.message}`, 'error');
   } finally {
+    state.askSaving = false;
+    els.saveAskResultBtn.disabled = Boolean(state.askResult?.savedAsNote);
+    els.saveAskResultBtn.textContent = state.askResult?.savedAsNote ? 'Saved as Note' : 'Save as Note';
     setBusy(false);
   }
 }
@@ -2552,6 +2618,7 @@ function renderHomeItemRows(items = [], emptyText = 'Nothing needs attention her
                   data-home-client-id="${escapeHtml(String(item.clientId))}"
                   data-home-section-key="${escapeHtml(item.sectionKey)}"
                   data-home-item-index="${escapeHtml(String(item.itemIndex))}"
+                  data-home-section-revision="${escapeHtml(item.sectionRevision || '')}"
                   title="Mark ${escapeHtml(item.title || 'item')} complete"
                 >Done</button>
               ` : ''}
@@ -3992,6 +4059,7 @@ function openEditSection(sectionKey) {
   const structured = state.selectedClientDetail?.baseline?.structured || {};
   const dashboard = buildDashboardModel(structured);
   state.editSectionKey = sectionKey;
+  state.editSectionOriginal = structuredClone(structured[sectionKey]);
   els.editSectionInput.dataset.dictation = config.type === 'text' ? `section-${sectionKey}` : '';
   els.editSectionTitle.textContent = `Edit ${config.label}`;
   els.editSectionHelp.textContent = config.type === 'text'
@@ -4005,16 +4073,22 @@ function openEditSection(sectionKey) {
     config.type
   );
   els.editSectionDialog.showModal();
+  state.editSectionText = els.editSectionInput.value;
   els.editSectionInput.focus();
 }
 
 async function saveEditedSection(event) {
   event.preventDefault();
+  if (state.editSectionSaving) return;
   const sectionKey = state.editSectionKey;
   if (!sectionKey || !state.selectedClientDetail?.client?.id) {
     return;
   }
   const config = getSectionConfig(sectionKey);
+  if (els.editSectionInput.value === state.editSectionText) {
+    els.editSectionDialog.close();
+    return;
+  }
   const value = parseFieldValue(els.editSectionInput.value, config.type);
   const currentValue = state.selectedClientDetail?.baseline?.structured?.[sectionKey];
   if (valuesEqual(currentValue, value)) {
@@ -4022,12 +4096,14 @@ async function saveEditedSection(event) {
     return;
   }
 
+  state.editSectionSaving = true;
   setBusy(true, 'Saving section...');
   try {
     const detail = await window.coachNotes.updateClientSection({
       clientId: state.selectedClientDetail.client.id,
       sectionKey,
-      value
+      value,
+      expectedValue: state.editSectionOriginal
     });
     els.editSectionDialog.close();
     state.selectedClientDetail = detail;
@@ -4038,6 +4114,7 @@ async function saveEditedSection(event) {
   } catch (error) {
     showToast(`Save failed: ${error.message}`, 'error');
   } finally {
+    state.editSectionSaving = false;
     setBusy(false);
   }
 }
@@ -4655,6 +4732,7 @@ async function openCoachHome(options = {}) {
 }
 
 async function completeHomePlanningItem(button) {
+  if (button?.disabled) return;
   const clientId = Number(button?.dataset?.homeClientId);
   const sectionKey = button?.dataset?.homeSectionKey || '';
   const itemIndex = Number(button?.dataset?.homeItemIndex);
@@ -4666,15 +4744,8 @@ async function completeHomePlanningItem(button) {
   button.disabled = true;
   setBusy(true, 'Closing the loop...');
   try {
-    const detail = await window.coachNotes.getClientDetail({ clientId });
-    const currentSection = detail?.baseline?.structured?.[sectionKey];
-    if (!Array.isArray(currentSection) || itemIndex < 0 || itemIndex >= currentSection.length) {
-      throw new Error('The item changed since Mission Control was loaded. Refresh and try again.');
-    }
-    const nextSection = currentSection.map((item, index) => (
-      index === itemIndex ? applyPlanningPatch(item, { planningStatus: 'completed' }) : item
-    ));
-    await window.coachNotes.updateClientSection({ clientId, sectionKey, value: nextSection });
+    await window.coachNotes.completePlanningItem({ clientId, sectionKey, itemIndex,
+      expectedRevision: button.dataset.homeSectionRevision });
     await loadClients();
     renderCoachHome();
     setViewMode('home');
@@ -4815,6 +4886,9 @@ function openSettings() {
   setSettingsTemplateInputs();
   els.settingsDialog.showModal();
   els.settingsForm.scrollTop = 0;
+  window.coachNotes.getAbout().then(info => {
+    document.getElementById('appVersion').textContent = `CoachNotes ${info.version}${info.development ? ' (local development)' : ''}`;
+  }).catch(error => showToast(cleanError(error), 'error'));
 }
 
 async function saveSettings(event) {
@@ -4843,6 +4917,8 @@ async function saveSettings(event) {
 }
 
 async function init() {
+  els.busyOverlay.addEventListener('cancel', event => event.preventDefault());
+  document.getElementById('checkUpdatesBtn').onclick = () => window.coachNotes.openUpdates().catch(error => showToast(cleanError(error), 'error'));
   loadLocalPreferences();
   syncChoiceGroups();
   setBusy(true, 'Opening CoachNotes...');
@@ -5109,6 +5185,7 @@ async function init() {
       }
       state.detailPage = nextPage;
       renderClientDetail(state.selectedClientDetail);
+      els.detailContent.querySelector('.detail-page-tab.active')?.focus({ preventScroll: true });
       return;
     }
     const hiddenToggle = event.target.closest('.toggle-hidden-planning');

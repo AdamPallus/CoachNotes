@@ -12,6 +12,7 @@ const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const Database = require('better-sqlite3');
 const { projectActiveWeeklyReview } = require('./client-archive');
+const { sectionRevision, assertSectionEdit, completePlanningItem } = require('./section-edits');
 const {
   applyPartialUpdate,
   extractPartialUpdateResponse
@@ -1328,6 +1329,7 @@ function buildHomeItem(client, structured, sectionKey, item, index) {
     clientName: client.name,
     sectionKey,
     itemIndex: index,
+    sectionRevision: sectionRevision(structured[sectionKey]),
     title: normalizeMultilineText(getHomeItemTitle(item), 180),
     detail: normalizeMultilineText(getHomeItemDetail(item), 260),
     priority: getHomePriorityValue(item),
@@ -2033,6 +2035,7 @@ function updateClientSection(payload) {
 
   const structured = parseJsonObject(row.structuredJson);
   const previousValue = structured[sectionKey];
+  assertSectionEdit(previousValue, payload);
   const nextValue = sectionKey === 'timeline'
     ? sortTimelineItemsChronologically(payload?.value)
     : payload?.value;
@@ -2992,6 +2995,9 @@ function setupIpc() {
   }
   ipcRegistered = true;
 
+  ipcMain.handle('app:about', () => ({ version: app.getVersion(), development: !app.isPackaged }));
+  ipcMain.handle('app:open-updates', () => shell.openExternal('https://github.com/AdamPallus/CoachNotes/releases/latest'));
+
   ipcMain.handle('app:get-state', async () => ({
     settings: {
       ...getAppSettings(),
@@ -3031,6 +3037,15 @@ function setupIpc() {
   ipcMain.handle('app:generate-client-baseline', async (_event, payload) => generateClientBaseline(payload || {}));
   ipcMain.handle('app:accept-client-baseline', async (_event, payload) => acceptClientBaseline(payload || {}));
   ipcMain.handle('app:update-client-section', async (_event, payload) => updateClientSection(payload || {}));
+  ipcMain.handle('app:complete-planning-item', (_event, payload) => {
+    requireDb();
+    if (!PLANNING_SECTION_KEYS.has(payload?.sectionKey)) throw new Error('Choose a to-do or goal.');
+    const row = getAcceptedBaselineRow(Number(payload.clientId));
+    if (!row) throw new Error('Client profile not found.');
+    const items = parseJsonObject(row.structuredJson)[payload.sectionKey];
+    const value = completePlanningItem(items, payload);
+    return updateClientSection({ clientId: payload.clientId, sectionKey: payload.sectionKey, value, expectedValue: items });
+  });
   ipcMain.handle('app:update-client-sections', async (_event, payload) => updateClientSections(payload || {}));
   ipcMain.handle('app:undo-client-section', async (_event, payload) => undoClientSection(payload || {}));
   ipcMain.handle('app:update-client-from-note', async (_event, payload) => updateClientFromNote(payload || {}));

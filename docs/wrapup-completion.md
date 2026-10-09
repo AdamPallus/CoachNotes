@@ -1,4 +1,4 @@
-# End of Day completion (unreleased)
+# End of Day completion (0.2.24)
 
 ## Experience
 
@@ -49,7 +49,8 @@ No client content or model output is written to server logs.
 This is an additive endpoint, not a change to note/ASK contracts. Deploy it
 before publishing the desktop that calls it. Existing desktop apps continue to
 work. If the endpoint is unavailable, completing End of Day still works normally.
-No production deployment or desktop release is part of this implementation.
+Release 0.2.24 includes this feature. Deploy the additive server endpoint before
+publishing the desktop; see [release notes](releases/v0.2.24.md).
 
 ## Verification
 
