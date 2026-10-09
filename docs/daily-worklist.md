@@ -54,7 +54,7 @@ deferrals remain pending. Morning completion never claims that a note was saved.
 
 ## Storage and safeguards
 
-### Next desktop update (not released)
+### Banner controls (0.2.25)
 
 The Today banner disappears automatically when there are no pending or
 today-deferred clients. Tomorrow deferrals do not keep it visible. A close button

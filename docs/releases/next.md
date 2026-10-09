@@ -4,7 +4,7 @@ End of Day finishing touches are assigned to [0.2.24](v0.2.24.md).
 
 ## Today banner and deferred clients
 
-Implemented on `codex/worklist-dismiss-deferred`; not included in 0.2.24.
+Assigned to [0.2.25](v0.2.25.md); not included in 0.2.24.
 Desktop-only; no server, model, prompt, or proxy-contract changes.
 Tracking: https://trello.com/c/Ac4Azf2a
 
@@ -17,6 +17,10 @@ Tracking: https://trello.com/c/Ac4Azf2a
   deferred/future separation, completion, and existing draft/EOD safeguards.
 
 ## Separate prototype
+
+Marketing-copy cleanup is a separate build-ready item:
+https://trello.com/c/sb70AMs6. Extract and verify the narrow copy changes without
+bundling the tab or editor redesign. Preserve useful state and the celebration.
 
 The remaining profile-navigation experiment, broader copy changes, and
 structured-editor redesign stay on `codex/ux-reliability-prototype`.

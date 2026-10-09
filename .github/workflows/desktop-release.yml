@@ -39,6 +39,9 @@ jobs:
       - name: UX reliability checks
         run: npm --workspace apps/desktop run test:ux
 
+      - name: Daily worklist checks
+        run: npm --workspace apps/desktop run test:worklist
+
       - name: Visual regression
         run: npm run visual:check
 
