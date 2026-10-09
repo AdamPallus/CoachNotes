@@ -9,6 +9,7 @@ const dailyWorklist = (() => {
   let draggedId = null;
   const candidate = id => data.candidates.find(c => c.id === id);
   const eligible = entry => entry.status === 'pending';
+  const deferredToday = entry => entry.status === 'later' && (!entry.deferredUntil || entry.deferredUntil <= data.day);
   function error(err) {
     if (dialog.open) { byId('worklistError').textContent = cleanError(err); byId('worklistError').hidden = false; }
     else showToast(cleanError(err), 'error');
@@ -79,17 +80,27 @@ const dailyWorklist = (() => {
     if (!data) return;
     const { plan } = data;
     byId('openWorklistBtn').textContent = plan.started ? 'Today' : 'Start of Day';
-    strip.hidden = !plan.started;
-    if (!plan.started) return;
-    const entry = plan.entries.find(e => e.clientId === plan.currentId);
+    const pending = plan.entries.filter(eligible);
+    const deferred = plan.entries.filter(deferredToday);
+    const remaining = pending.length + deferred.length;
+    const hadFocus = strip.contains(document.activeElement);
+    strip.hidden = !plan.started || plan.bannerDismissed || !remaining;
+    if (strip.hidden) {
+      els.mainSurface.style.setProperty('--strip-height', '0px');
+      strip.replaceChildren();
+      if (hadFocus) (state.viewMode === 'home' ? byId('openWorklistBtn') : els.coachHomeBtn).focus({ preventScroll: true });
+      return;
+    }
+    const entry = pending.find(e => e.clientId === plan.currentId) || pending[0];
     const client = entry && candidate(entry.clientId);
-    const remaining = plan.entries.filter(e => ['pending', 'later'].includes(e.status)).length;
     const onClient = client && state.viewMode === 'detail' && state.selectedClientId === client.id;
-    strip.innerHTML = `<div class="worklist-strip-head"><button class="btn btn-ghost" type="button" data-worklist-edit>Today &middot; ${remaining} remaining</button><span>${escapeHtml(formatDate(data.day))}</span></div>
+    const names = deferred.slice(0, 3).map(e => candidate(e.clientId)?.name || 'Client').join(', ');
+    const deferredSummary = deferred.length ? `<div class="worklist-deferred"><span><strong>${deferred.length} deferred:</strong> ${escapeHtml(names)}${deferred.length > 3 ? ` and ${deferred.length - 3} more` : ''}</span><button class="btn btn-ghost" type="button" data-worklist-review-deferred>Review deferred</button></div>` : '';
+    strip.innerHTML = `<div class="worklist-strip-head"><button class="btn btn-ghost" type="button" data-worklist-edit>Today &middot; ${remaining} remaining</button><div class="worklist-strip-tools"><span>${escapeHtml(formatDate(data.day))}</span><button class="worklist-dismiss" type="button" data-worklist-dismiss title="Hide Today banner" aria-label="Hide Today banner">&times;</button></div></div>
       ${client ? `<div class="worklist-strip-body"><div class="worklist-current"><strong>${plan.entries.indexOf(entry) + 1} of ${plan.entries.length} &middot; ${escapeHtml(client.name)}</strong><span>${escapeHtml(entry.focus || 'Review this client and decide what needs attention.')}</span><small>${escapeHtml([entry.message ? 'New message' : '', ...reasons(client, entry)].filter(Boolean).join(' · '))}</small>${client.hasDraft ? '<small>Note draft saved; dashboard not updated.</small>' : ''}${client.radar.length ? `<small>On the radar: ${escapeHtml(client.radar.join('; '))}</small>` : ''}</div>
       <div class="worklist-strip-actions">${onClient ? '' : '<button class="btn btn-primary" type="button" data-worklist-open>Resume Client</button>'}
       ${onClient && eligible(entry) ? '<button class="btn btn-primary" type="button" data-worklist-status="done">Done for Today</button><button class="btn btn-ghost" type="button" data-worklist-status="later">Later Today</button><button class="btn btn-ghost" type="button" data-worklist-tomorrow>Tomorrow</button><button class="btn btn-subtle" type="button" data-worklist-status="skipped">Skip</button>' : `<span>${entry.status === 'pending' ? '' : escapeHtml(entry.status === 'later' ? 'Deferred' : entry.status === 'done' ? 'Reviewed today' : 'Skipped today')}</span>`}
-      <button class="btn btn-ghost" type="button" data-worklist-next>Next &rarr;</button></div></div>` : `<div class="worklist-strip-body"><strong>${remaining ? 'Clients deferred for later.' : 'Today\'s review is complete.'}</strong><button class="btn btn-ghost" type="button" data-worklist-edit>Review List</button><button class="btn btn-primary" type="button" data-worklist-wrapup>End of Day</button></div>`}`;
+      <button class="btn btn-ghost" type="button" data-worklist-next>Next &rarr;</button></div></div>` : ''}${deferredSummary}`;
   }
   new ResizeObserver(() => {
     els.mainSurface.style.setProperty('--strip-height', `${strip.hidden ? 0 : strip.getBoundingClientRect().height}px`);
@@ -163,7 +174,22 @@ const dailyWorklist = (() => {
     if (event.target.closest('[data-worklist-wrapup]')) { dailyWrapup.open(); return; }
     if (!event.target.closest('button')) return;
     act(async () => {
-      const entry = data.plan.entries.find(e => e.clientId === data.plan.currentId);
+      if (event.target.closest('[data-worklist-dismiss]')) {
+        data.plan.bannerDismissed = true;
+        await save();
+        showToast('Today hidden. Resume from Today in Mission Control.');
+        return;
+      }
+      if (event.target.closest('[data-worklist-review-deferred]')) {
+        const deferred = data.plan.entries.filter(deferredToday);
+        if (!deferred.length) return;
+        deferred.forEach(entry => { entry.status = 'pending'; entry.deferredUntil = ''; });
+        data.plan.bannerDismissed = false;
+        await navigate(deferred[0].clientId);
+        return;
+      }
+      const entry = data.plan.entries.find(e => e.clientId === data.plan.currentId && eligible(e)) || data.plan.entries.find(eligible);
+      if (!entry) return;
       if (event.target.closest('[data-worklist-open]')) { await navigate(entry.clientId); return; }
       const status = event.target.closest('[data-worklist-status]')?.dataset.worklistStatus;
       if (status || event.target.closest('[data-worklist-tomorrow]')) {
@@ -171,6 +197,7 @@ const dailyWorklist = (() => {
         entry.status = status || 'later'; entry.deferredUntil = '';
         if (!status) { const date = currentLocalDate(); date.setDate(date.getDate() + 1); entry.deferredUntil = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
         await save();
+        if (status === 'later') showToast(`${candidate(entry.clientId)?.name || 'Client'} set aside for later today.`);
       }
       await next();
     });
@@ -178,6 +205,7 @@ const dailyWorklist = (() => {
   byId('startWorklistBtn').onclick = () => act(async () => {
     const started = data.plan.started;
     data.plan.started = true;
+    data.plan.bannerDismissed = false;
     const current = started && data.plan.entries.find(e => e.clientId === data.plan.currentId && eligible(e));
     await navigate(current?.clientId || data.plan.entries.find(eligible)?.clientId || null);
     dialog.close();
@@ -211,6 +239,7 @@ const dailyWorklist = (() => {
       const review = saved?.report?.clientReviews?.find(r => Number(r.clientId) === id);
       const entry = add(id);
       entry.status = 'pending'; entry.deferredUntil = '';
+      data.plan.bannerDismissed = false;
       entry.focus = review?.suggestedCoachFocus ? `Weekly Review (${formatDate(saved.weekOf)}): ${review.suggestedCoachFocus}` : 'Review this client\'s Weekly Review.';
       await save(); button.textContent = 'Added to Today';
     });

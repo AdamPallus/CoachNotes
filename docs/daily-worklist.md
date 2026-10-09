@@ -54,9 +54,24 @@ deferrals remain pending. Morning completion never claims that a note was saved.
 
 ## Storage and safeguards
 
+### Next desktop update (not released)
+
+The Today banner disappears automatically when there are no pending or
+today-deferred clients. Tomorrow deferrals do not keep it visible. A close button
+also hides it without changing selections, statuses, focus, or End of Day
+inclusion. This preference persists for the day, including app restarts; Today
+in Mission Control followed by Resume Review restores it.
+
+Later Today provides immediate confirmation and names deferred clients in the
+banner. Review deferred returns today's deferred clients to pending and opens
+the first in the coach's existing order. It does not reactivate Tomorrow clients
+or automatically cycle deferred clients back into Next.
+
+### Persistence
+
 `daily_worklists` stores one local-calendar-day plan: ordered entries, selection
 reasons, optional weekly focus, message checkbox, status, explicit deferral date,
-cursor, start state, and revision. `daily_worklist_settings` stores local rules.
+cursor, start state, banner-dismissal state, and revision. `daily_worklist_settings` stores local rules.
 There are no new API calls or telemetry. Existing records are untouched.
 
 Every selection/order/status write persists immediately through IPC and SQLite.

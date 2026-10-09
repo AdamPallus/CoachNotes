@@ -44,7 +44,7 @@ function normalizePlan(value, candidates) {
       focus: String(entry.focus || '').slice(0, 1600), message: Boolean(entry.message),
       reasons: (Array.isArray(entry.reasons) ? entry.reasons : []).filter(r => typeof r === 'string').map(r => r.slice(0, 300)).slice(0, 30) });
   }
-  return { entries, started: Boolean(value?.started), currentId: value?.currentId === null ? null : entries.some(e => e.clientId === value?.currentId) ? value.currentId : (entries[0]?.clientId || null), revision: Number.isSafeInteger(value?.revision) ? value.revision : 0 };
+  return { entries, started: Boolean(value?.started), bannerDismissed: value?.bannerDismissed === true, currentId: value?.currentId === null ? null : entries.some(e => e.clientId === value?.currentId) ? value.currentId : (entries[0]?.clientId || null), revision: Number.isSafeInteger(value?.revision) ? value.revision : 0 };
 }
 function createPlan(candidates, previous, day) {
   const entries = [];

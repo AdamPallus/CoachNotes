@@ -84,6 +84,8 @@ try {
   await click('[data-worklist-status="later"]');
   await evaluate(`check((await window.coachNotes.getWorklist()).plan.entries.find(e=>e.clientId===draftClient).status==='later','Later preserves pending draft');`);
   await click('[data-worklist-status="skipped"]');
+  await evaluate(`check(document.querySelector('[data-worklist-review-deferred]'), 'Deferred clients have a direct return action');check(document.querySelector('.worklist-deferred').textContent.includes(state.clients.find(c=>c.id===draftClient).name), 'Deferred client is named');hideToast();`);
+  await screenshots('deferred-strip');
   await evaluate(`check((await window.coachNotes.getWorklist()).plan.currentId===null,'No pending current client');await dailyWorklist.open();`);
   await screenshots('deferred');
   await click('#closeWorklistBtn');
@@ -122,6 +124,62 @@ try {
   `);
   await click('#saveWorklistRulesBtn');
   await evaluate(`check((await window.coachNotes.getWorklist()).rules.staleDays===14,'Rules saved');`);
+  await click('#closeWorklistBtn');
+  await evaluate(`
+    const d=await window.coachNotes.getWorklist();
+    window.testIds=d.candidates.slice(0,3).map(c=>c.id);
+    await window.coachNotes.saveWrapup({day:d.day,progress:{selected:[],done:{},started:false,worklistImported:[]}});
+    await window.coachNotes.saveWorklist({day:d.day,plan:{...d.plan,started:true,bannerDismissed:false,currentId:testIds[0],entries:[
+      {clientId:testIds[0],status:'pending',focus:'Keep this focus'},
+      {clientId:testIds[1],status:'later'},
+      {clientId:testIds[2],status:'later',deferredUntil:'2026-07-31'}
+    ]}});
+    await dailyWorklist.refresh(); await selectClient(testIds[0]);
+    window.beforeDismiss=JSON.stringify((await window.coachNotes.getWorklist()).plan.entries);
+  `);
+  await click('[data-worklist-dismiss]');
+  await evaluate(`
+    const d=await window.coachNotes.getWorklist();
+    check(d.plan.bannerDismissed && d.plan.started,'Dismissal saved without ending the day');
+    check(JSON.stringify(d.plan.entries)===beforeDismiss,'Dismiss does not change statuses or focus');
+    check(document.getElementById('dailyWorklistStrip').hidden,'Banner hides');
+    await openCoachHome(); await dailyWorklist.refresh();
+    check(document.getElementById('dailyWorklistStrip').hidden,'Navigation and refresh do not unhide it');
+    const end=await window.coachNotes.getWrapup({day:d.day});
+    check(end.progress.selected.includes(d.plan.entries[1].clientId),'Hidden worklist still feeds End of Day');
+  `);
+  await client.call('Page.reload'); await pause(900);
+  await evaluate(`
+    const d=await window.coachNotes.getWorklist();window.testIds=d.plan.entries.map(e=>e.clientId);
+    check(d.plan.bannerDismissed && document.getElementById('dailyWorklistStrip').hidden,'Dismissal survives reload');
+    await openCoachHome(); await dailyWorklist.open();
+  `);
+  await click('#startWorklistBtn');
+  await evaluate(`check(!document.getElementById('dailyWorklistStrip').hidden,'Explicit resume restores banner');`);
+  await click('[data-worklist-review-deferred]');
+  await evaluate(`
+    const d=await window.coachNotes.getWorklist();
+    check(d.plan.currentId===testIds[1] && state.selectedClientId===testIds[1],'Review deferred opens first deferred client');
+    check(d.plan.entries[0].status==='pending' && d.plan.entries[0].focus==='Keep this focus','Existing pending work is untouched');
+    check(d.plan.entries[1].status==='pending','Later today returns to review');
+    check(d.plan.entries[2].status==='later' && d.plan.entries[2].deferredUntil==='2026-07-31','Tomorrow stays deferred');
+    for(const id of testIds) await window.coachNotes.saveNoteDraft({clientId:id,draft:null});
+  `);
+  await click('[data-worklist-status="done"]');
+  await click('[data-worklist-status="skipped"]');
+  await evaluate(`
+    check(document.getElementById('dailyWorklistStrip').hidden,'Banner auto-hides when only future work remains');
+    const d=await window.coachNotes.getWorklist();
+    d.plan.entries[2].status='done';
+    await window.coachNotes.saveWorklist({day:d.day,plan:d.plan});
+    await dailyWorklist.refresh();
+    check(document.getElementById('dailyWorklistStrip').hidden,'Banner stays hidden when all clients are reviewed or skipped');
+    d.plan.entries=[];
+    const fresh=await window.coachNotes.getWorklist();
+    await window.coachNotes.saveWorklist({day:fresh.day,plan:{...fresh.plan,entries:[]}});
+    await dailyWorklist.refresh();
+    check(document.getElementById('dailyWorklistStrip').hidden,'Empty selection has no banner');
+  `);
   console.log('Worklist: suggestions, reorder, messages, navigation, restart, status isolation, draft safety, EOD, weekly focus, concurrency, date guard, archives and settings passed.');
 } catch (err) { console.error(stderr); throw err; }
 finally { client?.close(); electron.kill('SIGTERM'); await new Promise(resolve => electron.once('exit',resolve)); await fs.rm(userData,{recursive:true,force:true}); }

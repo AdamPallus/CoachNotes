@@ -30,6 +30,11 @@
 .worklist-strip { position: sticky; top: 0; z-index: 8; background: var(--paper); border-bottom: 2px solid var(--moss); padding: 8px 20px 12px; color: var(--ink); }
 .worklist-strip-head { font-size: var(--fs-record); color: var(--muted); margin-bottom: 6px; }
 .worklist-strip-head .btn { padding: 4px 0; }
+.worklist-strip-tools { display: flex; align-items: center; gap: 12px; }
+.worklist-dismiss { width: 30px; height: 30px; flex: 0 0 30px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: var(--fs-body); border-radius: var(--radius-sm); }
+.worklist-dismiss:hover { background: var(--paper-strong); color: var(--ink); }
+.worklist-deferred { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; margin-top: 8px; font-size: var(--fs-record); }
+.worklist-deferred > span { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
 .worklist-strip-body { flex-wrap: wrap; align-items: start; }
 .worklist-current { flex: 1 1 320px; min-width: 0; max-height: 145px; overflow-y: auto; display: grid; gap: 4px; font-size: var(--fs-body); overflow-wrap: anywhere; }
 .worklist-current small { color: var(--muted); font-size: var(--fs-record); }

@@ -43,6 +43,19 @@ test('new day carries unfinished work, not done/skipped work, and respects futur
   assert.equal(createPlan(all, { ...plan, started: true }, '2026-10-09').entries[0].status, 'pending');
   assert.equal(createPlan(all, plan, '2026-10-09').entries[0].status, 'pending', 'Saved but not started day does not erase carried work');
 });
+test('banner dismissal persists for this day without changing the worklist, but does not carry into a new day', () => {
+  const original = normalizePlan({ started: true, currentId: 1, entries: [
+    { clientId: 1, status: 'pending', focus: 'Follow up' },
+    { clientId: 3, status: 'later', deferredUntil: '2026-10-09' }
+  ] }, candidates());
+  const dismissed = normalizePlan({ ...original, bannerDismissed: true }, candidates());
+  assert.equal(dismissed.bannerDismissed, true);
+  assert.equal(dismissed.started, true);
+  assert.equal(dismissed.currentId, original.currentId);
+  assert.deepEqual(dismissed.entries, original.entries);
+  assert.equal(createPlan(candidates(), dismissed, '2026-10-08').bannerDismissed, false);
+  assert.equal(normalizePlan({}, candidates()).bannerDismissed, false);
+});
 test('tomorrow suggestions can reselect a skipped client for a still-open deadline without changing its task', () => {
   const next = createPlan(candidates(), { started: true, entries: [{ clientId: 2, status: 'skipped' }] }, '2026-10-08');
   assert.equal(next.entries.find(e => e.clientId === 2).status, 'pending');
